@@ -1,0 +1,30 @@
+[package]
+name = "liberator"
+version = "0.3.9"
+edition = "2021"
+
+[lib]
+name = "liberator"
+path = "src/lib.rs"
+
+[[bin]]
+name = "runner"
+path = "src/bin/runner.rs"
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.59"
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Memory",
+    "Win32_System_LibraryLoader",
+    "Win32_Networking_WinSock",
+]
+
+[profile.release]
+strip = true
+opt-level = 2
+panic = "abort"

@@ -1,0 +1,1348 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CheatTable CheatEngineTableVersion="34">
+  <CheatEntries>
+    <CheatEntry>
+      <ID>71075</ID>
+      <Description>"Spawning"</Description>
+      <Options moManualExpandCollapse="1"/>
+      <LastState Value="" RealAddress="00000000"/>
+      <Color>FF0000</Color>
+      <GroupHeader>1</GroupHeader>
+      <CheatEntries>
+        <CheatEntry>
+          <ID>69036</ID>
+          <Description>"Max amount of terrorists"</Description>
+          <ShowAsSigned>0</ShowAsSigned>
+          <Color>000000</Color>
+          <VariableType>8 Bytes</VariableType>
+          <Address>rainbowsix.exe+6E3FF38</Address>
+          <CheatEntries>
+            <CheatEntry>
+              <ID>71078</ID>
+              <Description>"100 Max"</Description>
+              <LastState Value="" RealAddress="00000000"/>
+              <Color>0000FF</Color>
+              <GroupHeader>1</GroupHeader>
+            </CheatEntry>
+          </CheatEntries>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>71073</ID>
+          <Description>"Universal Mass Spawn"</Description>
+          <Options moManualExpandCollapse="1"/>
+          <LastState Value="" RealAddress="00000000"/>
+          <Color>008000</Color>
+          <GroupHeader>1</GroupHeader>
+          <CheatEntries>
+            <CheatEntry>
+              <ID>71036</ID>
+              <Description>"terrorist spawn"</Description>
+              <LastState/>
+              <Color>FF0000</Color>
+              <VariableType>Auto Assembler Script</VariableType>
+              <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+277745C) 
+label(returnhere)
+label(exit)
+newmem:
+push rdx
+mov rdx,[RainbowSix.exe+05DE19C8]
+mov rdx,[rdx+738]
+mov rdx,[rdx+8]
+mov rdx,[rdx+0]
+mov rdx,[rdx+18]
+mov rdx,[rdx+0]
+mov al,[rdx+D70]
+mov [Rainbowsix.exe+6E3FF40],al
+xor rdx,rdx //rdx=0
+mov rax,[rcx+60] //pointer to get count
+mov eax,[rax+10] //pointer to get count
+shl eax,03 //extra count processing
+mov r15,08 //move 8 into r15
+div r15 //divide count (eax) by 8 (r15) result is number of groups stored in eax
+mov r15 rax //move group count into r15
+mov rax,[Rainbowsix.exe+6E3FF38] //Max spawn count of terrorists
+cmp [Rainbowsix.exe+6E3FF40],00 //check is alive terrorists is 0
+je skipsub //skip sub because it breaks it it is 0
+cmp rax,[Rainbowsix.exe+6E3FF40] //check if alive terrorists is greater than max spawn count
+jng skipsub1
+sub rax,[Rainbowsix.exe+6E3FF40] //current terrorist count to get how many it can spawn
+jmp skipsub
+skipsub1://runs if alive terrorists is more than max terrorists (spawns no terrorists)
+xor rax,rax //sets rax to 0
+xor rdx,rdx //sets rdx to 0
+jmp preloop
+skipsub:
+add [Rainbowsix.exe+6E3FF40],rax //set alive terrorists
+div r15 //amount of terrorist that can be spawned divided by the amount of groups, remainder goes into edx
+preloop:
+mov r14,[rcx+60] //get pointer to spawn count
+mov r14,[r14+8] //get pointer to spawn count
+xor r8,r8 //set r8 to 0
+loop1:
+mov r10,rax //move quotient into r10
+cmp rdx,00 //check if all remainders have been used
+je loop2
+inc r10 //increase r10 by 1
+dec rdx //decrease rdx (remainder) by 1
+loop2:
+mov rbx,[r14+r8] //updates group pointer
+mov [rbx+A0],r10 //moves spawn count into pointer
+sub r15,01 //sub group count by 1 every loop
+add r8,8 //increase group pointer by 8
+cmp r15,00 //checks if all groups have been gone through
+jne loop1
+exit:
+pop rdx
+sub rsp,78
+mov rax,[rcx+60]
+jmp returnhere
+"RainbowSix.exe"+277745C:
+jmp newmem
+nop 3
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+277745C:
+sub rsp,78
+mov rax,[rcx+60]
+</AssemblerScript>
+            </CheatEntry>
+          </CheatEntries>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>0</ID>
+          <Description>"Infinite Terrorists (Protect Hostage Only, Check Only One at a Time)"</Description>
+          <Options moManualExpandCollapse="1"/>
+          <LastState Value="" RealAddress="00000000"/>
+          <Color>008000</Color>
+          <GroupHeader>1</GroupHeader>
+          <CheatEntries>
+            <CheatEntry>
+              <ID>71020</ID>
+              <Description>"No Bombers"</Description>
+              <Options moAlwaysHideChildren="1" moActivateChildrenAsWell="1" moDeactivateChildrenAsWell="1"/>
+              <LastState Value="" RealAddress="00000000"/>
+              <Color>FF0000</Color>
+              <GroupHeader>1</GroupHeader>
+              <CheatEntries>
+                <CheatEntry>
+                  <ID>71069</ID>
+                  <Description>"Respawn part1"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+371B64D)
+newmem:
+mov eax,[rsi+64]
+inc eax
+inc [Rainbowsix.exe+6E3FF40]
+cmp eax,[Rainbowsix.exe+6E3FF38]
+jg skip
+inc eax
+inc [Rainbowsix.exe+6E3FF40]
+skip:
+test eax,eax
+jmp returnhere
+"RainbowSix.exe"+371B64D:
+jmp newmem
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+371B64D:
+mov eax,[rsi+64]
+test eax,eax
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71058</ID>
+                  <Description>"Respawn part2"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+27BA6C9)
+label(exit)
+newmem:
+cmp rbp,48
+jg originalcode
+cmp [Rainbowsix.exe+6E3FF40],0
+je originalcode
+dec [Rainbowsix.exe+6E3FF40]
+cmp [Rainbowsix.exe+6E3FF48],48
+je prep
+add [Rainbowsix.exe+6E3FF48],08
+mov rbp,[Rainbowsix.exe+6E3FF48]
+exit:
+mov rbp,[Rainbowsix.exe+6E3FF48]
+mov rdx,[rbx+rbp]
+cmp byte ptr [rdx+000000AD],01
+jmp returnhere
+prep:
+mov [Rainbowsix.exe+6E3FF48],0
+jmp exit
+originalcode:
+mov rdx,[rbx+rbp]
+cmp byte ptr [rdx+000000AD],00
+jmp returnhere
+"RainbowSix.exe"+27BA6C9:
+jmp newmem
+nop 6
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+27BA6C9:
+mov rdx,[rbx+rbp]
+cmp byte ptr [rdx+000000AD],00
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71023</ID>
+                  <Description>"Spawn All groups on one wave 1"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+27785F1)
+newmem:
+mov [rsi+000000A8],01
+mov esi,[rsi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+27785F1:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+27785F1:
+mov esi,[rsi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71024</ID>
+                  <Description>"Spawn All groups on one wave 2"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+27785FD) 
+newmem:
+mov [rdi+000000A8],00
+mov ebp,[rdi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+27785FD:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+27785FD:
+mov ebp,[rdi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71025</ID>
+                  <Description>"Spawn All groups on one wave 3"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+277860D) 
+newmem:
+mov [rdi+000000A8],00
+mov esi,[rdi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+277860D:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+277860D:
+mov esi,[rdi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71026</ID>
+                  <Description>"Spawn All groups on one wave 4"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+277861D) 
+newmem:
+mov [rbp+000000A8],01
+mov ebp,[rbp+000000A8]
+jmp returnhere
+"RainbowSix.exe"+277861D:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+277861D:
+mov ebp,[rbp+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71027</ID>
+                  <Description>"Spawn All groups on one wave 5"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+2778644)
+newmem:
+mov [rdi+000000A8],01
+mov edi,[rdi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+2778644:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+2778644:
+mov edi,[rdi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71028</ID>
+                  <Description>"only spawn 1 per group"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+"RainbowSix.exe"+28B2492:
+mov eax,01
+nop
+nop
+[DISABLE]
+"RainbowSix.exe"+28B2492:
+mov eax,[r13+000000A0]
+</AssemblerScript>
+                </CheatEntry>
+              </CheatEntries>
+            </CheatEntry>
+            <CheatEntry>
+              <ID>71047</ID>
+              <Description>"Bombers"</Description>
+              <Options moAlwaysHideChildren="1" moActivateChildrenAsWell="1" moDeactivateChildrenAsWell="1"/>
+              <LastState Value="" RealAddress="00000000"/>
+              <Color>FF0000</Color>
+              <GroupHeader>1</GroupHeader>
+              <CheatEntries>
+                <CheatEntry>
+                  <ID>71067</ID>
+                  <Description>"Respawn part1"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+371B64D)
+newmem:
+mov eax,[rsi+64]
+inc eax
+inc [Rainbowsix.exe+6E3FF40]
+cmp eax,[Rainbowsix.exe+6E3FF38]
+jg skip
+inc eax
+inc [Rainbowsix.exe+6E3FF40]
+skip:
+test eax,eax
+jmp returnhere
+"RainbowSix.exe"+371B64D:
+jmp newmem
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+371B64D:
+mov eax,[rsi+64]
+test eax,eax
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71072</ID>
+                  <Description>"Respawn part2"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+27BA6C9)
+label(exit)
+newmem:
+cmp rbp,48
+jg originalcode
+cmp [Rainbowsix.exe+6E3FF40],0
+je originalcode
+dec [Rainbowsix.exe+6E3FF40]
+cmp [Rainbowsix.exe+6E3FF48],48
+je prep
+add [Rainbowsix.exe+6E3FF48],08
+mov rbp,[Rainbowsix.exe+6E3FF48]
+exit:
+mov rbp,[Rainbowsix.exe+6E3FF48]
+mov rdx,[rbx+rbp]
+cmp byte ptr [rdx+000000AD],01
+jmp returnhere
+prep:
+mov [Rainbowsix.exe+6E3FF48],0
+jmp exit
+originalcode:
+mov rdx,[rbx+rbp]
+cmp byte ptr [rdx+000000AD],00
+jmp returnhere
+"RainbowSix.exe"+27BA6C9:
+jmp newmem
+nop 6
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+27BA6C9:
+mov rdx,[rbx+rbp]
+cmp byte ptr [rdx+000000AD],00
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71050</ID>
+                  <Description>"Spawn All groups on one wave 1"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+27785F1)
+newmem:
+cmp [rsi+000000A8],01
+jne originalcode
+push r15
+push r14
+push r13
+mov r15,[rsi+00000028]
+mov r14,[r15]
+mov r13,[r15+00000030]
+add r14,40
+add r13,20
+mov [r15],r13
+mov [r15+00000030],r14
+pop r13
+pop r14
+pop r15
+originalcode:
+mov [rsi+000000A8],01
+mov esi,[rsi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+27785F1:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+27785F1:
+mov esi,[rsi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71051</ID>
+                  <Description>"Spawn All groups on one wave 2"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+27785FD) 
+newmem:
+mov [rdi+000000A8],00
+mov ebp,[rdi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+27785FD:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+27785FD:
+mov ebp,[rdi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71052</ID>
+                  <Description>"Spawn All groups on one wave 3"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+277860D) 
+newmem:
+mov [rdi+000000A8],00
+mov esi,[rdi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+277860D:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+277860D:
+mov esi,[rdi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71053</ID>
+                  <Description>"Spawn All groups on one wave 4"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+277861D) 
+newmem:
+mov [rbp+000000A8],01
+mov ebp,[rbp+000000A8]
+jmp returnhere
+"RainbowSix.exe"+277861D:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+277861D:
+mov ebp,[rbp+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71054</ID>
+                  <Description>"Spawn All groups on one wave 5"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+2778644)
+newmem:
+mov [rdi+000000A8],01
+mov edi,[rdi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+2778644:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+2778644:
+mov edi,[rdi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71055</ID>
+                  <Description>"only spawn 1 per group"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+"RainbowSix.exe"+28B2492:
+mov eax,01
+nop
+nop
+[DISABLE]
+"RainbowSix.exe"+28B2492:
+mov eax,[r13+000000A0]
+</AssemblerScript>
+                </CheatEntry>
+              </CheatEntries>
+            </CheatEntry>
+            <CheatEntry>
+              <ID>71038</ID>
+              <Description>"Bombers+"</Description>
+              <Options moAlwaysHideChildren="1" moActivateChildrenAsWell="1" moDeactivateChildrenAsWell="1"/>
+              <LastState Value="" RealAddress="00000000"/>
+              <Color>FF0000</Color>
+              <GroupHeader>1</GroupHeader>
+              <CheatEntries>
+                <CheatEntry>
+                  <ID>71065</ID>
+                  <Description>"Respawn part1"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+371B64D)
+newmem:
+mov eax,[rsi+64]
+inc eax
+inc [Rainbowsix.exe+6E3FF40]
+cmp eax,[Rainbowsix.exe+6E3FF38]
+jg skip
+inc eax
+inc [Rainbowsix.exe+6E3FF40]
+skip:
+test eax,eax
+jmp returnhere
+"RainbowSix.exe"+371B64D:
+jmp newmem
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+371B64D:
+mov eax,[rsi+64]
+test eax,eax
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71071</ID>
+                  <Description>"Respawn part2"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+27BA6C9)
+label(exit)
+newmem:
+cmp rbp,48
+jg originalcode
+cmp [Rainbowsix.exe+6E3FF40],0
+je originalcode
+dec [Rainbowsix.exe+6E3FF40]
+cmp [Rainbowsix.exe+6E3FF48],48
+je prep
+add [Rainbowsix.exe+6E3FF48],08
+mov rbp,[Rainbowsix.exe+6E3FF48]
+exit:
+mov rbp,[Rainbowsix.exe+6E3FF48]
+mov rdx,[rbx+rbp]
+cmp byte ptr [rdx+000000AD],01
+jmp returnhere
+prep:
+mov [Rainbowsix.exe+6E3FF48],0
+jmp exit
+originalcode:
+mov rdx,[rbx+rbp]
+cmp byte ptr [rdx+000000AD],00
+jmp returnhere
+"RainbowSix.exe"+27BA6C9:
+jmp newmem
+nop 6
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+27BA6C9:
+mov rdx,[rbx+rbp]
+cmp byte ptr [rdx+000000AD],00
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71041</ID>
+                  <Description>"Spawn All groups on one wave 1"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+27785F1)
+newmem:
+cmp [rsi+000000A8],01
+push r15
+push r14
+push r13
+mov r15,[rsi+00000028]
+jne originalcode
+mov r14,[r15]
+mov r13,[r15+00000030]
+add r14,40
+add r13,20
+mov [RainbowSix.exe+6E3FF60],r13
+mov [RainbowSix.exe+6E3FF68],r14
+originalcode:
+mov r13,[RainbowSix.exe+6E3FF60]
+mov r14,[RainbowSix.exe+6E3FF68]
+mov [r15],r13
+mov [r15+00000030],r14
+mov [rsi+000000A8],01
+mov esi,[rsi+000000A8]
+pop r13
+pop r14
+pop r15
+jmp returnhere
+"RainbowSix.exe"+27785F1:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+27785F1:
+mov esi,[rsi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71042</ID>
+                  <Description>"Spawn All groups on one wave 2"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+27785FD) 
+newmem:
+mov [rdi+000000A8],00
+mov ebp,[rdi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+27785FD:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+27785FD:
+mov ebp,[rdi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71043</ID>
+                  <Description>"Spawn All groups on one wave 3"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+277860D) 
+newmem:
+mov [rdi+000000A8],00
+mov esi,[rdi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+277860D:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+277860D:
+mov esi,[rdi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71044</ID>
+                  <Description>"Spawn All groups on one wave 4"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+277861D) 
+newmem:
+mov [rbp+000000A8],01
+mov ebp,[rbp+000000A8]
+jmp returnhere
+"RainbowSix.exe"+277861D:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+277861D:
+mov ebp,[rbp+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71045</ID>
+                  <Description>"Spawn All groups on one wave 5"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+2778644)
+newmem:
+mov [rdi+000000A8],01
+mov edi,[rdi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+2778644:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+2778644:
+mov edi,[rdi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71046</ID>
+                  <Description>"only spawn 1 per group"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+"RainbowSix.exe"+28B2492:
+mov eax,01
+nop
+nop
+[DISABLE]
+"RainbowSix.exe"+28B2492:
+mov eax,[r13+000000A0]
+</AssemblerScript>
+                </CheatEntry>
+              </CheatEntries>
+            </CheatEntry>
+            <CheatEntry>
+              <ID>71056</ID>
+              <Description>"Bombers Only"</Description>
+              <Options moAlwaysHideChildren="1" moActivateChildrenAsWell="1" moDeactivateChildrenAsWell="1"/>
+              <LastState Value="" RealAddress="00000000"/>
+              <Color>FF0000</Color>
+              <GroupHeader>1</GroupHeader>
+              <CheatEntries>
+                <CheatEntry>
+                  <ID>71057</ID>
+                  <Description>"Respawn part1"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+371B64D)
+newmem:
+mov eax,[rsi+64]
+inc eax
+inc [Rainbowsix.exe+6E3FF40]
+cmp eax,[Rainbowsix.exe+6E3FF38]
+jg skip
+inc eax
+inc [Rainbowsix.exe+6E3FF40]
+skip:
+test eax,eax
+jmp returnhere
+"RainbowSix.exe"+371B64D:
+jmp newmem
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+371B64D:
+mov eax,[rsi+64]
+test eax,eax
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71070</ID>
+                  <Description>"Respawn part2"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+27BA6C9)
+label(exit)
+newmem:
+cmp rbp,48
+jg originalcode
+cmp [Rainbowsix.exe+6E3FF40],0
+je originalcode
+dec [Rainbowsix.exe+6E3FF40]
+cmp [Rainbowsix.exe+6E3FF48],48
+je prep
+add [Rainbowsix.exe+6E3FF48],08
+mov rbp,[Rainbowsix.exe+6E3FF48]
+exit:
+mov rbp,[Rainbowsix.exe+6E3FF48]
+mov rdx,[rbx+rbp]
+cmp byte ptr [rdx+000000AD],01
+jmp returnhere
+prep:
+mov [Rainbowsix.exe+6E3FF48],0
+jmp exit
+originalcode:
+mov rdx,[rbx+rbp]
+cmp byte ptr [rdx+000000AD],00
+jmp returnhere
+"RainbowSix.exe"+27BA6C9:
+jmp newmem
+nop 6
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+27BA6C9:
+mov rdx,[rbx+rbp]
+cmp byte ptr [rdx+000000AD],00
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71059</ID>
+                  <Description>"Spawn All groups on one wave 1"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+27785F1)
+newmem:
+cmp [rsi+000000A8],01
+push r15
+push r14
+push r13
+mov r15,[rsi+00000028]
+jne originalcode
+mov r14,[r15]
+mov r13,[r15+00000030]
+add r14,40
+add r13,20
+mov [RainbowSix.exe+6E3FF60],r13
+mov [RainbowSix.exe+6E3FF68],r14
+originalcode:
+mov r13,[RainbowSix.exe+6E3FF60]
+mov r14,[RainbowSix.exe+6E3FF68]
+mov [r15],r13
+mov [r15+00000030],r14
+mov [rsi+000000A8],01
+mov esi,[rsi+000000A8]
+pop r13
+pop r14
+pop r15
+jmp returnhere
+"RainbowSix.exe"+27785F1:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+27785F1:
+mov esi,[rsi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71060</ID>
+                  <Description>"Spawn All groups on one wave 2"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+27785FD) 
+newmem:
+mov [rdi+000000A8],00
+mov ebp,[rdi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+27785FD:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+27785FD:
+mov ebp,[rdi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71061</ID>
+                  <Description>"Spawn All groups on one wave 3"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+277860D) 
+newmem:
+mov [rdi+000000A8],00
+mov esi,[rdi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+277860D:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+277860D:
+mov esi,[rdi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71062</ID>
+                  <Description>"Spawn All groups on one wave 4"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+277861D) 
+newmem:
+push r15
+push r14
+push r13
+mov r15,[rbp+00000028]
+mov r13,[RainbowSix.exe+6E3FF60]
+mov r14,[RainbowSix.exe+6E3FF68]
+mov [r15],r13
+mov [r15+00000030],r14
+pop r13
+pop r14
+pop r15
+mov [rbp+000000A8],01
+mov ebp,[rbp+000000A8]
+jmp returnhere
+"RainbowSix.exe"+277861D:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+277861D:
+mov ebp,[rbp+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71063</ID>
+                  <Description>"Spawn All groups on one wave 5"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+2778644)
+newmem:
+push r15
+push r14
+push r13
+mov r15,[rdi+00000028]
+mov r13,[RainbowSix.exe+6E3FF60]
+mov r14,[RainbowSix.exe+6E3FF68]
+mov [r15],r13
+mov [r15+00000030],r14
+pop r13
+pop r14
+pop r15
+mov [rdi+000000A8],01
+mov edi,[rdi+000000A8]
+jmp returnhere
+"RainbowSix.exe"+2778644:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+2778644:
+mov edi,[rdi+000000A8]
+</AssemblerScript>
+                </CheatEntry>
+                <CheatEntry>
+                  <ID>71064</ID>
+                  <Description>"only spawn 1 per group"</Description>
+                  <LastState/>
+                  <Color>0000FF</Color>
+                  <VariableType>Auto Assembler Script</VariableType>
+                  <AssemblerScript>[ENABLE]
+"RainbowSix.exe"+28B2492:
+mov eax,01
+nop
+nop
+[DISABLE]
+"RainbowSix.exe"+28B2492:
+mov eax,[r13+000000A0]
+</AssemblerScript>
+                </CheatEntry>
+              </CheatEntries>
+            </CheatEntry>
+          </CheatEntries>
+        </CheatEntry>
+      </CheatEntries>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>71029</ID>
+      <Description>"Health Modifiers"</Description>
+      <Options moManualExpandCollapse="1"/>
+      <LastState Value="" RealAddress="00000000"/>
+      <Color>FF0000</Color>
+      <GroupHeader>1</GroupHeader>
+      <CheatEntries>
+        <CheatEntry>
+          <ID>71030</ID>
+          <Description>"infinite downs"</Description>
+          <LastState/>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+"RainbowSix.exe"+1FC11C6:
+db 90 90 90 90 90 90 90
+[DISABLE]
+"RainbowSix.exe"+1FC11C6:
+add dword ptr [rsi+00000178],01
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>71031</ID>
+          <Description>"Always get downed/can't die while downed (doesn't prevent death from bleedout)"</Description>
+          <LastState/>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+1FADAC1) 
+label(returnhere)
+label(originalcode)
+label(exit)
+newmem:
+originalcode:
+mov esi,F4240
+mov rdx,[rcx+18]
+exit:
+jmp returnhere
+"RainbowSix.exe"+1FADAC1:
+jmp newmem
+nop 2
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+1FADAC1:
+mov esi,[rdx+60]
+mov rdx,[rcx+18]
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>71032</ID>
+          <Description>"No Bleedout"</Description>
+          <LastState/>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+"RainbowSix.exe"+1FAF360:
+db 90 90 90 90 90 90 90 90 90
+[DISABLE]
+"RainbowSix.exe"+1FAF360:
+movss [r13+000003D0],xmm1
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>71033</ID>
+          <Description>"Full Health after pickup from DBNO"</Description>
+          <LastState/>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+"RainbowSix.exe"+1FC13CD:
+db 90 90 90 90 90 90 90 90 90 90 90 90 90 8B C3
+[DISABLE]
+"RainbowSix.exe"+1FC13CD:
+xorps xmm0,xmm0
+cvtsi2ss xmm0,ebx
+mulss xmm6,xmm0
+cvttss2si eax,xmm6
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>70638</ID>
+          <Description>"Terrorist Health Scaling (Normal)"</Description>
+          <Options moHideChildren="1"/>
+          <LastState/>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+1FB3AF8) 
+label(returnhere)
+label(exit)
+newmem:
+mov eax,[rsi+00000170]
+cmp [rsi+00000190],1
+je returnhere
+mov [rsi+00000190],1
+cmp [rsi+00000170],64
+jne returnhere
+mov r11,rdx
+mov r8,[RainbowSix.exe+6E3FF50]
+mul r8
+mov rdx,r11
+exit:
+jmp returnhere
+"RainbowSix.exe"+1FB3AF8:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+1FB3AF8:
+mov eax,[rsi+00000170]
+</AssemblerScript>
+          <CheatEntries>
+            <CheatEntry>
+              <ID>70625</ID>
+              <Description>"Health Multiplier"</Description>
+              <ShowAsSigned>0</ShowAsSigned>
+              <VariableType>8 Bytes</VariableType>
+              <Address>rainbowsix.exe+6E3FF50</Address>
+            </CheatEntry>
+          </CheatEntries>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>71080</ID>
+          <Description>"Terrorist Health Scaling (Normal+Bombers)"</Description>
+          <Options moHideChildren="1"/>
+          <LastState/>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+1FB3AF8) 
+label(returnhere)
+label(exit)
+newmem:
+mov eax,[rsi+00000170]
+cmp [rsi+00000190],1
+je returnhere
+mov [rsi+00000190],1
+cmp [rsi+00000170],64
+jne exit2
+exit:
+mov r11,rdx
+mov r8,[RainbowSix.exe+6E3FF50]
+mul r8
+mov rdx,r11
+jmp returnhere
+exit2:
+cmp [rsi+00000170],2BC
+je exit
+jmp returnhere
+"RainbowSix.exe"+1FB3AF8:
+jmp newmem
+nop
+returnhere:
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+1FB3AF8:
+mov eax,[rsi+00000170]
+</AssemblerScript>
+          <CheatEntries>
+            <CheatEntry>
+              <ID>71081</ID>
+              <Description>"Health Multiplier"</Description>
+              <ShowAsSigned>0</ShowAsSigned>
+              <VariableType>8 Bytes</VariableType>
+              <Address>rainbowsix.exe+6E3FF50</Address>
+            </CheatEntry>
+          </CheatEntries>
+        </CheatEntry>
+      </CheatEntries>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>71079</ID>
+      <Description>"Other"</Description>
+      <Options moManualExpandCollapse="1"/>
+      <LastState Value="" RealAddress="00000000"/>
+      <Color>FF0000</Color>
+      <GroupHeader>1</GroupHeader>
+      <CheatEntries>
+        <CheatEntry>
+          <ID>70434</ID>
+          <Description>"Increased Bomb Defuse Time"</Description>
+          <LastState/>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+2A07576) 
+label(returnhere)
+label(exit)
+newmem:
+mov edi,[newmem+00000070]
+test edi,edi
+jne exit
+mov [newmem+00000070],01
+mov edi,[rsi+0000181C]
+add edi,15F90
+mov [rsi+0000181C],edi
+exit:
+mov edi,[rsi+0000181C]
+jmp returnhere
+newmem2:
+mov [newmem+00000070],00
+mov [r12+0000181C],00000000
+jmp returnhere2
+newmem3:
+mov [newmem+00000070],00
+or eax,01
+cmp eax,07
+jmp returnhere3
+"RainbowSix.exe"+2A07576:
+jmp newmem
+nop
+returnhere:
+"RainbowSix.exe"+2A0D791:
+jmp newmem2
+nop 7
+returnhere2:
+"RainbowSix.exe"+9A42B1:
+jmp newmem3
+nop
+returnhere3:
+ [DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+2A07576:
+mov edi,[rsi+0000181C]
+"RainbowSix.exe"+2A0D791:
+mov [r12+0000181C],00000000
+"RainbowSix.exe"+9A42B1:
+or eax,01
+cmp eax,07
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>71173</ID>
+          <Description>"Infinite Reserve Ammo (Mag Guns Only)"</Description>
+          <LastState/>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+"RainbowSix.exe"+1C8221D:
+db 90 90 90 90 90
+
+
+ 
+ 
+[DISABLE]
+"RainbowSix.exe"+1C8221D:
+mov [r12+20],r14
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>71034</ID>
+          <Description>"Infinite Refills from Ammo Boxes"</Description>
+          <LastState/>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+"RainbowSix.exe"+2C8EE26:
+db 90 90 90 90 90 90
+[DISABLE]
+"RainbowSix.exe"+2C8EE26:
+mov [rsi+00000248],ebx
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>70650</ID>
+          <Description>"Can Go Outside (If The Screen Is Stuck Red, Toggle The Script)"</Description>
+          <Options moAlwaysHideChildren="1" moActivateChildrenAsWell="1" moDeactivateChildrenAsWell="1"/>
+          <LastState/>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[ENABLE]
+"RainbowSix.exe"+3865294:
+db 90 90 90 90 90 90
+[DISABLE]
+"RainbowSix.exe"+3865294:
+mov eax,[rax+00005118]
+</AssemblerScript>
+          <CheatEntries>
+            <CheatEntry>
+              <ID>70651</ID>
+              <Description>"Remove Outside Timer"</Description>
+              <LastState/>
+              <Color>0000FF</Color>
+              <VariableType>Auto Assembler Script</VariableType>
+              <AssemblerScript>[ENABLE]
+"RainbowSix.exe"+33EE700:
+jmp RainbowSix.exe+33EEA20
+nop
+[DISABLE]
+"RainbowSix.exe"+33EE700:
+ja RainbowSix.exe+33EEA20
+</AssemblerScript>
+            </CheatEntry>
+            <CheatEntry>
+              <ID>71086</ID>
+              <Description>"Remove Red Hue"</Description>
+              <LastState/>
+              <Color>0000FF</Color>
+              <VariableType>Auto Assembler Script</VariableType>
+              <AssemblerScript>[ENABLE]
+"RainbowSix.exe"+241D94A:
+db 90 90 90 90 90 90 90
+[DISABLE]
+dealloc(newmem)
+"RainbowSix.exe"+241D94A:
+mov [rdi+000001BA],ax
+</AssemblerScript>
+            </CheatEntry>
+          </CheatEntries>
+        </CheatEntry>
+      </CheatEntries>
+    </CheatEntry>
+  </CheatEntries>
+  <UserdefinedSymbols/>
+</CheatTable>

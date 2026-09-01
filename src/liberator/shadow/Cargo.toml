@@ -1,0 +1,16 @@
+[package]
+name = "shadow"
+version = "0.3.9"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+name = "shadow"
+path = "src/lib.rs"
+
+[profile.release]
+opt-level = "s"
+panic = "abort"
+lto = true
+strip = true
+codegen-units = 1
