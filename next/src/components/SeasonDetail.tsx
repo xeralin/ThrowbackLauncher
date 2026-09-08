@@ -20,6 +20,7 @@ import {
   TerminalIcon,
 } from "@/components/icons";
 import { type LogLine } from "@/components/LogBox";
+import { Note } from "@/components/Note";
 import { SeasonInfo } from "@/components/SeasonInfo";
 import { PickerRow, iconBox } from "@/components/ui";
 import { SaveCheck, TextSetting } from "@/components/SettingsControls";
@@ -694,10 +695,15 @@ export function SeasonDetail({
       )}
 
       {modal?.kind === "launchArgs" && (
-        <Dialog title="Launch options" onClose={() => setModal(null)}>
-          <p className="mb-2 text-body text-text-muted">
-            Set arguments like <code>MANGOHUD=1 %command%</code>.
-          </p>
+        <Dialog
+          title="Launch options"
+          onClose={() => setModal(null)}
+          footer={
+            <Note className="mr-auto">
+              Set arguments like <code>MANGOHUD=1 %command%</code>.
+            </Note>
+          }
+        >
           <div className="relative">
             <TextSetting
               value={storedArgs}
