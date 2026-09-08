@@ -23,9 +23,7 @@ export function Hero({ tag, corner, title, description }: HeroProps) {
       />
       <div className="absolute inset-0 animate-hero-glow bg-[radial-gradient(ellipse_at_70%_50%,var(--color-action-glow)_0%,transparent_65%)]" />
       <div className="relative z-[2] flex flex-1 flex-col justify-center p-7 max-content:p-5">
-        <div
-          className={`mb-[0.6rem] flex items-center gap-2 ${microLabel} text-action before:h-px before:w-5 before:bg-action before:content-['']`}
-        >
+        <div className={`mb-[0.6rem] ${microLabel} text-[0.7rem] text-text`}>
           {tag}
         </div>
         <h1 className="mb-2 font-display text-[2.4rem] font-bold leading-none text-text max-content:text-[1.9rem] max-narrow:text-[1.6rem] wide:text-[2.8rem] [&_em]:not-italic [&_em]:text-action">
@@ -35,7 +33,7 @@ export function Hero({ tag, corner, title, description }: HeroProps) {
       </div>
       <div
         aria-hidden
-        className="pointer-events-none absolute right-10 top-1/2 -translate-y-1/2 animate-flicker select-none font-display text-[7rem] font-bold leading-none text-[color-mix(in_srgb,var(--color-action)_22%,transparent)] max-content:hidden"
+        className="pointer-events-none absolute right-6 top-1/2 translate-y-[calc(-50%_+_0.036em)] animate-flicker select-none font-display text-[6rem] font-bold leading-none text-[color-mix(in_srgb,var(--color-action)_22%,transparent)] max-content:hidden"
       >
         {corner}
       </div>

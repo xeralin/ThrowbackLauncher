@@ -14,7 +14,7 @@ const fieldRow =
 export const inputClasses =
   "h-8 min-w-0 rounded-md border border-border bg-surface-2 px-[0.4rem] pt-[1px] font-mono text-ui text-text outline-none placeholder:text-text-muted focus:border-action";
 
-export const microLabel = "font-mono text-micro uppercase tracking-[0.2em]";
+export const microLabel = "font-mono uppercase tracking-[0.2em]";
 
 export function BlinkCursor() {
   return (
