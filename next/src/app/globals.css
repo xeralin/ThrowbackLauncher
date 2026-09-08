@@ -86,6 +86,7 @@
   --animate-blink: blink 1s step-end infinite;
   --animate-wiggle: wiggle 0.35s ease-in-out infinite;
   --animate-erase-once: eraseOnce 0.4s ease;
+  --animate-spin-once: spin 0.5s var(--ease-out-cubic);
   --animate-save-check: saveCheck 1.4s ease;
   --animate-slide-from-right: slideFromRight var(--duration-view)
     var(--ease-out-cubic);

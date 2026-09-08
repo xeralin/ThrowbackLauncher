@@ -112,7 +112,7 @@ export default function UpdatesPage() {
   const downloading = useDownloader().running;
   const update = useUpdate();
   const refreshRef = useRef<HTMLButtonElement>(null);
-  const [spinning, setSpinning] = useState(false);
+  const [spins, setSpins] = useState(0);
   const [installed, setInstalled] = useState<InstalledComponent[] | null>(null);
   const prevComponents = useRef(0);
 
@@ -173,20 +173,18 @@ export default function UpdatesPage() {
               type="button"
               ref={refreshRef}
               aria-label="Check for updates"
-              disabled={update.checking || update.busy}
+              disabled={update.busy}
               onClick={() => {
                 manualCheck.current = true;
-                setSpinning(true);
+                setSpins((n) => n + 1);
                 update.check(true);
-              }}
-              onAnimationIteration={() => {
-                if (!update.checking) setSpinning(false);
               }}
               className={iconButton}
             >
               <StrokeIcon
+                key={spins}
                 d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5"
-                className={`size-4${spinning ? " animate-spin" : ""}`}
+                className={`size-4${spins ? " animate-spin-once" : ""}`}
               />
             </button>
           </span>,
@@ -202,7 +200,7 @@ export default function UpdatesPage() {
           ThrowbackLoader
         </ExternalLink>
         , and{" "}
-        <ExternalLink href={site.heatedMetalRepoUrl}>HeatedMetal</ExternalLink>{" "}
+        <ExternalLink href={site.heatedMetalRepoUrl}>Heated Metal</ExternalLink>{" "}
         up to date.
       </Note>
 
