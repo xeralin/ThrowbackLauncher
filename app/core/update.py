@@ -59,7 +59,7 @@ from core.throwbackloader import (
     write_launcher,
 )
 from core.winspawn import NOWINDOW, spawn_detached
-from layout import APPIMAGE_ASSET, DIR_NAME, PENDING_FILE, RUNTIME_ASSET, VERSION
+from layout import APP_NAME, APPIMAGE_ASSET, PENDING_FILE, RUNTIME_ASSET, VERSION
 
 
 def _newer(latest: str, current: str) -> bool:
@@ -319,7 +319,7 @@ class Component:
 
 COMPONENTS = [
     Component(
-        DIR_NAME,
+        APP_NAME,
         lambda: SELF_UPDATABLE,
         lambda: VERSION,
         _throwback_latest,
@@ -351,7 +351,7 @@ COMPONENTS = [
         notes=lambda: _release_notes(TL_API_URL),
     ),
     Component(
-        "HeatedMetal",
+        "Heated Metal",
         lambda: bool(_hm_latest_installs()),
         _hm_current,
         lambda: resolve_hm_release("latest")[0],
