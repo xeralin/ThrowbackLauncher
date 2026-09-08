@@ -154,11 +154,14 @@ def stop_game(pids: list[int]) -> None:
             procs.append(proc)
         except psutil.Error:
             continue
-    _, alive = psutil.wait_procs(procs, timeout=2)
+    alive = procs
+    with contextlib.suppress(psutil.Error):
+        _, alive = psutil.wait_procs(procs, timeout=2)
     for proc in alive:
         with contextlib.suppress(psutil.Error):
             proc.kill()
-    psutil.wait_procs(alive, timeout=3)
+    with contextlib.suppress(psutil.Error):
+        psutil.wait_procs(alive, timeout=3)
 
 
 def _proton_entry(folder: Path) -> dict | None:
