@@ -229,17 +229,6 @@
   }
 }
 
-@keyframes answerFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 @keyframes hashPulse {
   0%,
   40% {
@@ -297,6 +286,12 @@
   .prose {
     user-select: text;
     -webkit-user-select: text;
+  }
+
+  .prose img,
+  .prose video {
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   a,
@@ -760,9 +755,6 @@
   .answer-inner {
     padding: 1rem;
     border-top: 1px solid var(--color-border);
-  }
-  .question.open .answer-inner {
-    animation: answerFadeIn 0.22s ease;
   }
   .answer-inner p,
   .answer-inner ol,
