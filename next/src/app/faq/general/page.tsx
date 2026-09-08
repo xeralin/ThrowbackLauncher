@@ -33,7 +33,7 @@ const faqs: FaqItem[] = [
   },
   {
     id: "antivirus-exclusion",
-    q: "My antivirus is blocking the game. What should I do?",
+    q: "How do I add an antivirus exclusion?",
     platform: "windows",
     a: (
       <>
@@ -55,8 +55,8 @@ const faqs: FaqItem[] = [
             <strong>Add or remove exclusions</strong>
           </li>
           <li>
-            Click <strong>Add an exclusion</strong>, select{" "}
-            <strong>Folder</strong>, and choose your library folder
+            Click <strong>Add an exclusion</strong> &gt; <strong>Folder</strong>{" "}
+            and select your library folder
           </li>
           <li>Restart your computer and try launching the game again</li>
         </ol>

@@ -32,8 +32,7 @@ export const FAQ_PAGES = {
   },
   "how-to-get-help": {
     title: "How to Get Help",
-    description:
-      "Cannot find an answer in the FAQ? Here is how to get support from the community and staff.",
+    description: "What to include in a report so the staff can help you.",
     tag: "Support & Troubleshooting",
     corner: "HELP",
   },

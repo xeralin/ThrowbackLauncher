@@ -15,8 +15,8 @@ export default function HowToGetHelp() {
       <FaqHero page="how-to-get-help" />
 
       <Note className="mb-6">
-        If you run into errors, attach the <code>bin/log.txt</code> file to your
-        report.
+        If you run into errors, attach{" "}
+        <code>ThrowbackLauncher/bin/log.txt</code> to your report.
       </Note>
 
       <SectionTitle>Reporting an Issue to Staff</SectionTitle>
