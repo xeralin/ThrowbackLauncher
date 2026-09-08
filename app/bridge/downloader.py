@@ -890,8 +890,12 @@ class DownloadController(QObject):
         self._run_next()
 
     def _history_tail(self) -> str:
-        lines = "\n".join(self._history).splitlines()[-8:]
-        return "\n".join(lines) if lines else "no output"
+        lines = [
+            line
+            for line in "\n".join(self._history).splitlines()
+            if not line.lstrip().startswith(("at ", "--- End of"))
+        ]
+        return "\n".join(lines[-8:]) if lines else "no output"
 
     def _on_process_error(self, err: QProcess.ProcessError) -> None:
         proc = self.sender()
