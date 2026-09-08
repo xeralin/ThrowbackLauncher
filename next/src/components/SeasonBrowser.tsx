@@ -912,7 +912,7 @@ export function SeasonBrowser({
       </p>
     );
   } else if (seasons.length === 0) {
-    listContent = <Note className="max-w-[640px]">{emptyMessage}</Note>;
+    listContent = emptyMessage;
   } else if (visible.length === 0) {
     listContent = (
       <Note className="max-w-[640px]">

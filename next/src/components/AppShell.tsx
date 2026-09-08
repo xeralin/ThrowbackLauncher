@@ -9,13 +9,8 @@ import { Toasts } from "./Toasts";
 import { Topbar } from "./Topbar";
 import { ScrollReveal } from "./ScrollReveal";
 import { applyAccent, DEFAULT_FILL, DEFAULT_STRIPE } from "@/config/accents";
-import { breadcrumbFor, normalizePath, resolveCrumbHref } from "@/config/nav";
-import {
-  onBridgeEvent,
-  useInfo,
-  useHasLocalSeasons,
-  useSettings,
-} from "@/lib/bridge";
+import { breadcrumbFor, normalizePath } from "@/config/nav";
+import { onBridgeEvent, useInfo, useSettings } from "@/lib/bridge";
 import { DetailContext, type DetailCrumb } from "@/lib/detail";
 import { resetPlatformView } from "@/lib/platform-view";
 import { RATE_LIMIT_TOAST, showToast } from "@/lib/toast";
@@ -112,7 +107,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const detailStore = useMemo(() => ({ detail, setDetail }), [detail]);
   const pathname = usePathname();
   const router = useRouter();
-  const hasLocal = useHasLocalSeasons();
   const settings = useSettings();
 
   useEffect(() => {
@@ -177,13 +171,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       const crumbs = breadcrumbFor(current);
       const parent = crumbs.length > 1 ? crumbs[crumbs.length - 2].href : null;
       if (!parent) return;
-      const destination = resolveCrumbHref(parent, hasLocal);
+      const destination = normalizePath(parent);
       if (destination === current) return;
       router.push(destination);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pathname, router, hasLocal, open]);
+  }, [pathname, router, open]);
 
   useEffect(() => {
     if (!open) return;

@@ -8,16 +8,13 @@ from core import log
 from core.constants import IS_WINDOWS
 
 
-def _platform_script(has_local: bool) -> QWebEngineScript:
+def _platform_script() -> QWebEngineScript:
     script = QWebEngineScript()
     script.setName("throwback-platform")
     script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
     script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
     script.setRunsOnSubFrames(False)
-    script.setSourceCode(
-        f'window.__throwbackOS = "{"windows" if IS_WINDOWS else "linux"}";'
-        f"window.__throwbackHasLocal = {'true' if has_local else 'false'};"
-    )
+    script.setSourceCode(f'window.__throwbackOS = "{"windows" if IS_WINDOWS else "linux"}";')
     return script
 
 
@@ -52,7 +49,7 @@ _ZOOM_KEYS = {Qt.Key.Key_Plus, Qt.Key.Key_Equal, Qt.Key.Key_Minus, Qt.Key.Key_0}
 
 
 class BrowserView(QWebEngineView):
-    def __init__(self, url: str, objects: dict[str, QObject], has_local: bool) -> None:
+    def __init__(self, url: str, objects: dict[str, QObject]) -> None:
         super().__init__()
 
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
@@ -65,7 +62,7 @@ class BrowserView(QWebEngineView):
         self.page().settings().setAttribute(
             QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, True
         )
-        self.page().scripts().insert(_platform_script(has_local))
+        self.page().scripts().insert(_platform_script())
         self.page().newWindowRequested.connect(self._open_external_window)
         self.page().profile().downloadRequested.connect(self._accept_download)
 

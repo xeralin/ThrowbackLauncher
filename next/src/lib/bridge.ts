@@ -394,7 +394,6 @@ declare global {
   interface Window {
     throwback?: Bridge;
     __throwbackOS?: ThrowbackOS;
-    __throwbackHasLocal?: boolean;
   }
 }
 
@@ -488,17 +487,6 @@ export function useHomeSeasons(): [Season[] | null, () => void] {
     () => null,
   );
   return [seasons, refreshHome];
-}
-
-export function useHasLocalSeasons(): boolean | null {
-  return useSyncExternalStore(
-    subscribeHome,
-    () =>
-      homeSeasons !== null
-        ? homeSeasons.length > 0
-        : (window.__throwbackHasLocal ?? null),
-    () => null,
-  );
 }
 
 export function useInfo(): InfoSnapshot | null {

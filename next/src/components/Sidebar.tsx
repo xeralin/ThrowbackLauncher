@@ -13,7 +13,6 @@ import {
   determinatePercent,
   seasonTitle,
   useDownloader,
-  useHasLocalSeasons,
   useDownloadProgress,
   useLaunch,
   useSeasons,
@@ -200,7 +199,6 @@ export function Sidebar({
     if (el)
       el.classList.toggle("truncate-fade", el.scrollWidth > el.clientWidth);
   }, [hoveredLink]);
-  const hasLocal = useHasLocalSeasons();
   const update = useUpdate();
   const [dragId, setDragId] = useState<string | null>(null);
   const pendingQueueFocus = useRef<string | null>(null);
@@ -290,7 +288,7 @@ export function Sidebar({
           onMouseLeave={() => setMembersShown(false)}
           onFocus={showMembers}
           onBlur={() => setMembersShown(false)}
-          className={`mb-[0.3rem] w-fit ${microLabel} text-action`}
+          className={`mb-[0.3rem] w-fit ${microLabel} text-micro text-action`}
         >
           {membersShown && members
             ? `// ${members} MEMBERS`
@@ -310,7 +308,7 @@ export function Sidebar({
           return (
             <div key={section.label} className="px-3 pb-2 pt-[1.2rem]">
               <div
-                className={`mb-[0.4rem] px-2 ${microLabel} ${
+                className={`mb-[0.4rem] px-2 ${microLabel} text-micro ${
                   sectionActive ? "text-action" : "text-text-muted"
                 }`}
               >
@@ -318,7 +316,6 @@ export function Sidebar({
               </div>
               {section.items.map((item) => {
                 const active = isActivePath(item.href, pathname);
-                const hidden = item.href === "/" && hasLocal === false;
                 return (
                   <Link
                     key={item.href}
@@ -331,17 +328,7 @@ export function Sidebar({
                       }
                     }}
                     aria-current={active ? "page" : undefined}
-                    aria-hidden={hidden || undefined}
-                    tabIndex={hidden ? -1 : undefined}
-                    className={`nav-link flex items-center justify-between overflow-hidden rounded-md px-3 text-[0.9rem] font-medium no-underline duration-200 ${
-                      hasLocal === null
-                        ? "transition-[background-color,color,translate]"
-                        : "transition-[background-color,color,translate,max-height,opacity,padding]"
-                    } ${
-                      hidden
-                        ? "pointer-events-none max-h-0 py-0 opacity-0"
-                        : "max-h-10 py-[0.55rem] opacity-100"
-                    } ${
+                    className={`nav-link flex items-center justify-between overflow-hidden rounded-md px-3 py-[0.55rem] text-[0.9rem] font-medium no-underline transition-[background-color,color,translate] duration-200 ${
                       active
                         ? "border-l-2 border-action bg-action-dim text-text shadow-[inset_0_0_18px_-5px_var(--color-action-glow-soft)]"
                         : "text-text-muted hover:bg-surface-2 hover:text-text"

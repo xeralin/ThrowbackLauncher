@@ -41,14 +41,6 @@ export function normalizePath(path: string): string {
   return trimmed === "" ? "/" : trimmed;
 }
 
-export function resolveCrumbHref(
-  href: string,
-  hasLocal: boolean | null,
-): string {
-  const target = normalizePath(href);
-  return target === "/" && hasLocal === false ? "/download" : target;
-}
-
 export function isActivePath(href: string, pathname: string): boolean {
   const target = normalizePath(href);
   const current = normalizePath(pathname);

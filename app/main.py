@@ -177,7 +177,6 @@ def main() -> int:
     QWebEngineProfile.defaultProfile().installUrlSchemeHandler(SCHEME, scheme_handler)
 
     library = LibraryController(downloads)
-    has_local = bool(library.home())
     bridges: dict[str, QObject] = {
         "library": library,
         "info": InfoController(),
@@ -194,7 +193,7 @@ def main() -> int:
         app.aboutToQuit.connect(rvpn.shutdown)
         bridges["rvpn"] = rvpn
         bridges["cheatengine"] = CheatEngineController(settings, downloads)
-    view = BrowserView(APP_ORIGIN + ("/" if has_local else "/download/"), bridges, has_local)
+    view = BrowserView(APP_ORIGIN + "/", bridges)
     view.setWindowTitle(APP_NAME)
     avail = app.primaryScreen().availableSize()
     width = max(940, min(1280, round(avail.width() * 0.9)))

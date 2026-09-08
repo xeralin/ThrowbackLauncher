@@ -3,15 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BlinkCursor } from "@/components/ui";
-import { breadcrumbFor, normalizePath, resolveCrumbHref } from "@/config/nav";
-import { useHasLocalSeasons } from "@/lib/bridge";
+import { breadcrumbFor, normalizePath } from "@/config/nav";
 import { useDetail } from "@/lib/detail";
 
 const linkClass =
   "cursor-pointer no-underline transition-colors hover:text-text";
 
 export function Topbar() {
-  const hasLocal = useHasLocalSeasons();
   const pathname = normalizePath(usePathname());
   const base = breadcrumbFor(pathname);
   const { detail } = useDetail();
@@ -39,7 +37,7 @@ export function Topbar() {
               </span>
             );
           }
-          const destination = resolveCrumbHref(crumb.href, hasLocal);
+          const destination = normalizePath(crumb.href);
           return (
             <span key={index}>
               <Link
