@@ -48,6 +48,24 @@ pub static SR_Y5S1_14303219: &[ShadowRegion] = &[
 pub static SR_Y6S1_15680437: &[ShadowRegion] = &[
     ShadowRegion { offset: 69247251, patch: &[233, 237, 0, 0, 0, 144] },
 ];
+pub static SR_Y7S3_47165842: &[ShadowRegion] = &[
+    ShadowRegion { offset: 71379443, patch: &[233, 227, 1, 0, 0, 144] },
+    ShadowRegion { offset: 85476081, patch: &[233, 58, 3, 0, 0, 144] },
+    ShadowRegion { offset: 71288451, patch: &[233, 236, 1, 0, 0, 144] },
+    ShadowRegion { offset: 71337443, patch: &[233, 236, 1, 0, 0, 144] },
+    ShadowRegion { offset: 71568131, patch: &[233, 239, 1, 0, 0, 144] },
+];
+pub static SR_Y8S1_55217154: &[ShadowRegion] = &[
+    ShadowRegion { offset: 88585027, patch: &[233, 161, 6, 0, 0, 144] },
+    ShadowRegion { offset: 1968803, patch: &[233, 168, 7, 0, 0, 144] },
+    ShadowRegion { offset: 88796547, patch: &[233, 161, 6, 0, 0, 144] },
+];
+pub static SR_Y8S2_58222837: &[ShadowRegion] = &[
+    ShadowRegion { offset: 25235795, patch: &[233, 60, 7, 0, 0, 144] },
+    ShadowRegion { offset: 22681395, patch: &[233, 117, 7, 0, 0, 144] },
+    ShadowRegion { offset: 25525107, patch: &[233, 78, 7, 0, 0, 144] },
+    ShadowRegion { offset: 25186771, patch: &[233, 117, 7, 0, 0, 144] },
+];
 pub static SHADOW_SEASONS: &[ShadowSeason] = &[
     ShadowSeason { build: "Y6S2_15701375", regions: SR_Y6S2_15701375 },
     ShadowSeason { build: "Y7S2_43489433", regions: SR_Y7S2_43489433 },
@@ -60,4 +78,7 @@ pub static SHADOW_SEASONS: &[ShadowSeason] = &[
     ShadowSeason { build: "Y6S3_35130040", regions: SR_Y6S3_35130040 },
     ShadowSeason { build: "Y5S1_14303219", regions: SR_Y5S1_14303219 },
     ShadowSeason { build: "Y6S1_15680437", regions: SR_Y6S1_15680437 },
+    ShadowSeason { build: "Y7S3_47165842", regions: SR_Y7S3_47165842 },
+    ShadowSeason { build: "Y8S1_55217154", regions: SR_Y8S1_55217154 },
+    ShadowSeason { build: "Y8S2_58222837", regions: SR_Y8S2_58222837 },
 ];

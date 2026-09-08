@@ -89,5 +89,8 @@ export const UNLOCK_ALL_SEASONS: SeasonRow[] = [
   { season: "Y6S4", operation: "High Calibre", build: "37046065" },
   { season: "Y7S1", operation: "Demon Veil", build: "39785137" },
   { season: "Y7S2", operation: "Vector Glare", build: "43489433" },
+  { season: "Y7S3", operation: "Brutal Swarm", build: "47165842" },
   { season: "Y7S4", operation: "Solar Raid", build: "50497889" },
+  { season: "Y8S1", operation: "Commanding Force", build: "55217154" },
+  { season: "Y8S2", operation: "Dread Factor", build: "58222837" },
 ];

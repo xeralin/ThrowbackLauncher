@@ -26,5 +26,8 @@ pub static SEASON_NAMES: &[&str] = &[
     "Y6S4 High Calibre",
     "Y7S1 Demon Veil",
     "Y7S2 Vector Glare",
+    "Y7S3 Brutal Swarm",
     "Y7S4 Solar Raid",
+    "Y8S1 Commanding Force",
+    "Y8S2 Dread Factor",
 ];
