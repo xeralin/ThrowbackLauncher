@@ -23,7 +23,7 @@ function Item({ item }: { item: FaqItem }) {
     function openFromHash() {
       if (window.location.hash.slice(1) !== anchor) return;
       window.history.replaceState(
-        null,
+        window.history.state,
         "",
         window.location.pathname + window.location.search,
       );
