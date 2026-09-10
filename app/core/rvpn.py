@@ -655,6 +655,7 @@ class Session:
             (connection, "PnpInstanceID", "REG_SZ", r"ROOT\NET\0099"),
             (firewall, "AdapterId", "REG_SZ", guid),
             (app, "PowerOn", "REG_DWORD", "1"),
+            (app + r"\update", "Mode", "REG_DWORD", "3"),
             (registration, None, None, None),
             (_SERVICE_KEY, "DisplayName", "REG_SZ", "Radmin VPN TAP Bridge"),
             (_SERVICE_KEY, "ImagePath", "REG_EXPAND_SZ", image),
