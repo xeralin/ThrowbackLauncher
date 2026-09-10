@@ -1,9 +1,12 @@
+from pathlib import Path
+
 from PySide6.QtCore import QChildEvent, QEvent, QObject, QStandardPaths, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QKeyEvent, QWheelEvent
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineScript, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
+from bridge.dialogs import save_file
 from core import log
 from core.constants import IS_WINDOWS
 
@@ -78,9 +81,16 @@ class BrowserView(QWebEngineView):
         _open_external(request.requestedUrl(), self._origin)
 
     def _accept_download(self, request) -> None:
-        request.setDownloadDirectory(
-            QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DownloadLocation)
+        downloads = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DownloadLocation
         )
+        picked = save_file("Save file", str(Path(downloads) / request.downloadFileName()))
+        if not picked:
+            request.cancel()
+            return
+        target = Path(picked)
+        request.setDownloadDirectory(str(target.parent))
+        request.setDownloadFileName(target.name)
         request.accept()
 
     def childEvent(self, event: QChildEvent) -> None:
