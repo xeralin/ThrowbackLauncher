@@ -4,6 +4,7 @@ import { Note } from "@/components/Note";
 import { keyArtFade } from "@/components/SeasonKeyArt";
 import { BuildChips } from "@/components/SeasonTable";
 import { renderInline } from "@/lib/inline-markdown";
+import { eventsForBuild } from "@/config/liberator-builds";
 import type {
   SeasonInfoEntry,
   InfoOperator,
@@ -62,6 +63,9 @@ function MapCard({ map }: { map: InfoMap }) {
     </div>
   );
 }
+
+const infoRow =
+  "border-b border-border px-[0.6rem] py-[0.2rem] text-[0.78rem] leading-[1.45] text-text-muted last:border-b-0";
 
 function InfoBox({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -125,13 +129,22 @@ export function SeasonInfo({
     </div>
   );
 
+  const events = build ? eventsForBuild(build) : [];
+
+  const eventBox = events.length > 0 && (
+    <InfoBox title="Events">
+      {events.map((name) => (
+        <p key={name} className={infoRow}>
+          {name}
+        </p>
+      ))}
+    </InfoBox>
+  );
+
   const highlights = entry.highlights.length > 0 && (
     <InfoBox title="Highlights">
       {entry.highlights.map((highlight) => (
-        <p
-          key={highlight}
-          className="border-b border-border px-[0.6rem] py-[0.2rem] text-[0.78rem] leading-[1.45] text-text-muted last:border-b-0 [&_code]:text-[0.68rem]"
-        >
+        <p key={highlight} className={`${infoRow} [&_code]:text-[0.68rem]`}>
           {renderInline(highlight)}
         </p>
       ))}
@@ -146,6 +159,7 @@ export function SeasonInfo({
       </div>
       <div className="flex flex-col gap-3">
         {released}
+        {eventBox}
         {highlights}
       </div>
     </div>
