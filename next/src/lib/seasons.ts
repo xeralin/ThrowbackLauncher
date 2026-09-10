@@ -1,5 +1,5 @@
 const LOCK_YEAR = 8;
-const LOCK_SEASON = 3;
+const LOCK_SEASON = 4;
 const REWORK_YEAR = 9;
 const REWORK_SEASON = 2;
 
