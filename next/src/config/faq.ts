@@ -36,13 +36,6 @@ export const FAQ_PAGES = {
     tag: "Support & Troubleshooting",
     corner: "HELP",
   },
-  liberator: {
-    title: "Liberator",
-    description:
-      "Unlock all cosmetics and play additional game modes in older Rainbow Six Siege seasons.",
-    tag: "Tools & Mods",
-    corner: "LIB",
-  },
   "heated-metal": {
     title: "Heated Metal",
     description:

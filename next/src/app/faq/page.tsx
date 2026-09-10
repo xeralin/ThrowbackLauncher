@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Hero } from "@/components/Hero";
-import { SectionTitle } from "@/components/SectionTitle";
 import { CardGrid, NavCard } from "@/components/NavCard";
 import { FAQ_PAGES } from "@/config/faq";
 
@@ -20,7 +19,6 @@ export default function Faq() {
         description={FAQ_PAGES.index.description}
       />
 
-      <SectionTitle>Support & Troubleshooting</SectionTitle>
       <CardGrid>
         <NavCard href="/faq/general" {...FAQ_PAGES.general} />
         <NavCard href="/faq/multiplayer" {...FAQ_PAGES.multiplayer} />
@@ -29,11 +27,6 @@ export default function Faq() {
           href="/faq/how-to-get-help"
           {...FAQ_PAGES["how-to-get-help"]}
         />
-      </CardGrid>
-
-      <SectionTitle>Tools & Mods</SectionTitle>
-      <CardGrid>
-        <NavCard href="/faq/liberator" {...FAQ_PAGES.liberator} />
         <NavCard href="/faq/heated-metal" {...FAQ_PAGES["heated-metal"]} />
         <NavCard href="/faq/cheat-engine" {...FAQ_PAGES["cheat-engine"]} />
       </CardGrid>
