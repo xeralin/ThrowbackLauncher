@@ -529,6 +529,9 @@ class DownloadController(QObject):
         if blocker is not None:
             self.partial_deleted.emit(season_key, hm, False, blocker)
             return
+        if is_season_running(season_key):
+            self.partial_deleted.emit(season_key, hm, False, SEASON_RUNNING)
+            return
         folder = edition_folder(season_key, hm)
         targets = [
             path
