@@ -470,21 +470,25 @@ export function SeasonDetail({
                   <>
                     <Button
                       variant="primary"
+                      disabled={editionInstall.partial && playingSeason}
                       onClick={() => {
                         if (lockedOps) setModal({ kind: "lockedOperators" });
                         else if (editionInstall.partial) startDownload();
                         else openDownloadPrompt();
                       }}
                     >
-                      {downloading
-                        ? "Queue download"
-                        : editionInstall.partial
-                          ? "Continue"
+                      {editionInstall.partial
+                        ? downloading
+                          ? "Queue verify"
+                          : "Verify"
+                        : downloading
+                          ? "Queue download"
                           : "Download"}
                     </Button>
                     {editionInstall.partial && (
                       <Button
                         variant="secondary"
+                        disabled={playingSeason}
                         onClick={() =>
                           setModal({ kind: "removeDownload", hm: hmActive })
                         }
@@ -635,7 +639,7 @@ export function SeasonDetail({
       {modal?.kind === "lockedOperators" && (
         <ConfirmModal
           title="Operators are locked"
-          confirmLabel="Download"
+          confirmLabel={editionInstall.partial ? "Verify" : "Download"}
           note="There is currently no fix."
           onConfirm={() => {
             setModal(null);
