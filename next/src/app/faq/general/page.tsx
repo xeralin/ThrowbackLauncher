@@ -124,7 +124,7 @@ const faqs: FaqItem[] = [
     q: "What does Verify do?",
     a: (
       <p>
-        On an installed season the <strong>Manage</strong> tab shows a{" "}
+        The <strong>Manage</strong> tab of a season shows a{" "}
         <strong>Verify</strong> button. It checks for missing or corrupted files
         and re-downloads them without deleting your existing files.
       </p>

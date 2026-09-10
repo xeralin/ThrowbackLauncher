@@ -212,7 +212,7 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
     ],
     maps: [],
     highlights: [
-      "**Outbreak** — three-player PvE against infected enemies",
+      "Three-player PvE against infected enemies",
       "Reload rework with ADS cancelling and resume points",
     ],
   },
