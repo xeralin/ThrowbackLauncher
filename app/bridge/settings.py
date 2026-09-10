@@ -25,9 +25,9 @@ from core.constants import (
     HOME_GRID_DEFAULT_SIZE,
     HOME_GRID_MAX_H,
     HOME_GRID_MAX_W,
+    INVALID_NAME_CHARS,
     LOG_FILE,
     MAX_USERNAME_LENGTH,
-    NAME_PATTERN,
     SEVENZ_BIN,
     TL_DIR,
     TRANSFER_RUNNING,
@@ -349,7 +349,7 @@ class SettingsController(QObject):
 
     @Slot(str)
     def set_username(self, value: str) -> None:
-        value = value.strip()
+        value = INVALID_NAME_CHARS.sub("", value)
         if not value:
             self.settings_error.emit("username", "Username is empty")
             return
@@ -357,9 +357,6 @@ class SettingsController(QObject):
             self.settings_error.emit(
                 "username", f"Username is too long (max {MAX_USERNAME_LENGTH} characters)"
             )
-            return
-        if not NAME_PATTERN.match(value):
-            self.settings_error.emit("username", "Username can only use letters, digits and . _ -")
             return
         if value == self.username:
             return

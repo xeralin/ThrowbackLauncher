@@ -185,6 +185,7 @@ GAME_RUNNING = "Stop R6S first"
 SEASON_RUNNING = "Stop this season first"
 
 NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
+INVALID_NAME_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
 MAX_USERNAME_LENGTH = 16
 
 HEX_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")

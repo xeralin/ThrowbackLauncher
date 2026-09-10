@@ -105,9 +105,12 @@ export default function SettingsPage() {
                         value={settings.username}
                         className="w-full pr-8"
                         maxLength={16}
+                        sanitize={(draft) =>
+                          draft.replace(/[^A-Za-z0-9_.-]/g, "")
+                        }
                         onCommit={(draft) => {
-                          if (draft.trim() !== settings.username)
-                            settings.set_username(draft.trim());
+                          if (draft !== settings.username)
+                            settings.set_username(draft);
                         }}
                       />
                       <SaveCheck confirm={usernameSaved} />

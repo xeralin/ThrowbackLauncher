@@ -315,6 +315,7 @@ export function TextSetting({
   maxLength,
   placeholder,
   autoFocus,
+  sanitize,
 }: {
   value: string;
   onCommit: (value: string) => void;
@@ -322,6 +323,7 @@ export function TextSetting({
   maxLength?: number;
   placeholder?: string;
   autoFocus?: boolean;
+  sanitize?: (value: string) => string;
 }) {
   const [draft, setDraft] = useDraft(value);
   const { onKeyDown, guard } = useEscapeRevert(() => setDraft(value));
@@ -332,7 +334,9 @@ export function TextSetting({
       maxLength={maxLength}
       placeholder={placeholder}
       autoFocus={autoFocus}
-      onChange={(event) => setDraft(event.target.value)}
+      onChange={(event) =>
+        setDraft(sanitize ? sanitize(event.target.value) : event.target.value)
+      }
       onBlur={guard(() => onCommit(draft))}
       onKeyDown={onKeyDown}
       className={`${className} ${inputClasses}`}
