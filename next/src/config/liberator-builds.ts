@@ -93,4 +93,22 @@ export const UNLOCK_ALL_SEASONS: SeasonRow[] = [
   { season: "Y7S4", operation: "Solar Raid", build: "50497889" },
   { season: "Y8S1", operation: "Commanding Force", build: "55217154" },
   { season: "Y8S2", operation: "Dread Factor", build: "58222837" },
+  { season: "Y8S3", operation: "Heavy Mettle", build: "62486471" },
 ];
+
+export function eventsForBuild(build: string): string[] {
+  const row = FULL_SUPPORT_EVENTS.find((entry) => entry.build === build);
+  return row?.event ? row.event.split(" / ") : [];
+}
+
+export function yearPairs(rows: SeasonRow[]): SeasonRow[][] {
+  const groups = new Map<number, SeasonRow[]>();
+  for (const row of rows) {
+    const year = Number(row.season.slice(1, row.season.indexOf("S")));
+    const pair = Math.floor((year - 1) / 2);
+    const group = groups.get(pair);
+    if (group) group.push(row);
+    else groups.set(pair, [row]);
+  }
+  return [...groups.values()];
+}

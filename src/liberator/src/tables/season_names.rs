@@ -30,4 +30,5 @@ pub static SEASON_NAMES: &[&str] = &[
     "Y7S4 Solar Raid",
     "Y8S1 Commanding Force",
     "Y8S2 Dread Factor",
+    "Y8S3 Heavy Mettle",
 ];
