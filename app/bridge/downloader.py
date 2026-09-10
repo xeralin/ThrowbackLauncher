@@ -48,6 +48,7 @@ from core.manifest import (
 )
 from core.reporter import Reporter
 from core.settings import default_library, get_setting, libraries, save_settings, set_setting
+from core.shears import folder_size
 from core.steam import is_season_running
 from core.throwbackloader import apply_tl, ensure_tl, write_launcher
 
@@ -502,7 +503,9 @@ class DownloadController(QObject):
         ):
             return
         if not skip_disk_check:
-            required = download["size_gb"] * GIB + _STAGING_HEADROOM
+            present = folder_size(target) if partial is not None else 0
+            missing = max(download["size_gb"] * GIB - present, 0)
+            required = missing + _STAGING_HEADROOM
             free = shutil.disk_usage(target.parent).free
             if free < required:
                 shortfall = math.ceil((required - free) / GIB * 10) / 10
