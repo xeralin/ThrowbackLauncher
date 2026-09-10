@@ -18,6 +18,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::mapbuild::canonical_build_name;
+use crate::ownership::{ownership_recipe, Ownership};
 use crate::shadow::shadow_regions_for_build;
 use crate::tables::*;
 use crate::tree::*;
@@ -354,6 +355,8 @@ static STATE_WRITES: &[(&str, &str, u64, i32, u8)] = &[
     ("Y1S0_8194013", "EndMatch", 0x5880AA8, 0x66C, 2),
 ];
 
+static INIT_BYTES: &[(&str, u64, u8)] = &[("Y8S3_62486471", 0x7FCA406, 0)];
+
 static Y5S1_SUPPORTED_FEATURES: &[&str] = &[
     "SetDisplayBuild",
     "SetDeathless",
@@ -474,7 +477,7 @@ pub struct Runner {
     applied: bool,
     pending: bool,
     countdown: i32,
-    shadow_injected: bool,
+    shadow_ready: bool,
     status: String,
     season: i32,
     disable_primary: bool,
@@ -489,6 +492,7 @@ pub struct Runner {
     tree_sent: bool,
     scanned: String,
     available: [bool; CAP_COUNT],
+    ownership: Ownership,
 }
 
 fn bs_season_of(build: &str) -> i32 {
@@ -510,7 +514,7 @@ impl Runner {
             applied: false,
             pending: true,
             countdown: 0,
-            shadow_injected: false,
+            shadow_ready: false,
             status: "Waiting for R6S to launch".to_string(),
             season: -1,
             disable_primary: false,
@@ -525,6 +529,7 @@ impl Runner {
             tree_sent: false,
             scanned: String::new(),
             available: [false; CAP_COUNT],
+            ownership: Ownership::default(),
         }
     }
 
@@ -1101,13 +1106,14 @@ impl Runner {
         self.applied = false;
         self.pending = true;
         self.countdown = 0;
-        self.shadow_injected = false;
+        self.shadow_ready = false;
         self.y5_map = -1;
         self.y5_gametype = -1;
         self.y5_difficulty = -1;
         self.y5_event = 0;
         self.tree_sent = false;
         self.available = [false; CAP_COUNT];
+        self.ownership = Ownership::default();
     }
 
     fn apply_event_mode(&self, root: &mut TNode, em: &str) {
@@ -1340,13 +1346,13 @@ impl Runner {
             self.scan_features();
         }
         let shadow_enabled = shadow_regions_for_build(&self.build).is_some_and(|r| !r.is_empty());
-        if shadow_enabled && !self.shadow_injected {
-            self.shadow_injected = self.eng.shadow_run(&self.build) == 0;
+        if shadow_enabled && !self.shadow_ready {
+            self.shadow_ready = self.eng.shadow_run(&self.build) == 0;
         }
         if self.pending {
             self.set_loading_status();
             let idle = if shadow_enabled {
-                self.shadow_injected
+                self.shadow_ready
             } else {
                 self.is_idle()
             };
@@ -1372,7 +1378,19 @@ impl Runner {
                 self.eng.shadow_arm_pages();
             }
             self.apply_static("ApplyCorePatch", "always");
+            for (build, offset, value) in INIT_BYTES {
+                if *build == self.build {
+                    self.eng.write_mem(self.eng.base + offset, &[*value]);
+                }
+            }
             self.applied = true;
+        }
+        if let Some(r) = ownership_recipe(&self.build) {
+            self.ownership.step(&self.eng, r);
+            if !self.ownership.done {
+                self.set_loading_status();
+                return;
+            }
         }
         if self.season == SEASON_Y5S1 {
             self.apply_y5_playlist();

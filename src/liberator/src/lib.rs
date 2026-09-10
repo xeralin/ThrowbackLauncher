@@ -6,6 +6,9 @@ pub mod tables;
 pub mod tree;
 
 #[cfg(windows)]
+pub mod ownership;
+
+#[cfg(windows)]
 pub mod shadow;
 
 #[cfg(windows)]

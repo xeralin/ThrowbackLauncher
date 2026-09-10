@@ -23,6 +23,12 @@ pub struct ShadowSeason {
     pub regions: &'static [ShadowRegion],
 }
 
+pub struct OwnershipRecipe {
+    pub build: &'static str,
+    pub list_id: u64,
+    pub kinds: &'static [u64],
+}
+
 pub struct TreeParams {
     pub build: &'static str,
     pub root_base: u64,
@@ -53,3 +59,4 @@ include!("map_names.rs");
 include!("gametype_names.rs");
 include!("feature_values.rs");
 include!("shadow_regions.rs");
+include!("ownership.rs");
