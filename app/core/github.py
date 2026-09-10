@@ -15,11 +15,11 @@ from core.constants import API_CACHE_FILE, HTTP_TIMEOUT
 SSL_CONTEXT = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
 
-class Cancelled(Exception):
+class CancelledError(Exception):
     pass
 
 
-class RateLimited(Exception):
+class RateLimitError(Exception):
     def __init__(self, reset: str = "", retry_after: str = "") -> None:
         super().__init__("GitHub rate limit reached")
         self.minutes = _minutes(reset, time.time()) or _minutes(retry_after)
@@ -40,12 +40,12 @@ def _minutes(value: str, offset: float = 0.0) -> int:
     return math.ceil(remaining / 60) if remaining > 0 else 0
 
 
-def rate_limit_error(exc: urllib.error.HTTPError) -> RateLimited | None:
+def rate_limit_error(exc: urllib.error.HTTPError) -> RateLimitError | None:
     if exc.code == 429 or (
         exc.code == 403
         and (exc.headers.get("x-ratelimit-remaining") == "0" or exc.headers.get("retry-after"))
     ):
-        return RateLimited(
+        return RateLimitError(
             exc.headers.get("x-ratelimit-reset", ""), exc.headers.get("retry-after", "")
         )
     return None
@@ -151,7 +151,7 @@ def _fetch_part(
                 on_progress(min(done / total, 1.0))
             while chunk := r.read(_CHUNK):
                 if cancelled is not None and cancelled():
-                    raise Cancelled
+                    raise CancelledError
                 f.write(chunk)
                 done += len(chunk)
                 if on_progress is not None and total > 0:
@@ -173,13 +173,13 @@ def fetch_to(
         if attempt:
             if cancelled is not None and cancelled():
                 part.unlink(missing_ok=True)
-                raise Cancelled
+                raise CancelledError
             time.sleep(_RETRY_DELAY)
         try:
             _fetch_part(url, part, on_progress, cancelled)
             last = None
             break
-        except Cancelled:
+        except CancelledError:
             part.unlink(missing_ok=True)
             raise
         except urllib.error.HTTPError as exc:

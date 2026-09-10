@@ -7,8 +7,14 @@ from PySide6.QtCore import QCoreApplication, QObject, QTimer, Signal, Slot
 from bridge.reporter import SignalReporter
 from core import log
 from core import update as update_backend
-from core.constants import CACHE_CLEARING, DOWNLOAD_RUNNING, IS_WINDOWS, UNINSTALL_RUNNING
-from core.github import RateLimited
+from core.constants import (
+    CACHE_CLEARING,
+    DOWNLOAD_RUNNING,
+    IS_WINDOWS,
+    SELF_UPDATABLE,
+    UNINSTALL_RUNNING,
+)
+from core.github import RateLimitError
 from core.self_update import take_outcome
 from layout import APP_NAME
 
@@ -151,7 +157,7 @@ class UpdateController(QObject):
                     reporter=SignalReporter(progress_emit=self._progress_in.emit, fail_emit=on_fail)
                 )
             )
-        except RateLimited as e:
+        except RateLimitError as e:
             ok = False
             message = e.message()
         except OSError as e:

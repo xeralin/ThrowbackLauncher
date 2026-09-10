@@ -7,7 +7,7 @@ from bridge.dialogs import EXE_FILTER, pick_file
 from bridge.reporter import SignalReporter
 from bridge.slots import deferred_slot
 from core import log
-from core.github import Cancelled, RateLimited
+from core.github import CancelledError, RateLimitError
 from core.rvpn import (
     Session,
     ensure_wine,
@@ -135,9 +135,9 @@ class RvpnController(QObject):
             if self._cancel.is_set():
                 return
             self._session.run(self._installer, reporter, on_running=self._on_running)
-        except Cancelled:
+        except CancelledError:
             pass
-        except RateLimited as e:
+        except RateLimitError as e:
             self._error_in.emit(e.message())
         except OSError as e:
             self._error_in.emit(str(e))

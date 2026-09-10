@@ -25,7 +25,7 @@ from core.constants import (
 )
 from core.depot import ensure_depotdownloader
 from core.github import (
-    RateLimited,
+    RateLimitError,
     fetch_to,
     github_asset,
     github_body,
@@ -214,7 +214,7 @@ def _throwback_apply(reporter: Reporter) -> bool:
             ok = _throwback_apply_windows(reporter, release["url"], release["tag"])
         else:
             ok = _throwback_apply_appimage(reporter, release["url"])
-    except RateLimited:
+    except RateLimitError:
         raise
     except Exception as e:
         reporter.fail(log.fail("Update failed", e))
@@ -375,7 +375,7 @@ def available(force: bool = False) -> tuple[list[tuple[Component, str, list[dict
     def probe(component: Component) -> tuple[str | None, str, str]:
         try:
             return component.latest(), "", ""
-        except RateLimited as e:
+        except RateLimitError as e:
             return None, "rate_limit", e.message()
         except Exception as e:
             log.fail(f"{component.name} check failed", e)

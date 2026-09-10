@@ -27,7 +27,7 @@ from core.constants import (
     WINE_BIN,
     WINE_DIR,
 )
-from core.github import Cancelled, RateLimited, fetch_to, github_asset
+from core.github import CancelledError, RateLimitError, fetch_to, github_asset
 from core.reporter import Reporter
 
 _TAP = RVPN_TAP_DEV
@@ -104,7 +104,7 @@ def ensure_wine(reporter: Reporter, cancelled: Callable[[], bool] | None = None)
             shutil.rmtree(WINE_DIR)
         staged.replace(WINE_DIR)
         return WINE_DIR
-    except Cancelled, RateLimited:
+    except CancelledError, RateLimitError:
         raise
     except Exception as e:
         raise OSError(log.fail("Wine download failed", e)) from e

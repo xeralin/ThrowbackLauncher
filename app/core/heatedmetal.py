@@ -15,7 +15,7 @@ from core.constants import (
     SEVENZ_ASSET,
     SEVENZ_BIN,
 )
-from core.github import RateLimited, fetch_to, github_asset
+from core.github import RateLimitError, fetch_to, github_asset
 from core.reporter import Reporter
 from core.throwbackloader import apply_tl, ensure_tl, write_launcher
 from core.winspawn import NOWINDOW
@@ -68,7 +68,7 @@ def ensure_7z(reporter: Reporter, force: bool = False) -> Path:
         finally:
             tarxz_path.unlink(missing_ok=True)
             shutil.rmtree(tmp_dir, ignore_errors=True)
-    except RateLimited:
+    except RateLimitError:
         raise
     except Exception as e:
         raise OSError(log.fail("7z download failed", e)) from e
@@ -82,7 +82,7 @@ def resolve_hm_release(hm_version: str) -> tuple[str, str]:
     api_url = HM_API_URL if latest else HM_TAG_API_URL_FMT.format(tag=hm_version)
     try:
         resolved = github_asset(api_url, ".7z")
-    except RateLimited:
+    except RateLimitError:
         raise
     except Exception as e:
         raise OSError(log.fail("Heated Metal release lookup failed", e)) from e
@@ -120,7 +120,7 @@ def _fetch_hm_mod(hm_version: str, tmp_dir: Path, reporter: Reporter) -> tuple[s
         reporter.update(f"Fetching Heated Metal {tag}")
         try:
             fetch_to(asset_url, archive_path, on_progress=reporter.progress)
-        except RateLimited:
+        except RateLimitError:
             raise
         except Exception as e:
             raise OSError(log.fail("Heated Metal download failed", e)) from e

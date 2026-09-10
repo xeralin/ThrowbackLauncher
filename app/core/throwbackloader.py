@@ -17,7 +17,7 @@ from core.constants import (
     TL_LOADERS,
     TL_TOML,
 )
-from core.github import RateLimited, fetch_to, github_asset
+from core.github import RateLimitError, fetch_to, github_asset
 from core.reporter import NullReporter, Reporter
 from core.settings import toml_str
 
@@ -69,7 +69,7 @@ def ensure_tl(reporter: Reporter | None = None, force: bool = False) -> None:
                 z.extract(name, tmp_dir)
         for name in TL_EXTRACT:
             (tmp_dir / name).replace(TL_DIR / name)
-    except RateLimited:
+    except RateLimitError:
         raise
     except Exception as e:
         raise OSError(log.fail("ThrowbackLoader download failed", e)) from e

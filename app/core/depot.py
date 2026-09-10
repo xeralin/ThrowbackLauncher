@@ -12,7 +12,7 @@ from core.constants import (
     DD_ZIP,
     IS_WINDOWS,
 )
-from core.github import RateLimited, fetch_to, github_asset
+from core.github import RateLimitError, fetch_to, github_asset
 from core.reporter import NullReporter, Reporter
 
 
@@ -32,7 +32,7 @@ def ensure_depotdownloader(reporter: Reporter | None = None, force: bool = False
         if not IS_WINDOWS:
             part.chmod(part.stat().st_mode | 0o111)
         part.replace(DD_BIN)
-    except RateLimited:
+    except RateLimitError:
         raise
     except Exception as e:
         raise OSError(log.fail("DepotDownloader download failed", e)) from e

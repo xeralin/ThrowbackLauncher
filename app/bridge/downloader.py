@@ -36,7 +36,7 @@ from core.constants import (
     UPDATE_RUNNING,
 )
 from core.depot import depot_commands, ensure_depotdownloader
-from core.github import RateLimited
+from core.github import RateLimitError
 from core.heatedmetal import apply_hm, cache_hm_archive, remove_hm_files
 from core.manifest import (
     edition_folder,
@@ -719,7 +719,7 @@ class DownloadController(QObject):
             dd = ensure_depotdownloader()
             if not enable_hm:
                 ensure_tl()
-        except RateLimited as e:
+        except RateLimitError as e:
             self._rate_limited_in.emit(e.message())
             self._prepare_done_in.emit(generation, "", str(e))
         except OSError as e:
@@ -953,7 +953,7 @@ class DownloadController(QObject):
                 reporter=reporter,
                 archive=archive,
             )
-        except RateLimited as e:
+        except RateLimitError as e:
             self._rate_limited_in.emit(e.message())
             ok = False
         except Exception as e:

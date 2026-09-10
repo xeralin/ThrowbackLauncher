@@ -41,7 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.constants import DEFAULT_ACCENT, HTTP_TIMEOUT, UPDATE_API_URL
-from core.github import SSL_CONTEXT, RateLimited, fetch_to, rate_limit_error
+from core.github import SSL_CONTEXT, RateLimitError, fetch_to, rate_limit_error
 from layout import (
     APP_NAME,
     APP_SUBDIR,
@@ -250,7 +250,7 @@ def _register_uninstall(root: Path) -> None:
         winreg.SetValueEx(k, "NoRepair", 0, winreg.REG_DWORD, 1)
 
 
-class _Cancelled(Exception):
+class _CancelledError(Exception):
     pass
 
 
@@ -286,7 +286,7 @@ class Installer(QThread):
 
     def _check(self) -> None:
         if self._cancel:
-            raise _Cancelled
+            raise _CancelledError
 
     def run(self) -> None:
         archive = Path(tempfile.gettempdir()) / RUNTIME_ASSET
@@ -317,7 +317,7 @@ class Installer(QThread):
             if not self._cancel:
                 message = (
                     e.message()
-                    if isinstance(e, RateLimited)
+                    if isinstance(e, RateLimitError)
                     else f"{type(e).__name__}: {e}"[:ERROR_TEXT_MAX]
                 )
                 self.failed.emit(message)
