@@ -388,6 +388,15 @@ pub fn scan_rip_rel(buf: &[u8], buf_base: u64, mod_lo: u64, mod_hi: u64) -> Vec<
             imm_size = 1;
         }
         pos += imm_size;
+        if is_rel32 && pos <= len {
+            let rel_pos = pos - 4;
+            let tgt = buf_base
+                .wrapping_add(pos as u64)
+                .wrapping_add(read_i32(buf, rel_pos) as i64 as u64);
+            if tgt < buf_base || tgt >= buf_base.wrapping_add(len as u64) {
+                fix.push(rel_pos as i32);
+            }
+        }
         push_rip_fix(buf, buf_base, mod_lo, mod_hi, pos, rip_disp, &mut fix);
         if pos > len {
             break;
