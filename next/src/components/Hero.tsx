@@ -23,7 +23,7 @@ export function Hero({ tag, corner, title, description }: HeroProps) {
       />
       <div className="absolute inset-0 animate-hero-glow bg-[radial-gradient(ellipse_at_70%_50%,var(--color-action-glow)_0%,transparent_65%)]" />
       <div className="relative z-[2] flex flex-1 flex-col justify-center p-7 max-content:p-5">
-        <div className={`mb-[0.6rem] ${microLabel} text-[0.7rem] text-text`}>
+        <div className={`mb-[0.6rem] ${microLabel} text-[0.7rem] text-action`}>
           {tag}
         </div>
         <h1 className="mb-2 font-display text-[2.4rem] font-bold leading-none text-text max-content:text-[1.9rem] max-narrow:text-[1.6rem] wide:text-[2.8rem] [&_em]:not-italic [&_em]:text-action">
