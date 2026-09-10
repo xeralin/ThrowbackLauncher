@@ -15,5 +15,7 @@ export const site = {
   heatedMetalRepoUrl: "https://github.com/DataCluster0/HeatedMetal",
   depotDownloaderRepoUrl: "https://github.com/SteamRE/DepotDownloader",
   throwbackLoaderRepoUrl: "https://github.com/xeralin/ThrowbackLoader",
+  latestReleaseUrl:
+    "https://github.com/xeralin/ThrowbackLauncher/releases/latest",
   radminVpnUrl: "https://radmin-vpn.com/",
 } as const;

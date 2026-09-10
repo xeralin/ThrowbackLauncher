@@ -74,6 +74,7 @@ class UpdateController(QObject):
             "checkErrorDetail": self._check_detail,
             "progress": self._progress,
             "applying": self._applying,
+            "selfUpdatable": SELF_UPDATABLE,
         }
 
     def _emit_progress(self, fraction: float) -> None:

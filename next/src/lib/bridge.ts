@@ -330,6 +330,7 @@ type UpdateSnapshot = {
   checkErrorDetail: string;
   progress: number;
   applying: string;
+  selfUpdatable: boolean;
 };
 
 export type InstalledComponent = { name: string; version: string };
@@ -1035,6 +1036,7 @@ const UPDATE_DEFAULT: UpdateSnapshot = {
   checkErrorDetail: "",
   progress: 0,
   applying: "",
+  selfUpdatable: true,
 };
 
 export function useUpdate(): Update {

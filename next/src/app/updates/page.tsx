@@ -190,19 +190,32 @@ export default function UpdatesPage() {
           </span>,
           slot,
         )}
-      <Note className="mb-6 max-w-[600px]">
-        Keeps the Launcher,{" "}
-        <ExternalLink href={site.depotDownloaderRepoUrl}>
-          DepotDownloader
-        </ExternalLink>
-        , <ExternalLink href="https://7-zip.org/">7z</ExternalLink>,{" "}
-        <ExternalLink href={site.throwbackLoaderRepoUrl}>
-          ThrowbackLoader
-        </ExternalLink>
-        , and{" "}
-        <ExternalLink href={site.heatedMetalRepoUrl}>Heated Metal</ExternalLink>{" "}
-        up to date.
-      </Note>
+      {update.selfUpdatable ? (
+        <Note className="mb-6 max-w-[600px]">
+          Keeps the Launcher,{" "}
+          <ExternalLink href={site.depotDownloaderRepoUrl}>
+            DepotDownloader
+          </ExternalLink>
+          , <ExternalLink href="https://7-zip.org/">7z</ExternalLink>,{" "}
+          <ExternalLink href={site.throwbackLoaderRepoUrl}>
+            ThrowbackLoader
+          </ExternalLink>
+          , and{" "}
+          <ExternalLink href={site.heatedMetalRepoUrl}>
+            Heated Metal
+          </ExternalLink>{" "}
+          up to date.
+        </Note>
+      ) : (
+        <Note variant="error" className="mb-6 max-w-[600px]">
+          This build does not update the Launcher — download{" "}
+          <code>Installer.exe</code> from the{" "}
+          <ExternalLink href={site.latestReleaseUrl}>
+            latest release
+          </ExternalLink>
+          .
+        </Note>
+      )}
 
       <div className="flex max-w-[600px] flex-col gap-4">
         {update.components.map((component) => {
