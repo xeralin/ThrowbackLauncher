@@ -56,7 +56,15 @@ export function SeasonTable({
               <tr key={builds[0]}>
                 <td>{season}</td>
                 <td>{operation}</td>
-                {showEvent ? <td>{event}</td> : null}
+                {showEvent ? (
+                  <td>
+                    {event?.split(" / ").map((name) => (
+                      <span key={name} className="block">
+                        {name}
+                      </span>
+                    ))}
+                  </td>
+                ) : null}
                 {showVersion ? <td>{version}</td> : null}
                 <td>
                   <BuildChips builds={builds} />

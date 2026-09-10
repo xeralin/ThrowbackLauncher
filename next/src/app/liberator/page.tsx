@@ -11,9 +11,14 @@ import { Button } from "@/components/Button";
 import { InfoHint } from "@/components/InfoHint";
 import { StrokeIcon } from "@/components/icons";
 import { panel } from "@/components/ui";
-import { SupportedSeasons } from "@/components/SupportedSeasons";
+import {
+  SupportedSeasons,
+  type SupportView,
+} from "@/components/SupportedSeasons";
 import { Switch } from "@/components/Switch";
-import { Tabs, type TabItem } from "@/components/Tabs";
+import { OptionGroup, Tabs, type TabItem } from "@/components/Tabs";
+import { createPortal } from "react-dom";
+import { useTopbarSlot } from "@/lib/topbar-slot";
 import {
   onBridgeEvent,
   type GametypeNode,
@@ -51,6 +56,11 @@ function subscribeSession(listener: () => void): () => void {
 }
 
 const PICK_HIGHLIGHT_MS = 5000;
+
+const SUPPORT_VIEWS: TabItem<SupportView>[] = [
+  { id: "full", label: "Features" },
+  { id: "unlock", label: "Unlock All" },
+];
 
 type Mod = { key: keyof LiberatorCapabilities; label: string; hint?: string };
 
@@ -216,6 +226,8 @@ export default function LiberatorPage() {
   );
   const [lastPicked, setLastPicked] = useState("");
   const [tab, setTab] = useState<TabId>("support");
+  const [supportView, setSupportView] = useState<SupportView>("full");
+  const topbarSlot = useTopbarSlot();
 
   const caps = lib.capabilities;
   const controlsEnabled = lib.applied && !!caps.fullFeature;
@@ -298,7 +310,20 @@ export default function LiberatorPage() {
         active={tab}
         onSelect={setTab}
         trailing={
-          <span className="flex items-center gap-2.5 pb-2 font-display text-[1.05rem] font-bold text-text">
+          tab === "support" ? (
+            <OptionGroup
+              tabs={SUPPORT_VIEWS}
+              active={supportView}
+              onSelect={setSupportView}
+              label="Support"
+            />
+          ) : undefined
+        }
+      />
+
+      {topbarSlot &&
+        createPortal(
+          <span className="flex items-center gap-2.5 font-display text-[1.05rem] font-bold text-text">
             {!(settings?.liberator_enabled ?? true) ? (
               <span className="text-text-muted">Disabled</span>
             ) : !lib.available ? (
@@ -313,9 +338,9 @@ export default function LiberatorPage() {
               checked={settings?.liberator_enabled ?? true}
               onChange={(value) => settings?.set_liberator_enabled(value)}
             />
-          </span>
-        }
-      />
+          </span>,
+          topbarSlot,
+        )}
 
       <div
         role="tabpanel"
@@ -370,7 +395,11 @@ export default function LiberatorPage() {
           </div>
         )}
 
-        {tab === "support" && <SupportedSeasons />}
+        {tab === "support" && (
+          <div className="h-full overflow-y-auto">
+            <SupportedSeasons view={supportView} />
+          </div>
+        )}
       </div>
     </div>
   );
