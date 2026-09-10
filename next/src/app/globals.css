@@ -41,6 +41,13 @@
   --color-notice-link: #f0c040;
   --color-notice-link-hover: #ffd966;
   --color-notice-edge: #f0a500;
+  --color-error-border: #3a0000;
+  --color-error-bg: #0d0000;
+  --color-error-bg-strong: #1a0000;
+  --color-error-text: #c86060;
+  --color-error-code: color-mix(in srgb, var(--color-error-text) 55%, white);
+  --color-error-link: #f06060;
+  --color-error-link-hover: #ff8080;
   --color-tag-muted-border: #34343f;
   --color-tone-purple-border: #241732;
 
