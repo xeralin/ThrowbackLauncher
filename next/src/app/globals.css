@@ -383,6 +383,7 @@
 }
 
 @utility code-chip {
+  white-space: nowrap;
   font-size: 11px;
   padding-block: 3px 2px;
   padding-inline: 2px;
