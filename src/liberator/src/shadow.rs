@@ -104,7 +104,7 @@ impl Engine {
         }
     }
 
-    fn inject_library(&self, path: &str) -> bool {
+    fn load_shadow(&self, path: &str) -> bool {
         let wpath: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
         let bytes = wpath.len() * 2;
         let rem = unsafe {
@@ -344,16 +344,16 @@ impl Engine {
             };
         }
         unsafe { UnmapViewOfFile(view) };
-        let injected = if existed {
+        let loaded = if existed {
             true
         } else {
             match self.shadow_dll_path() {
-                Some(dll) => self.inject_library(&dll),
+                Some(dll) => self.load_shadow(&dll),
                 None => false,
             }
         };
         unsafe { CloseHandle(map) };
-        if !injected {
+        if !loaded {
             return self.release_and_fail(shadow_base);
         }
         if existed {
