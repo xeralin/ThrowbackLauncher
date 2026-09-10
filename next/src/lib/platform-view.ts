@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useSyncExternalStore } from "react";
 import { usePlatform, type ThrowbackOS } from "@/lib/bridge";
-import { withViewTransition } from "@/lib/view-transition";
+import { applySwitch } from "@/lib/view-transition";
 
 export const PlatformViewScope = createContext(false);
 
@@ -20,7 +20,7 @@ function subscribe(listener: () => void): () => void {
 
 export function setPlatformView(os: ThrowbackOS) {
   if (override === os) return;
-  withViewTransition(() => {
+  applySwitch(() => {
     override = os;
     listeners.forEach((listener) => listener());
   });

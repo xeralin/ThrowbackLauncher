@@ -8,7 +8,7 @@ export function isSwitching(): boolean {
   return switching;
 }
 
-function applySwitch(apply: () => void): void {
+export function applySwitch(apply: () => void): void {
   switching = true;
   flushSync(apply);
   queueMicrotask(() => {
