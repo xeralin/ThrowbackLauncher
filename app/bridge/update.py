@@ -1,6 +1,7 @@
 import os
 import subprocess
 import threading
+from dataclasses import asdict
 
 from PySide6.QtCore import QCoreApplication, QObject, QTimer, Signal, Slot
 
@@ -114,7 +115,7 @@ class UpdateController(QObject):
                 {
                     "name": component.name,
                     "target": latest,
-                    "notes": notes,
+                    **asdict(notes),
                 }
                 for component, latest, notes in pending
             ]

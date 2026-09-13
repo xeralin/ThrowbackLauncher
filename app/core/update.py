@@ -1,3 +1,4 @@
+import contextlib
 import os
 import re
 import shutil
@@ -28,7 +29,7 @@ from core.github import (
     RateLimitError,
     fetch_to,
     github_asset,
-    github_body,
+    github_json,
     github_tag,
     invalidate_api_cache,
 )
@@ -106,60 +107,24 @@ def _throwback_latest() -> str:
     return tag
 
 
-_ALERT_RX = re.compile(r"\[!\w+\]")
-_HEADING_RX = re.compile(r"#{1,6}\s+(.+)")
-_NUMBER_RX = re.compile(r"\d+[.)]\s+(.+)")
+_REPOSITORY_RX = re.compile(r"/repos/([^/]+/[^/]+)/")
 
 
-def _release_notes(api_url: str) -> list[dict]:
-    collected: list[dict] = []
-    has_parent = False
-    in_fence = False
-    in_comment = False
-    for line in github_body(api_url).splitlines():
-        expanded = line.expandtabs(4)
-        stripped = expanded.strip()
-        if in_comment:
-            in_comment = "-->" not in stripped
-            continue
-        if stripped.startswith(("```", "~~~")):
-            in_fence = not in_fence
-            has_parent = False
-            continue
-        if in_fence:
-            continue
-        if stripped.startswith("<!--") and "-->" not in stripped:
-            in_comment = True
-            continue
-        if stripped.startswith(">"):
-            stripped = stripped.lstrip("> ").strip()
-            if _ALERT_RX.fullmatch(stripped):
-                continue
-        if not stripped or set(stripped) <= set("-*_ "):
-            has_parent = False
-            continue
-        heading = _HEADING_RX.fullmatch(stripped)
-        if heading:
-            has_parent = False
-            collected.append({"text": heading.group(1).strip(), "level": 0, "kind": "heading"})
-            continue
-        indent = len(expanded) - len(expanded.lstrip())
-        number = _NUMBER_RX.fullmatch(stripped)
-        bullet = stripped.startswith(("- ", "* ", "+ "))
-        if not bullet and number is None:
-            if indent < 2:
-                has_parent = False
-            continue
-        if indent < 2:
-            has_parent = True
-        collected.append(
-            {
-                "text": (number.group(1) if number else stripped[2:]).strip(),
-                "level": 1 if indent >= 2 and has_parent else 0,
-                "kind": "number" if number else "bullet",
-            }
-        )
-    return collected[:20]
+@dataclass
+class ReleaseNotes:
+    body: str = ""
+    url: str = ""
+    repository: str = ""
+
+
+def _release_notes(api_url: str) -> ReleaseNotes:
+    release = github_json(api_url)
+    repository = _REPOSITORY_RX.search(api_url)
+    return ReleaseNotes(
+        release.get("body") or "",
+        release.get("html_url") or "",
+        repository.group(1) if repository else "",
+    )
 
 
 def _throwback_apply_windows(reporter: Reporter, url: str, tag: str) -> bool:
@@ -167,9 +132,7 @@ def _throwback_apply_windows(reporter: Reporter, url: str, tag: str) -> bool:
     try:
         with TemporaryDirectory() as tmp:
             archive = Path(tmp) / RUNTIME_ASSET
-            reporter.update("Downloading update")
             fetch_to(url, archive, on_progress=reporter.progress)
-            reporter.update("Preparing update")
             shutil.rmtree(pending, ignore_errors=True)
             pending.mkdir(parents=True)
             with zipfile.ZipFile(archive) as z:
@@ -192,7 +155,6 @@ def _throwback_apply_appimage(reporter: Reporter, url: str) -> bool:
         reporter.fail("Update failed, not running from an AppImage")
         return False
     target = Path(appimage)
-    reporter.update("Downloading update")
     replacement = target.with_name(target.name + ".update")
     try:
         fetch_to(url, replacement, on_progress=reporter.progress)
@@ -219,11 +181,7 @@ def _throwback_apply(reporter: Reporter) -> bool:
     except Exception as e:
         reporter.fail(log.fail("Update failed", e))
         return False
-    if not ok:
-        return False
-    if IS_WINDOWS:
-        reporter.update("Restarting to apply update")
-    return True
+    return ok
 
 
 def _tl_current() -> str | None:
@@ -314,7 +272,7 @@ class Component:
     latest: Callable[[], str | None]
     apply: Callable[..., bool]
     restart: bool = False
-    notes: Callable[[], list[dict]] | None = None
+    release_url: str = ""
 
 
 COMPONENTS = [
@@ -325,7 +283,7 @@ COMPONENTS = [
         _throwback_latest,
         _throwback_apply,
         restart=True,
-        notes=lambda: _release_notes(UPDATE_API_URL),
+        release_url=UPDATE_API_URL,
     ),
     Component(
         "DepotDownloader",
@@ -333,7 +291,7 @@ COMPONENTS = [
         lambda: _binary_version(DD_BIN, ["--version"], r"v(\d+(?:\.\d+)+)"),
         lambda: github_tag(DD_API_URL).removeprefix("DepotDownloader_") or None,
         lambda reporter: bool(ensure_depotdownloader(reporter, force=True)),
-        notes=lambda: _release_notes(DD_API_URL),
+        release_url=DD_API_URL,
     ),
     Component(
         "7z",
@@ -348,7 +306,7 @@ COMPONENTS = [
         _tl_current,
         _tl_latest,
         _tl_apply,
-        notes=lambda: _release_notes(TL_API_URL),
+        release_url=TL_API_URL,
     ),
     Component(
         "Heated Metal",
@@ -356,12 +314,15 @@ COMPONENTS = [
         _hm_current,
         lambda: resolve_hm_release("latest")[0],
         _hm_apply,
-        notes=lambda: _release_notes(HM_API_URL),
+        release_url=HM_API_URL,
     ),
 ]
 
 
-def available(force: bool = False) -> tuple[list[tuple[Component, str, list[dict]]], str, str]:
+type Pending = list[tuple[Component, str, ReleaseNotes]]
+
+
+def available(force: bool = False) -> tuple[Pending, str, str]:
     global _throwback_release, _hm_installs
     _throwback_release = None
     _hm_installs = None
@@ -386,18 +347,16 @@ def available(force: bool = False) -> tuple[list[tuple[Component, str, list[dict
     failures = {reason for _, reason, _ in results if reason}
     failure = "rate_limit" if "rate_limit" in failures else ("error" if failures else "")
     detail = next((d for _, _, d in results if d), "")
-    pending: list[tuple[Component, str, list[dict]]] = []
+    pending: Pending = []
     for component, (latest, _, _) in zip(present, results, strict=True):
         if not latest:
             continue
         current = component.current()
         if current is not None and not _newer(latest, current):
             continue
-        notes: list[dict] = []
-        if component.notes is not None:
-            try:
-                notes = component.notes()
-            except Exception:
-                notes = []
+        notes = ReleaseNotes()
+        if component.release_url:
+            with contextlib.suppress(Exception):
+                notes = _release_notes(component.release_url)
         pending.append((component, latest, notes))
     return pending, failure, detail

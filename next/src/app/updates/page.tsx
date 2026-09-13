@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { buttonBase, buttonVariants, iconButton } from "@/components/Button";
-import { card, iconBox, ListRow } from "@/components/ui";
+import { card, heading, iconBox, ListRow } from "@/components/ui";
 import { Note } from "@/components/Note";
 import { ExternalLink } from "@/components/ExternalLink";
 import { VersionChip } from "@/components/VersionChip";
@@ -15,95 +15,76 @@ import {
   type InstalledComponent,
   type UpdateComponent,
 } from "@/lib/bridge";
-import { renderInline } from "@/lib/inline-markdown";
+import { Markdown } from "@/components/Markdown";
+import { parseReleaseNotes } from "@/lib/release-notes";
 import { dismissToast, RATE_LIMIT_TOAST, showToast } from "@/lib/toast";
 import { useTopbarSlot } from "@/lib/topbar-slot";
 import { site } from "@/config/site";
 
 const UPDATE_TOAST = "update";
 
-type ReleaseNoteEntry = UpdateComponent["notes"][number];
-type ReleaseNoteGroup = { text: string; children: string[] };
-type Block =
-  | { kind: "heading"; text: string }
-  | { kind: "list"; ordered: boolean; items: ReleaseNoteGroup[] };
-
-function toBlocks(notes: ReleaseNoteEntry[]): Block[] {
-  const blocks: Block[] = [];
-  for (const note of notes) {
-    if (note.kind === "heading") {
-      blocks.push({ kind: "heading", text: note.text });
-      continue;
-    }
-    const ordered = note.kind === "number";
-    const last = blocks[blocks.length - 1];
-    if (last?.kind === "list" && last.ordered === ordered) {
-      if (note.level > 0 && last.items.length > 0)
-        last.items[last.items.length - 1].children.push(note.text);
-      else last.items.push({ text: note.text, children: [] });
-    } else {
-      blocks.push({
-        kind: "list",
-        ordered,
-        items: [{ text: note.text, children: [] }],
-      });
-    }
-  }
-  return blocks;
-}
-
-function ReleaseNoteList({
-  ordered,
-  items,
+function UpdateCard({
+  component,
+  applying,
+  progress,
+  disabled,
+  onApply,
 }: {
-  ordered: boolean;
-  items: ReleaseNoteGroup[];
+  component: UpdateComponent;
+  applying: boolean;
+  progress: number;
+  disabled: boolean;
+  onApply: () => void;
 }) {
-  const List = ordered ? "ol" : "ul";
-  return (
-    <List
-      className={`space-y-0.5 pl-4 text-ui text-text-muted ${
-        ordered ? "list-decimal" : "list-disc"
-      }`}
-    >
-      {items.map((note, index) => (
-        <li key={index}>
-          {renderInline(note.text)}
-          {note.children.length > 0 && (
-            <ul className="list-[circle] space-y-0.5 pl-4">
-              {note.children.map((child, childIndex) => (
-                <li key={childIndex}>{renderInline(child)}</li>
-              ))}
-            </ul>
-          )}
-        </li>
-      ))}
-    </List>
+  const notes = useMemo(
+    () => parseReleaseNotes(component.body, component.repository),
+    [component.body, component.repository],
   );
-}
-
-function ReleaseNotes({ notes }: { notes: UpdateComponent["notes"] }) {
   return (
-    <div className="flex flex-col gap-2">
-      {toBlocks(notes).map((block, index) => {
-        if (block.kind === "heading") {
-          return (
-            <div
-              key={index}
-              className="mt-1.5 font-display text-[0.9rem] font-bold text-text first:mt-0"
-            >
-              {renderInline(block.text)}
-            </div>
-          );
-        }
-        return (
-          <ReleaseNoteList
-            key={index}
-            ordered={block.ordered}
-            items={block.items}
-          />
-        );
-      })}
+    <div className={card}>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="flex min-w-0 items-center gap-2.5">
+          <span className={`truncate ${heading}`}>{component.name}</span>
+          <VersionChip version={component.target} className="shrink-0" />
+        </span>
+        <button
+          type="button"
+          aria-disabled={applying || undefined}
+          disabled={!applying && disabled}
+          onClick={applying ? undefined : onApply}
+          className={`${buttonBase} ml-auto shrink-0 justify-center ${
+            applying
+              ? "relative overflow-hidden bg-[color-mix(in_srgb,var(--color-action)_45%,black)] text-action-text"
+              : `disabled:cursor-not-allowed disabled:opacity-40 ${buttonVariants.primary}`
+          }`}
+        >
+          {applying ? (
+            <>
+              <span
+                aria-hidden
+                className="absolute inset-0 origin-left bg-action transition-transform duration-200"
+                style={{ transform: `scaleX(${progress / 100})` }}
+              />
+              <span className="relative">Update</span>
+            </>
+          ) : (
+            "Update"
+          )}
+        </button>
+      </div>
+      {notes.truncated ? (
+        <>
+          <div className="cut-fade -mb-2 pb-4">
+            <Markdown nodes={notes.nodes} />
+          </div>
+          <Note>
+            Read the{" "}
+            <ExternalLink href={component.url}>full release notes</ExternalLink>
+          </Note>
+        </>
+      ) : (
+        notes.nodes.length > 0 && <Markdown nodes={notes.nodes} />
+      )}
     </div>
   );
 }
@@ -208,67 +189,25 @@ export default function UpdatesPage() {
         </Note>
       ) : (
         <Note variant="error" className="mb-6 max-w-[600px]">
-          This build does not update the Launcher — download{" "}
-          <code>Installer.exe</code> from the{" "}
+          Download <code>Installer.exe</code> from the{" "}
           <ExternalLink href={site.latestReleaseUrl}>
             latest release
-          </ExternalLink>
-          .
+          </ExternalLink>{" "}
+          to receive Launcher updates.
         </Note>
       )}
 
       <div className="flex max-w-[600px] flex-col gap-4">
-        {update.components.map((component) => {
-          const applying = update.applying === component.name && update.busy;
-          return (
-            <div key={component.name} className={card}>
-              <div className="flex items-center justify-between gap-4">
-                <span className="flex min-w-0 items-center gap-2.5">
-                  <span className="truncate font-display text-[1.05rem] font-bold text-text">
-                    {component.name}
-                  </span>
-                  <VersionChip
-                    version={component.target}
-                    className="shrink-0"
-                  />
-                </span>
-                <button
-                  type="button"
-                  aria-disabled={applying || undefined}
-                  disabled={
-                    !applying && (update.busy || update.checking || downloading)
-                  }
-                  onClick={
-                    applying ? undefined : () => update.apply(component.name)
-                  }
-                  className={`${buttonBase} shrink-0 justify-center ${
-                    applying
-                      ? "relative overflow-hidden bg-[color-mix(in_srgb,var(--color-action)_45%,black)] text-action-text"
-                      : `disabled:cursor-not-allowed disabled:opacity-40 ${buttonVariants.primary}`
-                  }`}
-                >
-                  {applying ? (
-                    <>
-                      <span
-                        aria-hidden
-                        className="absolute inset-0 origin-left bg-action transition-transform duration-200"
-                        style={{
-                          transform: `scaleX(${update.progress / 100})`,
-                        }}
-                      />
-                      <span className="relative">Update</span>
-                    </>
-                  ) : (
-                    "Update"
-                  )}
-                </button>
-              </div>
-              {component.notes.length > 0 && (
-                <ReleaseNotes notes={component.notes} />
-              )}
-            </div>
-          );
-        })}
+        {update.components.map((component) => (
+          <UpdateCard
+            key={component.name}
+            component={component}
+            applying={update.applying === component.name && update.busy}
+            progress={update.progress}
+            disabled={update.busy || update.checking || downloading}
+            onApply={() => update.apply(component.name)}
+          />
+        ))}
       </div>
 
       {installed && (

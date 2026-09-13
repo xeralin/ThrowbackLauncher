@@ -93,7 +93,7 @@ def invalidate_api_cache() -> None:
             _api_cache_flush(cache)
 
 
-def _github_json(api_url: str, bypass_ttl: bool = False) -> dict:
+def github_json(api_url: str, bypass_ttl: bool = False) -> dict:
     with _api_cache_lock:
         entry = _api_cache_read().get(api_url)
     usable = isinstance(entry, dict) and entry.get("etag") and "data" in entry
@@ -203,10 +203,10 @@ def _find_asset(data: dict, suffix: str) -> str | None:
 
 
 def github_asset(api_url: str, suffix: str) -> tuple[str, str]:
-    data = _github_json(api_url)
+    data = github_json(api_url)
     url = _find_asset(data, suffix)
     if url is None:
-        data = _github_json(api_url, bypass_ttl=True)
+        data = github_json(api_url, bypass_ttl=True)
         url = _find_asset(data, suffix)
     if url is None:
         raise LookupError(f"no release asset matching *{suffix}")
@@ -214,8 +214,4 @@ def github_asset(api_url: str, suffix: str) -> tuple[str, str]:
 
 
 def github_tag(api_url: str) -> str:
-    return _github_json(api_url)["tag_name"]
-
-
-def github_body(api_url: str) -> str:
-    return _github_json(api_url).get("body") or ""
+    return github_json(api_url)["tag_name"]

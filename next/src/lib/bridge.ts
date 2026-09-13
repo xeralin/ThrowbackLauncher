@@ -315,11 +315,9 @@ type LiberatorObject = {
 export type UpdateComponent = {
   name: string;
   target: string;
-  notes: {
-    text: string;
-    level: number;
-    kind: "heading" | "bullet" | "number";
-  }[];
+  body: string;
+  url: string;
+  repository: string;
 };
 
 type UpdateSnapshot = {

@@ -3,7 +3,7 @@ import Image from "next/image";
 import { Note } from "@/components/Note";
 import { keyArtFade } from "@/components/SeasonKeyArt";
 import { BuildChips } from "@/components/SeasonTable";
-import { renderInline } from "@/lib/inline-markdown";
+import { renderInline } from "@/components/Markdown";
 import { eventsForBuild } from "@/config/liberator-builds";
 import type {
   SeasonInfoEntry,
