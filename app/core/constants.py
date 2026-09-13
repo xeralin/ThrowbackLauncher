@@ -107,6 +107,7 @@ HM_API_URL = "https://api.github.com/repos/DataCluster0/HeatedMetal/releases/lat
 HM_TAG_API_URL_FMT = "https://api.github.com/repos/DataCluster0/HeatedMetal/releases/tags/{tag}"
 
 HM_LAUNCHER = "RainbowSix.exe"
+VULKAN_EXE = "RainbowSix_Vulkan.exe"
 
 RVPN_TAP_DEV = "radminvpn0"
 RVPN_BIN_DIR = ASSET_ROOT / "rvpn"

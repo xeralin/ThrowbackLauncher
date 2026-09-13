@@ -16,6 +16,7 @@ import { resetPlatformView } from "@/lib/platform-view";
 import { RATE_LIMIT_TOAST, showToast } from "@/lib/toast";
 import { hasOpenModal } from "@/components/Modal";
 import { hasOpenInfoHint } from "@/components/InfoHint";
+import { hasOpenRendererMenu } from "@/components/RendererMenu";
 
 const ERROR_TARGETS: [string, string | undefined][] = [
   ["downloader", undefined],
@@ -157,7 +158,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         target instanceof HTMLTextAreaElement
       )
         return;
-      if (hasOpenModal() || hasOpenInfoHint()) return;
+      if (hasOpenModal() || hasOpenInfoHint() || hasOpenRendererMenu()) return;
       if (open) {
         setOpen(false);
         return;

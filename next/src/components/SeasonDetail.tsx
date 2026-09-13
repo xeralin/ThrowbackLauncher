@@ -26,6 +26,7 @@ import { PickerRow, iconBox } from "@/components/ui";
 import { SaveCheck, TextSetting } from "@/components/SettingsControls";
 import { CardKeyArt } from "@/components/SeasonKeyArt";
 import { ShearsModal } from "@/components/ShearsModal";
+import { RendererMenu } from "@/components/RendererMenu";
 import { OptionGroup, Tabs, type TabItem } from "@/components/Tabs";
 import {
   TransferBar,
@@ -53,6 +54,7 @@ import {
   useUpdateBusy,
   type SeasonInstalls,
   type LibraryEntry,
+  type GameArgs,
   type Season,
   type ShearsKind,
   type ShearsScan,
@@ -108,6 +110,8 @@ function BetaHint() {
   );
 }
 
+const VULKAN_ARG = "/vulkan";
+
 const NO_INSTALLS: SeasonInstalls = {
   tb: { installed: false, partial: false },
   hm: { installed: false, partial: false },
@@ -145,6 +149,10 @@ export function SeasonDetail({
   const [modal, setModal] = useState<SeasonModal | null>(null);
   const [dlLibrary, setDlLibrary] = useState("");
   const [argsSaved, setArgsSaved] = useState(0);
+  const [gameArgs, setGameArgs] = useState<GameArgs>({
+    args: "",
+    vulkan: false,
+  });
   const [tab, setTab] = useState<TabId>("manage");
   const [installs, setInstalls] = useState<SeasonInstalls>(NO_INSTALLS);
   const [shearsScan, setShearsScan] = useState<ShearsScan | null>(null);
@@ -163,7 +171,7 @@ export function SeasonDetail({
   const hmActive = hm && season.hmAvailable;
   const shearsCuts = useMemo(() => shearsActions(shearsScan), [shearsScan]);
 
-  const { installs: fetchInstalls } = lc;
+  const { installs: fetchInstalls, gameArgs: fetchGameArgs } = lc;
   const refresh = useCallback(() => {
     fetchInstalls(season.key, setInstalls);
     if (shears.ready)
@@ -261,6 +269,24 @@ export function SeasonDetail({
   }, [libs, modal]);
 
   const storedArgs = settings?.launch_args[season.key] ?? "";
+  const gameTokens = gameArgs.args.split(/\s+/).filter(Boolean);
+  const vulkanActive = gameTokens.includes(VULKAN_ARG);
+
+  useEffect(() => {
+    if (lc.ready) fetchGameArgs(season.key, hmActive, setGameArgs);
+  }, [lc.ready, fetchGameArgs, season.key, hmActive, installs]);
+
+  function setRenderer(vulkan: boolean) {
+    const rest = gameTokens.filter((arg) => arg !== VULKAN_ARG);
+    const args = (vulkan ? [...rest, VULKAN_ARG] : rest).join(" ");
+    lc.setGameArgs(season.key, hmActive, args, (error) => {
+      if (error) {
+        showToast(error);
+        return;
+      }
+      setGameArgs((current) => ({ ...current, args }));
+    });
+  }
 
   useEffect(() => {
     if (!settings) return;
@@ -308,19 +334,37 @@ export function SeasonDetail({
     else startDownload(library);
   }
 
+  function playButton() {
+    const play = (
+      <Button
+        variant="primary"
+        disabled={downloadingSeason || updateBusy}
+        onClick={() => lc.launch(season.key, hmActive)}
+        className={gameArgs.vulkan ? "rounded-r-none" : ""}
+      >
+        Play
+      </Button>
+    );
+    return gameArgs.vulkan ? (
+      <RendererMenu
+        vulkan={vulkanActive}
+        disabled={downloadingSeason || updateBusy}
+        onSelect={setRenderer}
+      >
+        {play}
+      </RendererMenu>
+    ) : (
+      play
+    );
+  }
+
   function playButtons() {
     return playingEdition || launchingEdition ? (
       <Button variant="primary" onClick={() => lc.stop(season.key)}>
         Stop
       </Button>
     ) : (
-      <Button
-        variant="primary"
-        disabled={downloadingSeason || updateBusy}
-        onClick={() => lc.launch(season.key, hmActive)}
-      >
-        Play
-      </Button>
+      playButton()
     );
   }
 

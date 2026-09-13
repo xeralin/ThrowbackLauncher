@@ -90,20 +90,24 @@ def write_tl_toml(target_dir: Path, username: str) -> None:
     )
 
 
-def read_tl_tools(target_dir: Path) -> list[str]:
+def _launch_table(target_dir: Path) -> dict:
     try:
         data = tomllib.loads((target_dir / TL_TOML).read_text(encoding="utf-8"))
     except OSError, tomllib.TOMLDecodeError:
-        return []
-    tools = data.get("Launch", {}).get("tools", [])
+        return {}
+    return data.get("Launch", {})
+
+
+def read_tl_tools(target_dir: Path) -> list[str]:
+    tools = _launch_table(target_dir).get("tools", [])
     return [t for t in tools if isinstance(t, str)]
 
 
-def write_tl_tools(target_dir: Path, tools: list[str]) -> None:
+def _write_launch_line(target_dir: Path, key: str, value: str) -> None:
     config = target_dir / TL_TOML
-    line = "tools = [" + ", ".join(toml_str(t) for t in tools) + "]"
+    line = f"{key} = {value}"
     text = config.read_text(encoding="utf-8")
-    updated, count = re.subn(r"(?m)^tools\s*=.*$", lambda _: line, text, count=1)
+    updated, count = re.subn(rf"(?m)^{key}\s*=.*$", lambda _: line, text, count=1)
     if not count:
         updated, count = re.subn(
             r"(?m)^\[Launch\]\s*$", lambda m: f"{m.group(0)}\n{line}", text, count=1
@@ -113,16 +117,28 @@ def write_tl_tools(target_dir: Path, tools: list[str]) -> None:
     config.write_text(updated, encoding="utf-8")
 
 
+def write_tl_tools(target_dir: Path, tools: list[str]) -> None:
+    _write_launch_line(target_dir, "tools", "[" + ", ".join(toml_str(t) for t in tools) + "]")
+
+
+def read_tl_args(target_dir: Path) -> str:
+    args = _launch_table(target_dir).get("args", "")
+    return args if isinstance(args, str) else ""
+
+
+def write_tl_args(target_dir: Path, args: str) -> None:
+    _write_launch_line(target_dir, "args", toml_str(args))
+
+
 def apply_tl(target_dir: Path, username: str) -> None:
-    tools = read_tl_tools(target_dir)
     hm = target_dir.name.endswith(HM_FOLDER_SUFFIX)
-    for name in (*TL_DLLS_COMMON, *TL_LOADERS, TL_TOML):
+    for name in (*TL_DLLS_COMMON, *TL_LOADERS):
         if hm and name == DEFAULTARGS_DLL:
             continue
         shutil.copy2(TL_DIR / name, target_dir / name)
+    if not (target_dir / TL_TOML).exists():
+        shutil.copy2(TL_DIR / TL_TOML, target_dir / TL_TOML)
     write_tl_toml(target_dir, username)
-    if tools:
-        write_tl_tools(target_dir, tools)
 
 
 def write_launcher(target_dir: Path) -> None:

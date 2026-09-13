@@ -17,6 +17,7 @@ from core.constants import (
     PREFIX_DIR,
     TL_LAUNCHER,
     UPDATE_RUNNING,
+    VULKAN_EXE,
 )
 from core.manifest import (
     hm_folder_name,
@@ -35,6 +36,7 @@ from core.steam import (
     running_game_pids,
     stop_game,
 )
+from core.throwbackloader import read_tl_args, write_tl_args
 
 
 class LaunchController(QObject):
@@ -132,6 +134,27 @@ class LaunchController(QObject):
             return {"installed": False, "partial": partial_path(key, hm) is not None}
 
         return {"tb": edition(False), "hm": edition(True)}
+
+    @Slot(str, bool, result="QVariantMap")
+    def game_args(self, key: str, hm: bool) -> dict:
+        folder = installed_path(key, hm)
+        if folder is None:
+            return {"args": "", "vulkan": False}
+        return {
+            "args": read_tl_args(folder),
+            "vulkan": not hm and (folder / VULKAN_EXE).exists(),
+        }
+
+    @Slot(str, bool, str, result=str)
+    def set_game_args(self, key: str, hm: bool, value: str) -> str:
+        folder = installed_path(key, hm)
+        if folder is None:
+            return NOT_INSTALLED
+        try:
+            write_tl_args(folder, value.strip())
+        except OSError as e:
+            return log.fail("Game arguments could not be saved", e)
+        return ""
 
     @Slot(str, bool)
     def launch(self, key: str, hm: bool) -> None:

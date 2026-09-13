@@ -69,6 +69,13 @@ export type SeasonInstalls = {
 
 type LaunchObject = {
   installs(key: string, callback: (installs: SeasonInstalls) => void): void;
+  game_args(key: string, hm: boolean, callback: (info: GameArgs) => void): void;
+  set_game_args(
+    key: string,
+    hm: boolean,
+    value: string,
+    callback: (error: string) => void,
+  ): void;
   launch(key: string, hm: boolean): void;
   stop(key: string): void;
   running(callback: (refs: EditionRef[]) => void): void;
@@ -855,11 +862,15 @@ export function useLiberator(): Liberator {
   );
 }
 
+export type GameArgs = { args: string; vulkan: boolean };
+
 type Launch = {
   ready: boolean;
   running: EditionRef[];
   launching: EditionRef | null;
   installs: LaunchObject["installs"];
+  gameArgs: LaunchObject["game_args"];
+  setGameArgs: LaunchObject["set_game_args"];
   launch: (key: string, hm: boolean) => void;
   stop: (key: string) => void;
 };
@@ -893,6 +904,15 @@ export function useLaunch(): Launch {
     () => ({
       installs: ((key, callback) =>
         objRef.current?.installs(key, callback)) as Launch["installs"],
+      gameArgs: ((key, hm, callback) =>
+        objRef.current?.game_args(key, hm, callback)) as Launch["gameArgs"],
+      setGameArgs: ((key, hm, value, callback) =>
+        objRef.current?.set_game_args(
+          key,
+          hm,
+          value,
+          callback,
+        )) as Launch["setGameArgs"],
       launch: (key: string, hm: boolean) => objRef.current?.launch(key, hm),
       stop: (key: string) => objRef.current?.stop(key),
     }),
