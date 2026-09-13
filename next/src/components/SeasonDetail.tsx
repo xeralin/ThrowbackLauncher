@@ -30,6 +30,7 @@ import { SaveCheck, TextSetting } from "@/components/SettingsControls";
 import { CardKeyArt } from "@/components/SeasonKeyArt";
 import { ShearsModal } from "@/components/ShearsModal";
 import { RendererMenu } from "@/components/RendererMenu";
+import { ExclusionSteps, ProtonSteps } from "@/components/SetupSteps";
 import { OptionGroup, Tabs, type TabItem } from "@/components/Tabs";
 import {
   TransferBar,
@@ -619,6 +620,12 @@ export function SeasonDetail({
                   entry={{
                     ...HM_INFO,
                     release: info?.release ?? "",
+                    setup:
+                      platform === "windows" ? (
+                        <ExclusionSteps />
+                      ) : season.key === "Y9S2_NewBlood" ? (
+                        <ProtonSteps />
+                      ) : undefined,
                     note: season.hmBeta ? (
                       <>
                         The Heated Metal build comes from the{" "}

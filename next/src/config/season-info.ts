@@ -19,6 +19,7 @@ export type SeasonInfoEntry = {
   maps: InfoMap[];
   highlights: string[];
   note?: ReactNode;
+  setup?: ReactNode;
 };
 
 const SLOW_CLOSE_NOTE =

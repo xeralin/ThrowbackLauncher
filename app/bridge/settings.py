@@ -11,6 +11,7 @@ from bridge.slots import deferred_slot
 from core import log
 from core.constants import (
     BIN_DIR,
+    DATA_ROOT,
     DD_BIN,
     DEFAULT_ACCENT,
     DEFAULT_BAR_FILL,
@@ -427,6 +428,10 @@ class SettingsController(QObject):
 
     def _transfers_busy(self) -> bool:
         return bool(self._downloader.running or self._updater.busy)
+
+    @Slot(result=str)
+    def launcher_folder(self) -> str:
+        return str(DATA_ROOT)
 
     @Slot(result="QVariantList")
     def libraries(self) -> list:

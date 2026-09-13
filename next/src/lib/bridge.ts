@@ -187,6 +187,7 @@ type SettingsObject = {
   bar_stripe: string;
   accent: string;
   download_bounds: { min: number; max: number };
+  launcher_folder(callback: (path: string) => void): void;
   libraries(callback: (libraries: LibraryEntry[]) => void): void;
   proton_options(callback: (protons: ProtonOption[]) => void): void;
   set_username(value: string): void;

@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import Image from "next/image";
 import { Note } from "@/components/Note";
 import { keyArtFade } from "@/components/SeasonKeyArt";
@@ -64,18 +63,6 @@ function MapCard({ map }: { map: InfoMap }) {
   );
 }
 
-const infoRow =
-  "border-b border-border px-[0.6rem] py-[0.2rem] text-[0.78rem] leading-[1.45] text-text-muted last:border-b-0";
-
-function InfoBox({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="overflow-hidden rounded-lg border border-border">
-      <p className="table-head">{title}</p>
-      {children}
-    </div>
-  );
-}
-
 export function SeasonInfo({
   entry,
   build,
@@ -131,35 +118,48 @@ export function SeasonInfo({
 
   const events = build ? eventsForBuild(build) : [];
 
-  const eventBox = events.length > 0 && (
-    <InfoBox title="Events">
-      {events.map((name) => (
-        <p key={name} className={infoRow}>
-          {name}
-        </p>
-      ))}
-    </InfoBox>
-  );
+  const rows = Math.max(entry.highlights.length, events.length);
 
-  const highlights = entry.highlights.length > 0 && (
-    <InfoBox title="Highlights">
-      {entry.highlights.map((highlight) => (
-        <p key={highlight} className={`${infoRow} [&_code]:text-[0.68rem]`}>
-          {renderInline(highlight)}
-        </p>
-      ))}
-    </InfoBox>
+  const highlights = rows > 0 && (
+    <div className="prose overflow-hidden rounded-lg border border-border">
+      <table className="w-full">
+        <thead>
+          <tr>
+            <th>Highlights</th>
+            {events.length > 0 && (
+              <th className="w-px whitespace-nowrap">Events</th>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: rows }, (_, index) => (
+            <tr key={index}>
+              <td className="align-top font-body text-text-muted [&_code]:text-[0.68rem]">
+                {entry.highlights[index]
+                  ? renderInline(entry.highlights[index])
+                  : null}
+              </td>
+              {events.length > 0 && (
+                <td className="w-px whitespace-nowrap align-top">
+                  {events[index] ?? null}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 
   return (
     <div className="grid items-start gap-4 content:grid-cols-[minmax(0,1fr)_260px]">
       <div className="flex min-w-0 flex-col gap-3 self-stretch">
         {cards}
+        {entry.setup}
         {note}
       </div>
       <div className="flex flex-col gap-3">
         {released}
-        {eventBox}
         {highlights}
       </div>
     </div>

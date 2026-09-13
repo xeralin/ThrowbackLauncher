@@ -1,5 +1,6 @@
 import { Prose } from "@/components/Prose";
 import { SeasonTable } from "@/components/SeasonTable";
+import { stepBox, stepList } from "@/components/ui";
 import {
   FULL_SUPPORT,
   FULL_SUPPORT_EVENTS,
@@ -14,8 +15,8 @@ function FullSupport() {
     <>
       <SeasonTable rows={FULL_SUPPORT} />
       <SeasonTable rows={FULL_SUPPORT_EVENTS} showEvent />
-      <div className="mb-5 max-w-[280px] rounded-lg border border-border px-[0.6rem] py-[0.45rem]">
-        <ol className="mb-0 pl-[1.15rem] text-[0.78rem] leading-[1.45] [&>li:last-child]:mb-0">
+      <div className={`${stepBox} mb-5 max-w-[280px]`}>
+        <ol className={stepList}>
           <li>Create a local custom game</li>
           <li>
             Select the game mode in the <strong>Playlist</strong> tab
