@@ -1,3 +1,4 @@
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -27,3 +28,16 @@ def user_data_base() -> Path:
 
 def start_menu_shortcut(appdata: str) -> Path:
     return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / f"{APP_NAME}.lnk"
+
+
+def desktop_shortcut() -> Path:
+    desktop = Path.home() / "Desktop"
+    if sys.platform.startswith("win"):
+        import winreg
+
+        key = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
+        with contextlib.suppress(OSError), winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as k:
+            value, _ = winreg.QueryValueEx(k, "Desktop")
+            if value:
+                desktop = Path(value)
+    return desktop / f"{APP_NAME}.lnk"

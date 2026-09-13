@@ -12,7 +12,17 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from PySide6.QtCore import QLockFile, QRectF, QSize, Qt, QThread, QUrl, Signal
+from PySide6.QtCore import (
+    QEasingCurve,
+    QLockFile,
+    QRectF,
+    QSize,
+    Qt,
+    QThread,
+    QUrl,
+    QVariantAnimation,
+    Signal,
+)
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -41,7 +51,13 @@ from PySide6.QtWidgets import (
 )
 
 from core.constants import DEFAULT_ACCENT, HTTP_TIMEOUT, UPDATE_API_URL
-from core.github import SSL_CONTEXT, RateLimitError, fetch_to, rate_limit_error
+from core.github import (
+    SSL_CONTEXT,
+    CancelledError,
+    RateLimitError,
+    fetch_to,
+    rate_limit_error,
+)
 from layout import (
     APP_NAME,
     APP_SUBDIR,
@@ -53,6 +69,7 @@ from layout import (
     PREVIOUS_SUBDIR,
     RUNTIME_ASSET,
     UNINSTALL_KEY,
+    desktop_shortcut,
     start_menu_shortcut,
     user_data_base,
 )
@@ -65,9 +82,13 @@ BUTTON_GAP = 8
 CLOSE_WIDTH = 84
 CONTINUE_WIDTH = 104
 MESSAGE_PADDING = 3
+CHIP_PADDING = 2
+FADE_EDGE = 28
 ERROR_TEXT_MAX = 160
 DOWNLOAD_PCT = 90
 INACTIVE_OPACITY = 0.4
+SWITCH_WIDTH = 34
+SWITCH_HEIGHT = 18
 
 TEXT = "#e8e0d5"
 MUTED = "#7a7890"
@@ -97,19 +118,16 @@ STYLE = f"""
     font-family: "Barlow";
 }}
 #title {{ color: {TEXT}; font-family: "Rajdhani"; font-weight: 600; font-size: 19px; }}
-#body {{ color: {MUTED}; font-family: "Barlow"; font-size: 12px; }}
-#message {{
+#option {{ color: {TEXT}; font-family: "Rajdhani"; font-weight: 700; font-size: 17px; }}
+#message, #path, #chip {{
     background: {FIELD_BG};
     border: 1px solid {BORDER};
     border-radius: 6px;
 }}
-#path {{
-    background: {FIELD_BG};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-}}
-#messagetext, #pathtext {{
-    color: {TEXT};
+#messagetext, #pathtext {{ color: {TEXT}; font-family: "Share Tech Mono"; font-size: 12px; }}
+#chip {{
+    padding: {CHIP_PADDING}px {MESSAGE_PADDING}px;
+    color: {MUTED};
     font-family: "Share Tech Mono";
     font-size: 12px;
 }}
@@ -124,15 +142,21 @@ STYLE = f"""
 """
 
 
-def _fade_right(widget: QWidget) -> None:
-    gradient = QLinearGradient(0, 0, 1, 0)
-    gradient.setCoordinateMode(QGradient.CoordinateMode.ObjectBoundingMode)
-    gradient.setColorAt(0.9, Qt.GlobalColor.black)
-    gradient.setColorAt(1.0, Qt.GlobalColor.transparent)
-    effect = QGraphicsOpacityEffect(widget)
-    effect.setOpacity(1.0)
-    effect.setOpacityMask(QBrush(gradient))
-    widget.setGraphicsEffect(effect)
+class FadeLabel(QLabel):
+    def __init__(self, text: str = "") -> None:
+        super().__init__(text)
+        effect = QGraphicsOpacityEffect(self)
+        effect.setOpacity(1.0)
+        self.setGraphicsEffect(effect)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        gradient = QLinearGradient(0, 0, 1, 0)
+        gradient.setCoordinateMode(QGradient.CoordinateMode.ObjectBoundingMode)
+        edge = 1.0 - FADE_EDGE / self.width() if self.width() > FADE_EDGE else 0.0
+        gradient.setColorAt(edge, Qt.GlobalColor.black)
+        gradient.setColorAt(1.0, Qt.GlobalColor.transparent)
+        self.graphicsEffect().setOpacityMask(QBrush(gradient))
 
 
 def _button_font() -> QFont:
@@ -182,6 +206,25 @@ def _folder_icon(color: str, opacity: float = 1.0) -> QIcon:
     return QIcon(_folder_pixmap(color, opacity))
 
 
+def _format_size(size: int) -> str:
+    units = ("B", "KB", "MB", "GB", "TB")
+    value = float(size)
+    exp = 0
+    while round(value) >= 1024 and exp < len(units) - 1:
+        value /= 1024
+        exp += 1
+    digits = 1 if exp > 0 and round(value * 10) < 1000 else 0
+    return f"{value:.{digits}f} {units[exp]}"
+
+
+def _chip() -> QLabel:
+    chip = QLabel()
+    chip.setObjectName("chip")
+    chip.setIndent(0)
+    chip.setVisible(False)
+    return chip
+
+
 def _target_dir(chosen: Path) -> Path:
     return chosen if chosen.name.lower() == DIR_NAME.lower() else chosen / DIR_NAME
 
@@ -212,11 +255,7 @@ def _launch_app(root: Path) -> None:
     ctypes.windll.user32.AllowSetForegroundWindow(proc.pid)
 
 
-def _create_shortcut(root: Path) -> None:
-    appdata = os.environ.get("APPDATA")
-    if not appdata:
-        return
-    lnk = start_menu_shortcut(appdata)
+def _write_shortcut(lnk: Path, root: Path) -> None:
     lnk_ps = str(lnk).replace("'", "''")
     exe_ps = str(app_exe(root)).replace("'", "''")
     dir_ps = str(root).replace("'", "''")
@@ -232,6 +271,13 @@ def _create_shortcut(root: Path) -> None:
         creationflags=subprocess.CREATE_NO_WINDOW,
         check=False,
     )
+
+
+def _create_shortcut(root: Path) -> None:
+    appdata = os.environ.get("APPDATA")
+    if not appdata:
+        return
+    _write_shortcut(start_menu_shortcut(appdata), root)
 
 
 def _register_uninstall(root: Path) -> None:
@@ -250,11 +296,7 @@ def _register_uninstall(root: Path) -> None:
         winreg.SetValueEx(k, "NoRepair", 0, winreg.REG_DWORD, 1)
 
 
-class _CancelledError(Exception):
-    pass
-
-
-def _latest_release() -> tuple[str, str]:
+def _latest_release() -> tuple[str, str, int]:
     req = urllib.request.Request(UPDATE_API_URL, headers={"User-Agent": APP_NAME})
     try:
         with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT, context=SSL_CONTEXT) as r:
@@ -264,10 +306,10 @@ def _latest_release() -> tuple[str, str]:
         if limited is not None:
             raise limited from exc
         raise
-    url = next((a["url"] for a in data["assets"] if a["name"] == RUNTIME_ASSET), None)
-    if url is None:
+    asset = next((a for a in data["assets"] if a["name"] == RUNTIME_ASSET), None)
+    if asset is None:
         raise LookupError(f"no release asset named {RUNTIME_ASSET}")
-    return data["tag_name"], url
+    return data["tag_name"], asset["url"], asset["size"]
 
 
 class Installer(QThread):
@@ -280,13 +322,14 @@ class Installer(QThread):
         super().__init__()
         self._cancel = False
         self.root = root
+        self.desktop = False
 
     def cancel(self) -> None:
         self._cancel = True
 
     def _check(self) -> None:
         if self._cancel:
-            raise _CancelledError
+            raise CancelledError
 
     def run(self) -> None:
         archive = Path(tempfile.gettempdir()) / RUNTIME_ASSET
@@ -300,7 +343,7 @@ class Installer(QThread):
                 self.progress.emit(pct)
 
         try:
-            _, url = _latest_release()
+            _, url, _ = _latest_release()
             self.message.emit("Downloading")
             fetch_to(url, archive, on_progress=on_progress, cancelled=lambda: self._cancel)
             self._check()
@@ -308,6 +351,9 @@ class Installer(QThread):
             self._extract(archive, root)
             with contextlib.suppress(OSError):
                 _create_shortcut(root)
+            if self.desktop:
+                with contextlib.suppress(OSError):
+                    _write_shortcut(desktop_shortcut(), root)
             _register_uninstall(root)
             self.done.emit()
         except Exception as e:
@@ -361,6 +407,70 @@ class Installer(QThread):
                     previous.rename(app)
             raise
         shutil.rmtree(previous, ignore_errors=True)
+
+
+def _mix(start: QColor, end: QColor, factor: float) -> QColor:
+    return QColor(
+        round(start.red() + (end.red() - start.red()) * factor),
+        round(start.green() + (end.green() - start.green()) * factor),
+        round(start.blue() + (end.blue() - start.blue()) * factor),
+    )
+
+
+class Switch(QWidget):
+    def __init__(self, checked: bool) -> None:
+        super().__init__()
+        self.setFixedSize(SWITCH_WIDTH, SWITCH_HEIGHT)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._checked = checked
+        self._hover = False
+        self._progress = 1.0 if checked else 0.0
+        self._slide = QVariantAnimation(self)
+        self._slide.setDuration(200)
+        self._slide.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._slide.valueChanged.connect(self._on_slide)
+
+    def isChecked(self) -> bool:
+        return self._checked
+
+    def _on_slide(self, value: float) -> None:
+        self._progress = float(value)
+        self.update()
+
+    def enterEvent(self, event) -> None:
+        self._hover = True
+        self.update()
+
+    def leaveEvent(self, event) -> None:
+        self._hover = False
+        self.update()
+
+    def mousePressEvent(self, event) -> None:
+        if not self.isEnabled() or event.button() != Qt.MouseButton.LeftButton:
+            return
+        self._checked = not self._checked
+        self._slide.stop()
+        self._slide.setStartValue(self._progress)
+        self._slide.setEndValue(1.0 if self._checked else 0.0)
+        self._slide.start()
+
+    def paintEvent(self, event) -> None:
+        hover = self._hover and self.isEnabled()
+        track = _mix(
+            QColor(BORDER if hover else FIELD_BG),
+            QColor(ACCENT_HOVER if hover else ACCENT),
+            self._progress,
+        )
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setOpacity(1.0 if self.isEnabled() else INACTIVE_OPACITY)
+        painter.setPen(QPen(_mix(QColor(BORDER), QColor(ACCENT), self._progress), 1))
+        painter.setBrush(track)
+        painter.drawRoundedRect(QRectF(0.5, 0.5, SWITCH_WIDTH - 1, SWITCH_HEIGHT - 1), 6, 6)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_mix(QColor(TEXT), QColor("#ffffff"), self._progress))
+        knob = QRectF(4 + 16 * self._progress, SWITCH_HEIGHT / 2 - 5, 10, 10)
+        painter.drawRoundedRect(knob, 3, 3)
 
 
 class IconButton(QPushButton):
@@ -442,7 +552,7 @@ class ProgressButton(QPushButton):
 
 
 class InstallerWindow(QWidget):
-    tag_fetched = Signal(str)
+    release_fetched = Signal(str, str)
 
     def __init__(self, root: Path) -> None:
         super().__init__()
@@ -452,7 +562,6 @@ class InstallerWindow(QWidget):
         self.setStyleSheet(STYLE)
         self.setFixedWidth(CARD_WIDTH)
         self._drag = None
-        self._tag_stale = False
 
         card = QFrame()
         card.setObjectName("card")
@@ -467,17 +576,23 @@ class InstallerWindow(QWidget):
 
         title = QLabel(APP_NAME)
         title.setObjectName("title")
-        body = QLabel("Pick where to install the Launcher. You can add library folders later.")
-        body.setObjectName("body")
+        self._version = _chip()
+        self._size = _chip()
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(BUTTON_GAP)
+        title_row.addWidget(title)
+        title_row.addStretch(1)
+        title_row.addWidget(self._version, 0, Qt.AlignmentFlag.AlignVCenter)
+        title_row.addWidget(self._size, 0, Qt.AlignmentFlag.AlignVCenter)
 
         path_box = QFrame()
         path_box.setObjectName("path")
         path_box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         path_box.setFixedHeight(32)
-        self._path_text = QLabel(str(root))
+        self._path_text = FadeLabel(str(root))
         self._path_text.setObjectName("pathtext")
         self._path_text.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        _fade_right(self._path_text)
         self._browse = IconButton(
             _folder_icon(MUTED), _folder_icon(TEXT), _folder_icon(MUTED, INACTIVE_OPACITY)
         )
@@ -492,6 +607,11 @@ class InstallerWindow(QWidget):
         path_row.addWidget(self._path_text, 1)
         path_row.addWidget(self._browse)
 
+        self._option_label = QLabel("Create shortcut")
+        self._option_label.setObjectName("option")
+        self._option_label.setContentsMargins(0, 0, BUTTON_GAP, 0)
+        self._desktop = Switch(True)
+
         self._message = QFrame()
         self._message.setObjectName("message")
         self._message.setVisible(False)
@@ -499,14 +619,11 @@ class InstallerWindow(QWidget):
         self._message.setMaximumWidth(
             CARD_WIDTH - 2 * (CARD_PADDING + 1) - CLOSE_WIDTH - CONTINUE_WIDTH - 2 * BUTTON_GAP
         )
-        self._message_text = QLabel()
+        self._message_text = FadeLabel()
         self._message_text.setObjectName("messagetext")
-        _fade_right(self._message_text)
         self._message_text.graphicsEffect().setEnabled(False)
         message_row = QHBoxLayout(self._message)
-        message_row.setContentsMargins(
-            MESSAGE_PADDING, MESSAGE_PADDING, MESSAGE_PADDING, MESSAGE_PADDING
-        )
+        message_row.setContentsMargins(MESSAGE_PADDING, CHIP_PADDING, MESSAGE_PADDING, CHIP_PADDING)
         message_row.addWidget(self._message_text)
 
         self._primary = ProgressButton(self._action())
@@ -525,13 +642,14 @@ class InstallerWindow(QWidget):
         button_row = QHBoxLayout()
         button_row.setSpacing(BUTTON_GAP)
         button_row.addWidget(self._message, 0, Qt.AlignmentFlag.AlignVCenter)
+        button_row.addWidget(self._option_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        button_row.addWidget(self._desktop, 0, Qt.AlignmentFlag.AlignVCenter)
         button_row.addStretch(1)
         button_row.addWidget(self._close)
         button_row.addWidget(self._primary)
 
-        layout.addWidget(title)
-        layout.addWidget(body)
-        layout.addSpacing(9)
+        layout.addLayout(title_row)
+        layout.addSpacing(10)
         layout.addWidget(path_box)
         layout.addSpacing(10)
         layout.addLayout(button_row)
@@ -542,17 +660,22 @@ class InstallerWindow(QWidget):
         self._installer.message.connect(self._on_message)
         self._installer.failed.connect(self._on_failed)
         self._installer.done.connect(self._on_done)
-        self.tag_fetched.connect(self._on_message)
-        threading.Thread(target=self._fetch_tag, daemon=True).start()
+        self.release_fetched.connect(self._on_release)
+        threading.Thread(target=self._fetch_release, daemon=True).start()
 
-    def _fetch_tag(self) -> None:
+    def _fetch_release(self) -> None:
         try:
-            tag, _ = _latest_release()
+            tag, _, size = _latest_release()
         except Exception:
             return
         with contextlib.suppress(RuntimeError):
-            if tag and not self._tag_stale:
-                self.tag_fetched.emit(tag)
+            self.release_fetched.emit(tag, _format_size(size))
+
+    def _on_release(self, tag: str, size: str) -> None:
+        self._version.setText(tag)
+        self._version.setVisible(True)
+        self._size.setText(size)
+        self._size.setVisible(True)
 
     def _action(self) -> str:
         return "Update" if app_exe(self._root).exists() else "Install"
@@ -578,13 +701,13 @@ class InstallerWindow(QWidget):
         self._primary.set_active(True)
         self._browse.set_active(True)
         self._on_message(reason)
+        self._primary.setText("Retry")
         self._close.setEnabled(True)
         self._close.setText("Close")
 
     def _on_primary(self) -> None:
         if self._installer.isRunning():
             return
-        self._tag_stale = True
         if self._installed:
             try:
                 _launch_app(self._root)
@@ -594,7 +717,12 @@ class InstallerWindow(QWidget):
             QApplication.quit()
             return
         self._primary.set_active(False)
+        self._primary.setText(self._action())
         self._browse.set_active(False)
+        self._option_label.setVisible(False)
+        self._desktop.setVisible(False)
+        self._installer.desktop = self._desktop.isChecked()
+        self._on_message("Preparing")
         self._installer.start()
 
     def _on_done(self) -> None:

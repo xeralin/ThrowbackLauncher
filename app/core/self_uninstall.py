@@ -7,7 +7,7 @@ from pathlib import Path
 from core import log
 from core.constants import FROZEN, IS_WINDOWS
 from core.winspawn import spawn_detached
-from layout import APP_SUBDIR, DIR_NAME, UNINSTALL_KEY, start_menu_shortcut
+from layout import APP_SUBDIR, DIR_NAME, UNINSTALL_KEY, desktop_shortcut, start_menu_shortcut
 
 
 def _registered_dir() -> Path | None:
@@ -34,6 +34,8 @@ def run() -> None:
     if registered is None or registered == install_dir:
         with contextlib.suppress(OSError):
             start_menu_shortcut(os.environ.get("APPDATA", "")).unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            desktop_shortcut().unlink(missing_ok=True)
         with contextlib.suppress(OSError):
             winreg.DeleteKey(winreg.HKEY_CURRENT_USER, UNINSTALL_KEY)
 
