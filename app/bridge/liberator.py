@@ -14,7 +14,7 @@ from core.constants import (
     LIBERATOR_BIN,
     STEAM_DIR,
 )
-from core.steam import resolve_proton, running_game_env, winpath
+from core.steam import resolve_proton, running_game_env
 
 _ATTACH_DELAY = 1.5
 _ATTACH_DELAY_MAX = 30.0
@@ -126,7 +126,7 @@ class LiberatorController(QObject):
 
             if IS_WINDOWS:
                 self._proc = subprocess.Popen(
-                    [str(LIBERATOR_BIN), "--port", port],
+                    [str(LIBERATOR_BIN), "--runtime", port],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
@@ -143,7 +143,13 @@ class LiberatorController(QObject):
                 client_install = env_game.get("STEAM_COMPAT_CLIENT_INSTALL_PATH")
                 env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = client_install or str(STEAM_DIR)
                 self._proc = subprocess.Popen(
-                    [str(proton["binary"]), "run", winpath(LIBERATOR_BIN), "--port", port],
+                    [
+                        str(proton["binary"]),
+                        "run",
+                        "Z:" + str(LIBERATOR_BIN).replace("/", "\\"),
+                        "--runtime",
+                        port,
+                    ],
                     env=env,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,

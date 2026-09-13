@@ -1009,7 +1009,7 @@ impl Runner {
     }
 
     fn set_mod(&mut self, mod_: &str, enabled: bool) {
-        if self.eng.proc.is_null() || self.build.is_empty() || !self.applied {
+        if !self.end_ready() {
             return;
         }
         if self.season == SEASON_Y5S1 {
@@ -1056,7 +1056,7 @@ impl Runner {
     }
 
     fn set_playlist(&mut self, id_str: &str) {
-        if self.eng.proc.is_null() || self.build.is_empty() || !self.applied {
+        if !self.end_ready() {
             return;
         }
         if id_str.starts_with("y5:") {
@@ -1515,7 +1515,7 @@ impl Runner {
 
 pub fn main_entry() -> i32 {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() > 2 && args[1] == "--port" {
+    if args.len() > 2 && args[1] == "--runtime" {
         if let Ok(port) = args[2].parse::<u16>() {
             let mut r = Runner::new();
             return r.run(port);

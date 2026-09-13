@@ -74,10 +74,6 @@ def is_game_running() -> bool:
     return bool(running_game_pids())
 
 
-def winpath(path: Path) -> str:
-    return "Z:" + str(path).replace("/", "\\")
-
-
 def _game_exe_path(pid: int) -> Path | None:
     try:
         argv = psutil.Process(pid).cmdline()

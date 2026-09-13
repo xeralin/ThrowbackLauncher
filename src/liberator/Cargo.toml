@@ -3,13 +3,9 @@ name = "liberator"
 version = "0.3.9"
 edition = "2021"
 
-[lib]
-name = "liberator"
-path = "src/lib.rs"
-
 [[bin]]
-name = "runner"
-path = "src/bin/runner.rs"
+name = "Liberator"
+path = "src/main.rs"
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.59"
