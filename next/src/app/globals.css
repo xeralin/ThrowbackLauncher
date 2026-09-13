@@ -282,20 +282,7 @@
 
 @layer base {
   :root {
-    --page-pad: var(--page-pad-base);
     --fade-edge: 1.75rem;
-  }
-
-  @media (max-width: theme(--breakpoint-content)) {
-    :root {
-      --page-pad: var(--page-pad-narrow);
-    }
-  }
-
-  @media (min-width: theme(--breakpoint-wide)) {
-    :root {
-      --page-pad: var(--page-pad-wide);
-    }
   }
 
   html,

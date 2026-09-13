@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import { Rajdhani, Share_Tech_Mono, Barlow } from "next/font/google";
 import { site } from "@/config/site";
-import { PAGE_PAD_PX, SIDEBAR_W_CLAMP, TOPBAR_H_PX } from "@/config/layout";
+import { PAGE_PAD_CLAMP, SIDEBAR_W_CLAMP, TOPBAR_H_PX } from "@/config/layout";
 import { AppShell } from "@/components/AppShell";
 import "./globals.css";
 
@@ -56,9 +56,7 @@ export default function RootLayout({
         {
           "--sidebar-w": SIDEBAR_W_CLAMP,
           "--topbar-h": `${TOPBAR_H_PX}px`,
-          "--page-pad-narrow": `${PAGE_PAD_PX.narrow}px`,
-          "--page-pad-base": `${PAGE_PAD_PX.base}px`,
-          "--page-pad-wide": `${PAGE_PAD_PX.wide}px`,
+          "--page-pad": PAGE_PAD_CLAMP,
         } as React.CSSProperties
       }
     >

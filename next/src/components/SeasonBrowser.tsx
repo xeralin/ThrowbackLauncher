@@ -32,7 +32,7 @@ import {
 } from "@/lib/bridge";
 import {
   GRID_GAP,
-  PAGE_PAD_PX,
+  PAGE_PAD_CLAMP,
   ROW_SPAN_MAX,
   SIDEBAR_W_CLAMP,
   TOPBAR_H_PX,
@@ -106,16 +106,17 @@ function maxSpanW(grid: Element): number {
 }
 
 function cardSizes(spanW: number, spanH: number): string {
-  const size = (cols: number, pad: number) => {
-    const rowUnitOffset =
-      (TOPBAR_H_PX + 2 * pad + (ROW_SPAN_MAX - 1) * GRID_GAP) / ROW_SPAN_MAX -
-      GRID_GAP;
+  const size = (cols: number) => {
+    const rowUnit =
+      (TOPBAR_H_PX + (ROW_SPAN_MAX - 1) * GRID_GAP) / ROW_SPAN_MAX - GRID_GAP;
     const height = `${((KEY_ART_MAX_ASPECT * 100 * spanH) / ROW_SPAN_MAX).toFixed(2)}dvh - ${(
       KEY_ART_MAX_ASPECT *
-      (rowUnitOffset * spanH + GRID_GAP)
-    ).toFixed(2)}px`;
+      (rowUnit * spanH + GRID_GAP)
+    ).toFixed(
+      2,
+    )}px - ${((KEY_ART_MAX_ASPECT * 2 * spanH) / ROW_SPAN_MAX).toFixed(2)} * ${PAGE_PAD_CLAMP}`;
     const span = Math.min(spanW, cols);
-    const track = `(100vw - ${SIDEBAR_W_CLAMP} - ${2 * pad + GRID_GAP * cols}px)`;
+    const track = `(100vw - ${SIDEBAR_W_CLAMP} - 2 * ${PAGE_PAD_CLAMP} - ${GRID_GAP * cols}px)`;
     const width =
       span === cols
         ? `${track} + ${GRID_GAP * (span - 1)}px`
@@ -124,7 +125,7 @@ function cardSizes(spanW: number, spanH: number): string {
           : `${track}*${span}/${cols} + ${GRID_GAP * (span - 1)}px`;
     return `max(${width}, ${height})`;
   };
-  return `(min-width: 100em) ${size(4, PAGE_PAD_PX.wide)}, (min-width: 80em) ${size(3, PAGE_PAD_PX.base)}, (max-width: 48em) ${size(2, PAGE_PAD_PX.narrow)}, ${size(2, PAGE_PAD_PX.base)}`;
+  return `(min-width: 100em) ${size(4)}, (min-width: 80em) ${size(3)}, ${size(2)}`;
 }
 
 type HistoryEntry = {
