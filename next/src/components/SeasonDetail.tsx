@@ -16,8 +16,11 @@ import { ExternalLink } from "@/components/ExternalLink";
 import {
   DefaultLibraryIcon,
   FolderIcon,
+  HEATED_METAL_MARK,
+  MarkIcon,
   RemoveIcon,
   TerminalIcon,
+  THROWBACK_MARK,
 } from "@/components/icons";
 import { type LogLine } from "@/components/LogBox";
 import { Note } from "@/components/Note";
@@ -129,8 +132,16 @@ type SeasonModal =
   | { kind: "launchArgs" };
 
 const EDITION_TABS: TabItem<"tb" | "hm">[] = [
-  { id: "tb", label: "Throwback" },
-  { id: "hm", label: "Heated Metal" },
+  {
+    id: "tb",
+    label: "Throwback",
+    icon: <MarkIcon d={THROWBACK_MARK} className="size-3.5" />,
+  },
+  {
+    id: "hm",
+    label: "Heated Metal",
+    icon: <MarkIcon d={HEATED_METAL_MARK} className="size-3.5" />,
+  },
 ];
 
 export function SeasonDetail({

@@ -4,26 +4,17 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/Button";
 import { Modal } from "@/components/Modal";
+import { StrokeIcon } from "@/components/icons";
 import { inputClasses } from "@/components/ui";
 import { useDownloader } from "@/lib/bridge";
 
 function EyeIcon({ open }: { open: boolean }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      className="size-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
+    <StrokeIcon className="size-4">
       <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
       <circle cx="12" cy="12" r="3" />
       {!open && <line x1="4" y1="20" x2="20" y2="4" />}
-    </svg>
+    </StrokeIcon>
   );
 }
 

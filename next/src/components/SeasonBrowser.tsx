@@ -382,23 +382,13 @@ const DashCard = memo(function DashCard({
 
 function ArrangeIcon({ active }: { active: boolean }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      className="size-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
+    <StrokeIcon className="size-4">
       <path d="M13 21h8" />
       <path
         fill={active ? "currentColor" : "none"}
         d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"
       />
-    </svg>
+    </StrokeIcon>
   );
 }
 

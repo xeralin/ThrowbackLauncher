@@ -10,15 +10,13 @@ import {
 import { Button } from "@/components/Button";
 import { InfoHint } from "@/components/InfoHint";
 import { StrokeIcon } from "@/components/icons";
-import { panel } from "@/components/ui";
+import { heading, panel } from "@/components/ui";
 import {
   SupportedSeasons,
   type SupportView,
 } from "@/components/SupportedSeasons";
 import { Switch } from "@/components/Switch";
-import { OptionGroup, Tabs, type TabItem } from "@/components/Tabs";
-import { createPortal } from "react-dom";
-import { useTopbarSlot } from "@/lib/topbar-slot";
+import { Tabs, type TabItem } from "@/components/Tabs";
 import {
   onBridgeEvent,
   type GametypeNode,
@@ -56,11 +54,6 @@ function subscribeSession(listener: () => void): () => void {
 }
 
 const PICK_HIGHLIGHT_MS = 5000;
-
-const SUPPORT_VIEWS: TabItem<SupportView>[] = [
-  { id: "full", label: "Features" },
-  { id: "unlock", label: "Unlock All" },
-];
 
 type Mod = { key: keyof LiberatorCapabilities; label: string; hint?: string };
 
@@ -107,7 +100,7 @@ const LOADOUT_GROUP: Mod[] = [
   { key: "disableSecondaryGadget", label: "Disable Secondary Gadget" },
 ];
 
-type TabId = "playlist" | "modifications" | "support";
+type TabId = "playlist" | "modifications" | SupportView;
 
 function ModToggle({
   label,
@@ -225,9 +218,7 @@ export default function LiberatorPage() {
     () => session.path,
   );
   const [lastPicked, setLastPicked] = useState("");
-  const [tab, setTab] = useState<TabId>("support");
-  const [supportView, setSupportView] = useState<SupportView>("full");
-  const topbarSlot = useTopbarSlot();
+  const [tab, setTab] = useState<TabId>("full");
 
   const caps = lib.capabilities;
   const controlsEnabled = lib.applied && !!caps.fullFeature;
@@ -237,7 +228,8 @@ export default function LiberatorPage() {
 
   if (controlsEnabled !== prevControlsEnabled) {
     setPrevControlsEnabled(controlsEnabled);
-    setTab(controlsEnabled ? "playlist" : "support");
+    if (controlsEnabled) setTab("playlist");
+    else if (tab !== "unlock") setTab("full");
   }
 
   useEffect(() => {
@@ -254,7 +246,7 @@ export default function LiberatorPage() {
   useEffect(() => {
     if (controlsEnabled) return;
     if (focusInTabs.current && document.activeElement === document.body)
-      document.getElementById("tab-support")?.focus();
+      document.getElementById("tab-full")?.focus();
   }, [controlsEnabled]);
 
   useEffect(() => {
@@ -265,13 +257,48 @@ export default function LiberatorPage() {
 
   const tabs: TabItem<TabId>[] = useMemo(
     () => [
-      { id: "playlist", label: "Playlist", disabled: !controlsEnabled },
+      {
+        id: "playlist",
+        label: "Playlist",
+        icon: (
+          <StrokeIcon
+            d="M4 3h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM4 14h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1zM14 4h7M14 9h7M14 15h7M14 20h7"
+            className="size-3.5"
+          />
+        ),
+        disabled: !controlsEnabled,
+      },
       {
         id: "modifications",
         label: "Modifications",
+        icon: (
+          <StrokeIcon
+            d="M20 7h-9M14 17H5M20 17a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM10 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"
+            className="size-3.5"
+          />
+        ),
         disabled: !controlsEnabled,
       },
-      { id: "support", label: "Support" },
+      {
+        id: "full",
+        label: "Support",
+        icon: (
+          <StrokeIcon
+            d="M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0zM12 16v-4M12 8h.01"
+            className="size-3.5"
+          />
+        ),
+      },
+      {
+        id: "unlock",
+        label: "Unlock All",
+        icon: (
+          <StrokeIcon
+            d="M5 10h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2zM7 10V7a5 5 0 0 1 9.33-2.5"
+            className="size-3.5"
+          />
+        ),
+      },
     ],
     [controlsEnabled],
   );
@@ -310,37 +337,26 @@ export default function LiberatorPage() {
         active={tab}
         onSelect={setTab}
         trailing={
-          tab === "support" ? (
-            <OptionGroup
-              tabs={SUPPORT_VIEWS}
-              active={supportView}
-              onSelect={setSupportView}
-              label="Support"
-            />
-          ) : undefined
-        }
-      />
-
-      {topbarSlot &&
-        createPortal(
-          <span className="flex items-center gap-2.5 font-display text-[1.05rem] font-bold text-text">
-            {!(settings?.liberator_enabled ?? true) ? (
-              <span className="text-text-muted">Disabled</span>
-            ) : !lib.available ? (
-              <span className="text-text-muted">Not found in this build</span>
-            ) : lib.attached ? (
-              lib.status || "Attached"
-            ) : (
-              "Waiting for R6S to launch"
-            )}
+          <span className={`flex items-center gap-2.5 ${heading}`}>
+            <span>
+              {!(settings?.liberator_enabled ?? true) ? (
+                <span className="text-text-muted">Disabled</span>
+              ) : !lib.available ? (
+                <span className="text-text-muted">Not found in this build</span>
+              ) : lib.attached ? (
+                lib.status || "Attached"
+              ) : (
+                "Waiting for R6S to launch"
+              )}
+            </span>
             <Switch
               label="Liberator"
               checked={settings?.liberator_enabled ?? true}
               onChange={(value) => settings?.set_liberator_enabled(value)}
             />
-          </span>,
-          topbarSlot,
-        )}
+          </span>
+        }
+      />
 
       <div
         role="tabpanel"
@@ -395,9 +411,9 @@ export default function LiberatorPage() {
           </div>
         )}
 
-        {tab === "support" && (
+        {(tab === "full" || tab === "unlock") && (
           <div className="h-full overflow-y-auto">
-            <SupportedSeasons view={supportView} />
+            <SupportedSeasons view={tab} />
           </div>
         )}
       </div>
