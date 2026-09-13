@@ -96,8 +96,6 @@ type ShearsScanResult =
   | { key: string; ok: true; scan: ShearsScan }
   | { key: string; ok: false; message: string };
 
-type ShearsCutResult = ShearsScanResult & { freed: number };
-
 export type ShearsAction = {
   key: string;
   label: string;
@@ -972,7 +970,7 @@ type Shears = {
     key: string,
     kind: ShearsKind,
     level: number,
-    callback: (result: ShearsCutResult) => void,
+    callback: (result: ShearsScanResult) => void,
   ) => void;
 };
 
@@ -982,14 +980,14 @@ export function useShears(): Shears {
   const scanCallback = useRef<((result: ShearsScanResult) => void) | null>(
     null,
   );
-  const cutCallback = useRef<((result: ShearsCutResult) => void) | null>(null);
+  const cutCallback = useRef<((result: ShearsScanResult) => void) | null>(null);
   const [objRef, ready] = useBridgeHandle("shears", {
     onEvent: (event, args) => {
       if (event === "scan") {
         const result = args[0] as ShearsScanResult;
         if (result.key === scanKey.current) scanCallback.current?.(result);
       } else if (event === "cut") {
-        const result = args[0] as ShearsCutResult;
+        const result = args[0] as ShearsScanResult;
         if (result.key === cutKey.current) cutCallback.current?.(result);
       }
     },

@@ -2,7 +2,6 @@
 
 import { iconButton } from "@/components/Button";
 import { Modal } from "@/components/Modal";
-import { Note } from "@/components/Note";
 import { ListRow } from "@/components/ui";
 import { RemoveIcon } from "@/components/icons";
 import { useEffect, useRef } from "react";
@@ -24,13 +23,7 @@ export function ShearsModal({
     if (document.activeElement === document.body) firstCutRef.current?.focus();
   }, [actions]);
   return (
-    <Modal
-      title="Shears"
-      onClose={busy ? undefined : onClose}
-      footer={
-        <Note className="mr-auto">Cut optional content you do not need.</Note>
-      }
-    >
+    <Modal title="Shears" onClose={busy ? undefined : onClose}>
       <div className="flex flex-col gap-2">
         {actions.map((action, index) => (
           <ListRow key={action.key} label={action.label}>

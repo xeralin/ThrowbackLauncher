@@ -80,22 +80,17 @@ def _event_files(path: Path, pattern: str) -> list[Path]:
         return []
 
 
-def _delete_files(files: list[Path]) -> int:
-    freed = 0
+def _delete_files(files: list[Path]) -> None:
     failed = 0
     last: OSError | None = None
     for f in files:
         try:
-            size = f.stat().st_size
             f.unlink()
         except OSError as e:
             failed += 1
             last = e
-            continue
-        freed += size
     if failed:
         log.fail("Shears could not delete files", f"{failed} files, last: {last}")
-    return freed
 
 
 def scan_download(d: Path, event_pattern: str | None) -> dict:
@@ -106,12 +101,14 @@ def scan_download(d: Path, event_pattern: str | None) -> dict:
     }
 
 
-def cut_download(d: Path, kind: str, level: int, event_pattern: str | None) -> int:
+def cut_download(d: Path, kind: str, level: int, event_pattern: str | None) -> None:
     if kind == "videos":
         startup = _startup_dir(d)
-        freed = _delete_files(_video_files(d) + [f for f in startup.rglob("*") if f.is_file()])
+        _delete_files(_video_files(d) + [f for f in startup.rglob("*") if f.is_file()])
         shutil.rmtree(startup, ignore_errors=True)
-        return freed
+        return
     if kind == "events":
-        return _delete_files(_event_files(d, event_pattern)) if event_pattern else 0
-    return _delete_files([f for f, lvl, _ in _texture_forges(d) if lvl > level])
+        if event_pattern:
+            _delete_files(_event_files(d, event_pattern))
+        return
+    _delete_files([f for f, lvl, _ in _texture_forges(d) if lvl > level])

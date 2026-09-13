@@ -20,7 +20,7 @@ def _empty() -> dict:
 
 
 def _fail(key: str, message: str) -> dict:
-    return {"key": key, "ok": False, "message": message, "freed": 0}
+    return {"key": key, "ok": False, "message": message}
 
 
 def _serialize(scan: dict) -> dict:
@@ -96,12 +96,11 @@ class ShearsController(QObject):
             if kind == "events" and key not in EVENT_SEASONS:
                 self._cut_done_in.emit(_fail(key, "Invalid target"))
                 return
-            freed = cut_download(path, kind, level, EVENT_SEASONS.get(key))
+            cut_download(path, kind, level, EVENT_SEASONS.get(key))
             self._cut_done_in.emit(
                 {
                     "key": key,
                     "ok": True,
-                    "freed": freed,
                     "scan": _serialize(scan_download(path, EVENT_SEASONS.get(key))),
                 }
             )
