@@ -8,7 +8,6 @@ from core import log, settings
 from core.constants import GIB
 from core.manifest import installed_path, local_downloads
 from core.shears import folder_size
-from layout import VERSION
 
 
 class InfoController(QObject):
@@ -23,7 +22,7 @@ class InfoController(QObject):
 
     @Slot(result="QVariantMap")
     def snapshot(self) -> dict:
-        return {"version": VERSION, "warning": settings.warning}
+        return {"warning": settings.warning}
 
     @Slot()
     def refresh_disk_usage(self) -> None:

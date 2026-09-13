@@ -11,9 +11,14 @@ import {
 } from "@/config/accents";
 import { stepperButton } from "@/components/Button";
 import { InfoHint } from "@/components/InfoHint";
-import { StrokeIcon } from "@/components/icons";
+import {
+  StrokeIcon,
+  CHECK,
+  CHEVRON_LEFT,
+  CHEVRON_RIGHT,
+} from "@/components/icons";
 import { rovingStep } from "@/components/Tabs";
-import { inputClasses } from "@/components/ui";
+import { inputClasses, heading } from "@/components/ui";
 
 function useEscapeRevert(reset: () => void) {
   const skip = useRef(false);
@@ -55,9 +60,7 @@ export function Row({
   return (
     <div className="flex min-h-8 items-center justify-between gap-4">
       <span className="flex items-center gap-1.5">
-        <span className="font-display text-[1.05rem] font-bold text-text">
-          {label}
-        </span>
+        <span className={heading}>{label}</span>
         {hint && <InfoHint text={hint} />}
       </span>
       {children}
@@ -127,17 +130,10 @@ export function SaveCheck({ confirm }: { confirm: number }) {
       key={confirm}
       className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2"
     >
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="animate-save-check size-4 text-success opacity-0"
-      >
-        <path d="M5 13l4 4L19 7" />
-      </svg>
+      <StrokeIcon
+        d={CHECK}
+        className="animate-save-check size-4 text-success opacity-0 [&]:stroke-[2.5]"
+      />
     </span>
   );
 }
@@ -219,7 +215,7 @@ export function AccentPicker({
 }
 
 function StepIcon({ right }: { right: boolean }) {
-  return <StrokeIcon d={right ? "m9 6 6 6-6 6" : "m15 6-6 6 6 6"} />;
+  return <StrokeIcon d={right ? CHEVRON_RIGHT : CHEVRON_LEFT} />;
 }
 
 export function Stepper({

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { StrokeIcon } from "@/components/icons";
+import { StrokeIcon, CHEVRON_DOWN } from "@/components/icons";
 import type { ReactNode } from "react";
 import { usePlatformView } from "@/lib/platform-view";
 
@@ -55,7 +55,7 @@ function Item({ item }: { item: FaqItem }) {
         onClick={() => setOpen((value) => !value)}
       >
         <span className="question-title">{item.display ?? item.q}</span>
-        <StrokeIcon d="m6 9 6 6 6-6" className="question-chevron" />
+        <StrokeIcon d={CHEVRON_DOWN} className="question-chevron" />
       </button>
       <div id={answerId} className="answer" inert={!open}>
         <div className="answer-clip">

@@ -9,7 +9,7 @@ import {
 } from "react";
 import { Button } from "@/components/Button";
 import { InfoHint } from "@/components/InfoHint";
-import { StrokeIcon } from "@/components/icons";
+import { CHEVRON_RIGHT, StrokeIcon } from "@/components/icons";
 import { heading, panel } from "@/components/ui";
 import {
   SupportedSeasons,
@@ -56,10 +56,6 @@ function subscribeSession(listener: () => void): () => void {
 const PICK_HIGHLIGHT_MS = 5000;
 
 type Mod = { key: keyof LiberatorCapabilities; label: string; hint?: string };
-
-function ChevronIcon() {
-  return <StrokeIcon d="m9 6 6 6-6 6" className="size-3.5 shrink-0" />;
-}
 
 const PLAYERS_GROUP: Mod[] = [
   {
@@ -192,7 +188,12 @@ function PlaylistColumns({
                   <span className="min-w-0 flex-1 truncate-fade">
                     {node.text}
                   </span>
-                  {branch && <ChevronIcon />}
+                  {branch && (
+                    <StrokeIcon
+                      d={CHEVRON_RIGHT}
+                      className="size-3.5 shrink-0"
+                    />
+                  )}
                 </button>
               </li>
             );

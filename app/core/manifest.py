@@ -66,10 +66,6 @@ def resolve_install(folder_name: str, downloads: list[dict]) -> tuple[dict, bool
     return None
 
 
-def hm_display_name(download: dict) -> str:
-    return f"{download['label'].split(' ', 1)[0]} Heated Metal"
-
-
 def is_installed(d: Path) -> bool:
     return (d / TL_LAUNCHER).exists()
 

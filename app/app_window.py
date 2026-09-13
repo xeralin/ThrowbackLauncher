@@ -5,8 +5,8 @@ from PySide6.QtGui import QDesktopServices, QKeyEvent, QWheelEvent
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineScript, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWidgets import QFileDialog
 
-from bridge.dialogs import save_file
 from core import log
 from core.constants import IS_WINDOWS
 
@@ -21,12 +21,13 @@ def _platform_script() -> QWebEngineScript:
     return script
 
 
-def _is_internal(url: QUrl, origin: QUrl) -> bool:
-    return (url.scheme(), url.host(), url.port()) == (origin.scheme(), origin.host(), origin.port())
-
-
 def _open_external(url: QUrl, origin: QUrl) -> bool:
-    if url.scheme() in ("http", "https") and not _is_internal(url, origin):
+    internal = (url.scheme(), url.host(), url.port()) == (
+        origin.scheme(),
+        origin.host(),
+        origin.port(),
+    )
+    if url.scheme() in ("http", "https") and not internal:
         if not QDesktopServices.openUrl(url):
             log.fail("Could not open external URL", url.toString())
         return True
@@ -84,7 +85,9 @@ class BrowserView(QWebEngineView):
         downloads = QStandardPaths.writableLocation(
             QStandardPaths.StandardLocation.DownloadLocation
         )
-        picked = save_file("Save file", str(Path(downloads) / request.downloadFileName()))
+        picked, _ = QFileDialog.getSaveFileName(
+            None, "Save file", str(Path(downloads) / request.downloadFileName())
+        )
         if not picked:
             request.cancel()
             return

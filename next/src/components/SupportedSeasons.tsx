@@ -22,7 +22,7 @@ function FullSupport() {
             Select the game mode in the <strong>Playlist</strong> tab
           </li>
           <li>
-            For Terrorist Hunt or the Outbreak event, join the{" "}
+            For any PvE mode, make sure all players are on the{" "}
             <strong>blue team</strong>, then start the match
           </li>
         </ol>

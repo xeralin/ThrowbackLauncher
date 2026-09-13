@@ -1,12 +1,14 @@
 import contextlib
+import re
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
 from core import log
-from core.constants import TEXTURE_QUALITIES, TEXTURE_RX
+from core.constants import TEXTURE_QUALITIES
 
 KINDS = ("videos", "events", "textures")
+_TEXTURE_RX = re.compile(r"textures(\d)")
 
 
 def folder_size(path: Path) -> int:
@@ -22,7 +24,7 @@ def _texture_forges(path: Path) -> Iterator[tuple[Path, int, int]]:
     for f in path.iterdir():
         if f.suffix.lower() != ".forge":
             continue
-        m = TEXTURE_RX.search(f.stem)
+        m = _TEXTURE_RX.search(f.stem)
         if not m:
             continue
         level = int(m.group(1))
@@ -63,10 +65,6 @@ def _files_size(files: list[Path]) -> int:
     return size
 
 
-def _videos_size(path: Path) -> int:
-    return _files_size(_video_files(path)) + folder_size(_startup_dir(path))
-
-
 def _event_files(path: Path, pattern: str) -> list[Path]:
     try:
         return [
@@ -96,7 +94,7 @@ def _delete_files(files: list[Path]) -> None:
 def scan_download(d: Path, event_pattern: str | None) -> dict:
     return {
         "tiers": _texture_tiers(d),
-        "videos": _videos_size(d),
+        "videos": _files_size(_video_files(d)) + folder_size(_startup_dir(d)),
         "events": _files_size(_event_files(d, event_pattern)) if event_pattern else 0,
     }
 

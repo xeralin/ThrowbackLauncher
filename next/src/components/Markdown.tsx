@@ -3,7 +3,7 @@ import type { ComponentProps } from "react";
 import { toJsxRuntime, type Components } from "hast-util-to-jsx-runtime";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 import { ExternalLink } from "@/components/ExternalLink";
-import { StrokeIcon } from "@/components/icons";
+import { CHECK, CHEVRON_RIGHT, StrokeIcon } from "@/components/icons";
 import { Note } from "@/components/Note";
 import { OPENABLE, parseInline, toAlert } from "@/lib/markdown";
 
@@ -54,14 +54,12 @@ const components: Partial<Components> = {
           : "border-border bg-surface-2"
       }`}
     >
-      {checked && (
-        <StrokeIcon d="M5 13l4 4L19 7" className="size-3 [&]:stroke-[3]" />
-      )}
+      {checked && <StrokeIcon d={CHECK} className="size-3 [&]:stroke-[3]" />}
     </span>
   ),
   summary: ({ children }) => (
     <summary>
-      <StrokeIcon d="m9 6 6 6-6 6" className="size-3.5 shrink-0" />
+      <StrokeIcon d={CHEVRON_RIGHT} className="size-3.5 shrink-0" />
       <span>{children}</span>
     </summary>
   ),

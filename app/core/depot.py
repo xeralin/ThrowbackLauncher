@@ -21,7 +21,6 @@ def ensure_depotdownloader(reporter: Reporter | None = None, force: bool = False
         return DD_BIN
 
     reporter = reporter or NullReporter()
-    reporter.update("Fetching DepotDownloader")
     BIN_DIR.mkdir(parents=True, exist_ok=True)
     part = DD_BIN.with_name(DD_BIN.name + ".part")
     try:

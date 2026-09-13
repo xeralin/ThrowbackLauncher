@@ -17,7 +17,7 @@ import { Note } from "@/components/Note";
 import { SeasonDetail } from "@/components/SeasonDetail";
 import { CardKeyArt, SeasonKeyArt } from "@/components/SeasonKeyArt";
 import { StrokeIcon } from "@/components/icons";
-import { iconBox, inputClasses } from "@/components/ui";
+import { iconBox, inputClasses, heading } from "@/components/ui";
 import {
   editionActive,
   editionLaunching,
@@ -364,7 +364,7 @@ const DashCard = memo(function DashCard({
         </span>
       )}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 py-2 pl-3 pr-2">
-        <div className="min-w-0 grow truncate-fade font-display text-[1.05rem] font-bold leading-tight text-text">
+        <div className={`min-w-0 grow truncate-fade ${heading} leading-tight`}>
           {seasonTitle(season)}
         </div>
         {actionLabel && (
@@ -904,11 +904,7 @@ export function SeasonBrowser({
 
   let listContent: ReactNode;
   if (seasons === null || visible === null) {
-    listContent = (
-      <p className="text-ui">
-        <code className="chip animate-pulse">Loading seasons</code>
-      </p>
-    );
+    listContent = null;
   } else if (seasons.length === 0) {
     listContent = emptyMessage;
   } else if (visible.length === 0) {

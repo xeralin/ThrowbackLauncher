@@ -70,6 +70,11 @@ export function TerminalIcon() {
   return <StrokeIcon d="m4 17 6-6-6-6M12 19h8" />;
 }
 
+export const CHEVRON_RIGHT = "m9 6 6 6-6 6";
+export const CHEVRON_LEFT = "m15 6-6 6 6 6";
+export const CHEVRON_DOWN = "m6 9 6 6 6-6";
+export const CHECK = "M5 13l4 4L19 7";
+
 const BOOKMARK = "M19 20l-7-4.6L5 20V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z";
 
 export function BookmarkIcon({ filled = false }: { filled?: boolean }) {

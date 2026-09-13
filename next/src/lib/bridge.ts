@@ -45,7 +45,6 @@ type LibraryObject = {
 };
 
 type InfoSnapshot = {
-  version: string;
   warning: string | null;
 };
 

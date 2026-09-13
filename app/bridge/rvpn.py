@@ -43,12 +43,12 @@ class RvpnController(QObject):
         self._error_in.connect(self._on_error_in)
         self._idle_in.connect(self._on_idle_in)
 
-    def _make_state(self, state: str, step: str = "") -> dict:
+    def _make_state(self, state: str) -> dict:
         return {
             "state": state,
             "installed": is_installed(),
             "hasInstaller": bool(self._installer and self._installer.is_file()),
-            "step": step,
+            "step": "",
             "version": service_version(),
         }
 

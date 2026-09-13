@@ -81,8 +81,10 @@ export function InfoHint({ text }: { text: string }) {
       </button>
       <span
         aria-hidden={!open}
-        className={`absolute left-0 top-full z-20 mt-1.5 w-60 rounded-md border border-border bg-surface-2 p-2 text-left text-ui leading-snug text-text shadow-lg transition-opacity duration-100 ${
-          open ? "opacity-100" : "pointer-events-none opacity-0"
+        className={`absolute left-0 top-full z-20 mt-1.5 w-60 rounded-md border border-border bg-surface-2 p-2 text-left text-ui leading-snug text-text shadow-lg transition-[opacity,display] transition-discrete duration-100 ${
+          open
+            ? "opacity-100 starting:opacity-0"
+            : "pointer-events-none hidden opacity-0"
         }`}
       >
         {text}

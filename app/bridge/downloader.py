@@ -95,7 +95,6 @@ def _apply_install(
             reporter.fail(str(e))
             return False
         return True
-    reporter.update("Copying files")
     try:
         apply_tl(target, username)
         write_launcher(target)
@@ -541,7 +540,7 @@ class DownloadController(QObject):
         code = season_code(season_key)
         removed_message = f"{code} download removed"
         if not targets:
-            if not self.running and (season_key, hm) == (self._active_key, self._active_hm):
+            if (season_key, hm) == (self._active_key, self._active_hm):
                 self._on_deleted_in(season_key, hm, True, removed_message)
             else:
                 self.partial_deleted.emit(season_key, hm, False, "Nothing to remove")
@@ -1179,12 +1178,8 @@ class DownloadController(QObject):
                 self._set_active_key("")
         elif code != 0:
             outcome = (
-                "rate_limited"
-                if self._rate_limit_hit
-                else "no_space"
-                if _out_of_space(self._target.parent)
-                else "verify_failed"
-                if verifying
+                "no_space"
+                if not self._rate_limit_hit and _out_of_space(self._target.parent)
                 else "failed"
             )
             self._set_state("failed")

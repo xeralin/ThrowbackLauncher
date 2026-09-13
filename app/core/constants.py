@@ -109,7 +109,6 @@ HM_TAG_API_URL_FMT = "https://api.github.com/repos/DataCluster0/HeatedMetal/rele
 HM_LAUNCHER = "RainbowSix.exe"
 VULKAN_EXE = "RainbowSix_Vulkan.exe"
 
-RVPN_TAP_DEV = "radminvpn0"
 RVPN_BIN_DIR = ASSET_ROOT / "rvpn"
 RVPN_STATE_DIR = DATA_ROOT / "rvpn"
 RVPN_PREFIX = RVPN_STATE_DIR / "wineprefix"
@@ -186,16 +185,10 @@ GAME_RUNNING = "Stop R6S first"
 SEASON_RUNNING = "Stop this season first"
 
 NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
-INVALID_NAME_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
 MAX_USERNAME_LENGTH = 16
 
 HEX_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 DEFAULT_ACCENT = "#c0152a"
-DEFAULT_BAR_FILL = "#c388e3"
-DEFAULT_BAR_STRIPE = "#dcbaef"
-HOME_GRID_MAX_W = 4
-HOME_GRID_MAX_H = 7
-HOME_GRID_DEFAULT_SIZE = "1x2"
 
 EVENT_SEASONS = {
     "Y3S1_Chimera": "fury",
@@ -206,4 +199,3 @@ EVENT_SEASONS = {
 }
 
 TEXTURE_QUALITIES = ("Low", "Medium", "High", "Very High", "Ultra")
-TEXTURE_RX = re.compile(r"textures(\d)")

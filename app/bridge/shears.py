@@ -15,10 +15,6 @@ from core.shears import KINDS, cut_download, scan_download
 from core.steam import is_season_running
 
 
-def _empty() -> dict:
-    return {"videos": 0, "events": 0, "tiers": []}
-
-
 def _fail(key: str, message: str) -> dict:
     return {"key": key, "ok": False, "message": message}
 
@@ -62,7 +58,9 @@ class ShearsController(QObject):
         try:
             path = installed_path(key, False)
             if path is None:
-                self._scan_done_in.emit({"key": key, "ok": True, "scan": _empty()})
+                self._scan_done_in.emit(
+                    {"key": key, "ok": True, "scan": {"videos": 0, "events": 0, "tiers": []}}
+                )
                 return
             scan = _serialize(scan_download(path, EVENT_SEASONS.get(key)))
             self._scan_done_in.emit({"key": key, "ok": True, "scan": scan})

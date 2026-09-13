@@ -304,14 +304,12 @@
   }
 
   input,
-  textarea,
   .prose {
     user-select: text;
     -webkit-user-select: text;
   }
 
-  .prose img,
-  .prose video {
+  .prose img {
     user-select: none;
     -webkit-user-select: none;
   }
@@ -324,8 +322,6 @@
   a,
   button,
   input,
-  select,
-  textarea,
   [role="button"],
   [role="switch"] {
     border-radius: var(--radius-md);
@@ -510,8 +506,8 @@
   animation-fill-mode: both;
   animation-timeline: scroll(self block);
   animation-range:
-    0px var(--fade-edge),
-    calc(100% - var(--fade-edge)) 100%;
+    0px 1px,
+    calc(100% - 1px) 100%;
 }
 
 @utility transfer-fill {

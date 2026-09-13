@@ -1,4 +1,5 @@
 import contextlib
+import re
 import shlex
 import shutil
 import threading
@@ -14,8 +15,6 @@ from core.constants import (
     DATA_ROOT,
     DD_BIN,
     DEFAULT_ACCENT,
-    DEFAULT_BAR_FILL,
-    DEFAULT_BAR_STRIPE,
     DEFAULT_DOWNLOADS_DIR,
     DEFAULT_MAX_DOWNLOADS,
     DEFAULT_USERNAME,
@@ -23,10 +22,6 @@ from core.constants import (
     DOWNLOADS_MIN,
     FOLDER_NOT_FOUND,
     HEX_PATTERN,
-    HOME_GRID_DEFAULT_SIZE,
-    HOME_GRID_MAX_H,
-    HOME_GRID_MAX_W,
-    INVALID_NAME_CHARS,
     LOG_FILE,
     MAX_USERNAME_LENGTH,
     SEVENZ_BIN,
@@ -100,9 +95,11 @@ PREF_DEFAULTS: dict[str, object] = {
     "home_sizes": {},
     "launch_args": {},
     "accent": DEFAULT_ACCENT,
-    "bar_fill": DEFAULT_BAR_FILL,
-    "bar_stripe": DEFAULT_BAR_STRIPE,
+    "bar_fill": "#c388e3",
+    "bar_stripe": "#dcbaef",
 }
+
+_INVALID_NAME_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
 
 
 def _display_path(root: Path) -> str:
@@ -195,9 +192,9 @@ class SettingsController(QObject):
 
     @Slot(str, int, int)
     def set_home_size(self, key: str, width: int, height: int) -> None:
-        size = f"{max(1, min(HOME_GRID_MAX_W, width))}x{max(1, min(HOME_GRID_MAX_H, height))}"
+        size = f"{max(1, min(4, width))}x{max(1, min(7, height))}"
         sizes = self.home_sizes
-        if size == HOME_GRID_DEFAULT_SIZE:
+        if size == "1x2":
             if key not in sizes:
                 return
             del sizes[key]
@@ -350,7 +347,7 @@ class SettingsController(QObject):
 
     @Slot(str)
     def set_username(self, value: str) -> None:
-        value = INVALID_NAME_CHARS.sub("", value)
+        value = _INVALID_NAME_CHARS.sub("", value)
         if not value:
             self.settings_error.emit("username", "Username is empty")
             return

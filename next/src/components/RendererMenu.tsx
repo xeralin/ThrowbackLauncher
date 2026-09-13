@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { buttonVariants } from "@/components/Button";
-import { StrokeIcon } from "@/components/icons";
+import { CHEVRON_DOWN, StrokeIcon } from "@/components/icons";
 
 const RENDERERS = [
   { vulkan: false, label: "DirectX" },
@@ -61,7 +61,7 @@ export function RendererMenu({
         className={`inline-flex h-8 w-6 shrink-0 items-center justify-center rounded-md rounded-l-none transition duration-200 ${buttonVariants.primary} disabled:cursor-not-allowed disabled:opacity-40`}
       >
         <StrokeIcon
-          d="m6 9 6 6 6-6"
+          d={CHEVRON_DOWN}
           className={`size-3.5 transition-transform duration-200${open ? " rotate-180" : ""}`}
         />
       </button>

@@ -342,7 +342,8 @@ export function SeasonDetail({
     refreshLibraries();
     const library = preferredLibrary();
     setDlLibrary(library);
-    if (multiLib) setModal({ kind: "download" });
+    const chosen = libs.find((entry) => entry.default && !entry.fixed);
+    if (multiLib && !chosen?.exists) setModal({ kind: "download" });
     else startDownload(library);
   }
 

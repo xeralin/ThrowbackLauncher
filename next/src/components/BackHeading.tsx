@@ -1,4 +1,4 @@
-import { StrokeIcon } from "@/components/icons";
+import { StrokeIcon, CHEVRON_LEFT } from "@/components/icons";
 
 export function BackHeading({
   title,
@@ -16,7 +16,7 @@ export function BackHeading({
         className="group flex w-fit items-center"
       >
         <StrokeIcon
-          d="m15 6-6 6 6 6"
+          d={CHEVRON_LEFT}
           className="-ml-2 size-6 shrink-0 -translate-y-[1.5px] text-text-muted transition-colors group-hover:text-text"
         />
         <span className="sr-only">Back </span>

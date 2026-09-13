@@ -21,7 +21,6 @@ from core.constants import (
     RVPN_MAC_FILE,
     RVPN_PREFIX,
     RVPN_STATE_DIR,
-    RVPN_TAP_DEV,
     WINE_API_URL,
     WINE_ASSET_SUFFIX,
     WINE_BIN,
@@ -30,7 +29,7 @@ from core.constants import (
 from core.github import CancelledError, RateLimitError, fetch_to, github_asset
 from core.reporter import Reporter
 
-_TAP = RVPN_TAP_DEV
+_TAP = "radminvpn0"
 _RVPN_APP = RVPN_PREFIX / "drive_c" / "Program Files (x86)" / "Radmin VPN"
 _SERVICE_LOG = RVPN_PREFIX / "drive_c" / "ProgramData" / "Famatech" / "Radmin VPN" / "service.log"
 _SYS32 = RVPN_PREFIX / "drive_c" / "windows" / "system32"
@@ -355,10 +354,6 @@ def uninstall() -> None:
     RVPN_MAC_FILE.unlink(missing_ok=True)
 
 
-def _tap_exists() -> bool:
-    return Path("/sys/class/net", _TAP).exists()
-
-
 class _Root:
     def __init__(self) -> None:
         self._proc: subprocess.Popen | None = None
@@ -614,7 +609,7 @@ class Session:
                 return "cancelled"
             if not self._root.alive():
                 return "authorization was declined"
-            if _tap_exists():
+            if Path("/sys/class/net", _TAP).exists():
                 return None
             time.sleep(0.1)
         return "could not create the network device"

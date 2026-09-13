@@ -6,7 +6,7 @@ import { Button, iconButton } from "@/components/Button";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Modal } from "@/components/Modal";
 import { Note } from "@/components/Note";
-import { ListRow, PickerRow, card } from "@/components/ui";
+import { ListRow, PickerRow, card, heading } from "@/components/ui";
 import {
   AccentPicker,
   ColorBar,
@@ -84,11 +84,7 @@ export default function SettingsPage() {
     <>
       <Tabs tabs={TABS} active={tab} onSelect={setTab} />
 
-      {!settings ? (
-        <p className="mt-4 text-ui">
-          <code className="chip animate-pulse">Loading</code>
-        </p>
-      ) : (
+      {settings && (
         <div
           role="tabpanel"
           id={`tabpanel-${tab}`}
@@ -277,7 +273,7 @@ export default function SettingsPage() {
             <div className="grid max-w-[1160px] grid-cols-2 items-start gap-4 max-settings:grid-cols-1">
               <div className={card}>
                 <div className="grid grid-cols-2 gap-4">
-                  <span className="flex h-8 items-center font-display text-[1.05rem] font-bold text-text">
+                  <span className={`flex h-8 items-center ${heading}`}>
                     Progress bar
                   </span>
                   <span className="flex items-center justify-end gap-2">
@@ -315,7 +311,7 @@ export default function SettingsPage() {
               </div>
               <div className={card}>
                 <div className="grid grid-cols-2 gap-4">
-                  <span className="flex h-8 items-center font-display text-[1.05rem] font-bold text-text">
+                  <span className={`flex h-8 items-center ${heading}`}>
                     Accent
                   </span>
                   <span className="row-span-2 min-w-0">

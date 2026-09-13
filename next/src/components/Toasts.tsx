@@ -110,13 +110,13 @@ export function Toasts() {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`grid transition-[grid-template-rows] duration-200 ease-out-cubic ${
+          className={`grid overflow-hidden transition-[grid-template-rows] duration-200 ease-out-cubic ${
             toast.leaving
               ? "[grid-template-rows:0fr]"
               : "animate-toast-in [grid-template-rows:1fr]"
           }`}
         >
-          <div className="min-h-0 overflow-hidden">
+          <div className="min-h-0 self-start">
             <button
               type="button"
               onMouseEnter={() => pause(toast.id)}

@@ -38,14 +38,13 @@ export const FAQ_PAGES = {
   },
   "heated-metal": {
     title: "Heated Metal",
-    description:
-      "An SDK for Rainbow Six Siege — map editor, extended scripting, unlock all, and more.",
+    description: "An SDK with a map editor, scripting, unlock all and more.",
     tag: "Tools & Mods",
     corner: "HM",
   },
   "cheat-engine": {
     title: "Cheat Engine",
-    description: "How to use Cheat Engine to modify old Rainbow Six Siege.",
+    description: "How to set up Cheat Engine and use the cheat tables.",
     tag: "Tools & Mods",
     corner: "CE",
   },

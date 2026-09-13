@@ -48,7 +48,6 @@ def ensure_7z(reporter: Reporter, force: bool = False) -> Path:
     if SEVENZ_BIN.exists() and not force:
         return SEVENZ_BIN
 
-    reporter.update("Fetching 7z")
     BIN_DIR.mkdir(parents=True, exist_ok=True)
     try:
         _, asset_url = github_asset(SEVENZ_API_URL, SEVENZ_ASSET)
@@ -110,14 +109,11 @@ def _prune_archives(keep: Path) -> None:
 
 
 def _fetch_hm_mod(hm_version: str, tmp_dir: Path, reporter: Reporter) -> tuple[str, Path]:
-    if hm_version == "latest":
-        reporter.update("Looking up Heated Metal release")
     tag, asset_url = resolve_hm_release(hm_version)
 
     BIN_DIR.mkdir(parents=True, exist_ok=True)
     archive_path = BIN_DIR / f"HeatedMetal-{tag}.7z"
     if not archive_path.exists():
-        reporter.update(f"Fetching Heated Metal {tag}")
         try:
             fetch_to(asset_url, archive_path, on_progress=reporter.progress)
         except RateLimitError:
@@ -149,8 +145,6 @@ def _mod_root(extracted: Path) -> Path | None:
 
 def _extract_hm_archive(archive: Path, tmp_dir: Path, reporter: Reporter) -> Path:
     sevenz = ensure_7z(reporter)
-
-    reporter.update(f"Extracting {archive.name}")
     try:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         tmp_dir.mkdir(parents=True)
@@ -251,8 +245,6 @@ def apply_hm(
             )
 
         ensure_tl(reporter)
-
-        reporter.update("Copying files")
         try:
             apply_tl(target_dir, username)
             _apply_hm_mod(target_dir, mod_dir)

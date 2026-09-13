@@ -283,11 +283,8 @@ export function Sidebar({
     >
       <div className="border-b border-border px-5 pb-4 pt-6 max-nav:pt-14">
         <div
-          tabIndex={0}
           onMouseEnter={showMembers}
           onMouseLeave={() => setMembersShown(false)}
-          onFocus={showMembers}
-          onBlur={() => setMembersShown(false)}
           className={`mb-[0.3rem] w-fit ${microLabel} text-micro text-action`}
         >
           {membersShown && members

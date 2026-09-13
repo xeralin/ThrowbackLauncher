@@ -56,7 +56,6 @@ def ensure_tl(reporter: Reporter | None = None, force: bool = False) -> None:
         return
 
     reporter = reporter or NullReporter()
-    reporter.update("Fetching ThrowbackLoader")
     TL_DIR.mkdir(parents=True, exist_ok=True)
     zip_path = TL_DIR / "tl.zip"
     tmp_dir = TL_DIR / ".tl.tmp"

@@ -12,7 +12,6 @@ from pathlib import Path
 
 from core import log
 from core.constants import IS_WINDOWS
-from core.manifest import hm_display_name
 from layout import OWNER
 
 OP_HANDSHAKE = 0
@@ -322,7 +321,7 @@ class Presence:
 def build_activity(download: dict, is_hm: bool, start: int) -> tuple[str, dict]:
     activity = {
         "status_display_type": STATUS_DISPLAY_DETAILS,
-        "details": hm_display_name(download) if is_hm else download["label"],
+        "details": download["label"],
         "timestamps": {"start": start},
         "buttons": [FAQ_BUTTON],
     }

@@ -2,6 +2,7 @@
 
 import { LogBox, type LogLine } from "@/components/LogBox";
 import { determinatePercent, useDownloadProgress } from "@/lib/bridge";
+import { heading } from "@/components/ui";
 
 function percentValue(
   progress: number,
@@ -18,7 +19,9 @@ export function TransferPercent({ state }: { state: string }) {
   const percent = percentValue(progress, step, steps, state);
   if (percent === null) return null;
   return (
-    <span className="block translate-y-[0.5px] font-display text-[1.05rem] font-bold leading-none tabular-nums text-text">
+    <span
+      className={`block translate-y-[0.5px] ${heading} leading-none tabular-nums`}
+    >
       {percent}%
     </span>
   );
