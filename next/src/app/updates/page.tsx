@@ -7,7 +7,7 @@ import { card, iconBox, ListRow } from "@/components/ui";
 import { Note } from "@/components/Note";
 import { ExternalLink } from "@/components/ExternalLink";
 import { VersionChip } from "@/components/VersionChip";
-import { Dialog } from "@/components/Dialog";
+import { Modal } from "@/components/Modal";
 import { StrokeIcon } from "@/components/icons";
 import {
   useDownloader,
@@ -272,7 +272,7 @@ export default function UpdatesPage() {
       </div>
 
       {installed && (
-        <Dialog title="Installed versions" onClose={() => setInstalled(null)}>
+        <Modal title="Installed versions" onClose={() => setInstalled(null)}>
           <div className="flex flex-col gap-2">
             {installed.map((component) => (
               <ListRow key={component.name} label={component.name}>
@@ -280,7 +280,7 @@ export default function UpdatesPage() {
               </ListRow>
             ))}
           </div>
-        </Dialog>
+        </Modal>
       )}
     </>
   );

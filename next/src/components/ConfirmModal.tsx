@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Button } from "@/components/Button";
-import { Dialog } from "@/components/Dialog";
+import { Modal } from "@/components/Modal";
 import { Note } from "@/components/Note";
 
 export function ConfirmModal({
@@ -27,7 +27,7 @@ export function ConfirmModal({
   children?: ReactNode;
 }) {
   return (
-    <Dialog
+    <Modal
       title={title}
       onClose={busy ? undefined : onCancel}
       onConfirm={busy || !confirmOnEnter ? undefined : onConfirm}
@@ -44,6 +44,6 @@ export function ConfirmModal({
       }
     >
       {children}
-    </Dialog>
+    </Modal>
   );
 }

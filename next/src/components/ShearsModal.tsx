@@ -1,7 +1,7 @@
 "use client";
 
 import { iconButton } from "@/components/Button";
-import { Dialog } from "@/components/Dialog";
+import { Modal } from "@/components/Modal";
 import { Note } from "@/components/Note";
 import { ListRow } from "@/components/ui";
 import { RemoveIcon } from "@/components/icons";
@@ -24,7 +24,7 @@ export function ShearsModal({
     if (document.activeElement === document.body) firstCutRef.current?.focus();
   }, [actions]);
   return (
-    <Dialog
+    <Modal
       title="Shears"
       onClose={busy ? undefined : onClose}
       footer={
@@ -52,6 +52,6 @@ export function ShearsModal({
           </ListRow>
         ))}
       </div>
-    </Dialog>
+    </Modal>
   );
 }

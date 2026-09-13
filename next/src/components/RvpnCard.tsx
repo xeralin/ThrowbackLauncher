@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button, iconButton } from "@/components/Button";
-import { Dialog } from "@/components/Dialog";
+import { Modal } from "@/components/Modal";
 import { ExternalLink } from "@/components/ExternalLink";
 import { Note } from "@/components/Note";
 import { card, ListRow } from "@/components/ui";
@@ -80,7 +80,7 @@ export function RvpnCard() {
     <div className={card}>
       <Row label="Radmin VPN">{content}</Row>
       {manageOpen && (
-        <Dialog
+        <Modal
           title={
             <span className="flex items-center justify-between gap-3">
               Radmin VPN
@@ -117,7 +117,7 @@ export function RvpnCard() {
               </button>
             </ListRow>
           </div>
-        </Dialog>
+        </Modal>
       )}
     </div>
   );

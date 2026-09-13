@@ -7,7 +7,7 @@ import { hasOpenInfoHint } from "@/components/InfoHint";
 
 const stack: { id: symbol; el: HTMLElement | null }[] = [];
 
-export function hasOpenDialog(): boolean {
+export function hasOpenModal(): boolean {
   return stack.length > 0;
 }
 
@@ -24,7 +24,7 @@ function setBackgroundInert(inert: boolean) {
   }
 }
 
-export function Dialog({
+export function Modal({
   title,
   children,
   footer,
@@ -37,7 +37,7 @@ export function Dialog({
   onClose?: () => void;
   onConfirm?: () => void;
 }) {
-  const id = useRef(Symbol("dialog"));
+  const id = useRef(Symbol("modal"));
   const titleId = useId();
   const overlayRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -107,7 +107,7 @@ export function Dialog({
           document.activeElement.blur();
         onClose?.();
       }}
-      className="fixed inset-0 z-(--z-dialog) flex items-center justify-center bg-black/60 animate-fade-in"
+      className="fixed inset-0 z-(--z-modal) flex items-center justify-center bg-black/60 animate-fade-in"
     >
       <div className="animate-fade-up">
         <div
@@ -122,7 +122,7 @@ export function Dialog({
             {title}
           </h2>
           {children && (
-            <div className="scroll-fade -mx-6 -my-5 max-h-[25.5rem] min-h-0 overflow-y-auto px-6 py-5">
+            <div className="scroll-fade -mx-6 max-h-[23rem] min-h-0 overflow-y-auto px-6">
               {children}
             </div>
           )}

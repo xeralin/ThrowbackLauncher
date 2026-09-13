@@ -68,7 +68,7 @@
   --z-sidebar: 100;
   --z-link-preview: 101;
   --z-hamburger: 110;
-  --z-dialog: 150;
+  --z-modal: 150;
   --z-toast: 200;
 
   --breakpoint-narrow: 32.5em;

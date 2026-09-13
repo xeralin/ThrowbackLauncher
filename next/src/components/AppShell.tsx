@@ -14,7 +14,7 @@ import { onBridgeEvent, useInfo, useSettings } from "@/lib/bridge";
 import { DetailContext, type DetailCrumb } from "@/lib/detail";
 import { resetPlatformView } from "@/lib/platform-view";
 import { RATE_LIMIT_TOAST, showToast } from "@/lib/toast";
-import { hasOpenDialog } from "@/components/Dialog";
+import { hasOpenModal } from "@/components/Modal";
 import { hasOpenInfoHint } from "@/components/InfoHint";
 
 const ERROR_TARGETS: [string, string | undefined][] = [
@@ -157,7 +157,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         target instanceof HTMLTextAreaElement
       )
         return;
-      if (hasOpenDialog() || hasOpenInfoHint()) return;
+      if (hasOpenModal() || hasOpenInfoHint()) return;
       if (open) {
         setOpen(false);
         return;

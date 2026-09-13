@@ -11,7 +11,7 @@ import {
 import { BackHeading } from "@/components/BackHeading";
 import { Button, iconButton } from "@/components/Button";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { Dialog } from "@/components/Dialog";
+import { Modal } from "@/components/Modal";
 import { ExternalLink } from "@/components/ExternalLink";
 import {
   DefaultLibraryIcon,
@@ -115,7 +115,7 @@ const NO_INSTALLS: SeasonInstalls = {
 
 type TabId = "manage" | "info";
 
-type Modal =
+type SeasonModal =
   | { kind: "shears" }
   | { kind: "uninstall"; hm: boolean }
   | { kind: "switch"; toHm: boolean }
@@ -142,7 +142,7 @@ export function SeasonDetail({
 }) {
   const [log, setLog] = useState<LogLine[]>([]);
   const logId = useRef(0);
-  const [modal, setModal] = useState<Modal | null>(null);
+  const [modal, setModal] = useState<SeasonModal | null>(null);
   const [dlLibrary, setDlLibrary] = useState("");
   const [argsSaved, setArgsSaved] = useState(0);
   const [tab, setTab] = useState<TabId>("manage");
@@ -598,7 +598,7 @@ export function SeasonDetail({
       </div>
 
       {modal?.kind === "download" && (
-        <Dialog
+        <Modal
           title={
             <span className="flex items-center justify-between gap-3">
               Download
@@ -633,7 +633,7 @@ export function SeasonDetail({
             selected={dlLibrary}
             onSelect={setDlLibrary}
           />
-        </Dialog>
+        </Modal>
       )}
 
       {modal?.kind === "lockedOperators" && (
@@ -699,7 +699,7 @@ export function SeasonDetail({
       )}
 
       {modal?.kind === "launchArgs" && (
-        <Dialog
+        <Modal
           title="Launch options"
           onClose={() => setModal(null)}
           footer={
@@ -721,7 +721,7 @@ export function SeasonDetail({
             />
             <SaveCheck confirm={argsSaved} />
           </div>
-        </Dialog>
+        </Modal>
       )}
 
       {modal?.kind === "shears" && (

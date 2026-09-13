@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { iconButton } from "@/components/Button";
-import { Dialog } from "@/components/Dialog";
+import { Modal } from "@/components/Modal";
 import { Note } from "@/components/Note";
 import { ListRow } from "@/components/ui";
 import { RemoveIcon, StrokeIcon } from "@/components/icons";
@@ -62,7 +62,7 @@ export function CheatEngineInstaller() {
       </button>
 
       {seasons && (
-        <Dialog
+        <Modal
           title="Cheat Engine"
           onClose={() => setSeasons(null)}
           footer={
@@ -96,7 +96,7 @@ export function CheatEngineInstaller() {
               </ListRow>
             ))}
           </div>
-        </Dialog>
+        </Modal>
       )}
     </>
   );

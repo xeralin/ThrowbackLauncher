@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button, iconButton } from "@/components/Button";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { Dialog } from "@/components/Dialog";
+import { Modal } from "@/components/Modal";
 import { Note } from "@/components/Note";
 import { ListRow, PickerRow, card } from "@/components/ui";
 import {
@@ -383,7 +383,7 @@ export default function SettingsPage() {
       )}
 
       {protonOpen && settings && protons && (
-        <Dialog title="Proton" onClose={() => setProtonOpen(false)}>
+        <Modal title="Proton" onClose={() => setProtonOpen(false)}>
           <div className="flex flex-col gap-2">
             {protons.map((proton) => {
               const selected = settings.proton === proton.internal;
@@ -400,7 +400,7 @@ export default function SettingsPage() {
               );
             })}
           </div>
-        </Dialog>
+        </Modal>
       )}
     </>
   );

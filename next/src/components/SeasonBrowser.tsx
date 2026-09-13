@@ -41,7 +41,7 @@ import { useDetail } from "@/lib/detail";
 import { seasonRank } from "@/lib/seasons";
 import { useTopbarSlot } from "@/lib/topbar-slot";
 import { withViewTransition } from "@/lib/view-transition";
-import { hasOpenDialog } from "@/components/Dialog";
+import { hasOpenModal } from "@/components/Modal";
 
 const BannerCard = memo(function BannerCard({
   season,
@@ -438,7 +438,7 @@ export function SeasonBrowser({
         target instanceof HTMLTextAreaElement
       )
         return;
-      if (hasOpenDialog()) return;
+      if (hasOpenModal()) return;
       event.preventDefault();
       setQuery((prev) =>
         erasing

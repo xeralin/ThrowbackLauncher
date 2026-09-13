@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/Button";
-import { Dialog } from "@/components/Dialog";
+import { Modal } from "@/components/Modal";
 import { inputClasses } from "@/components/ui";
 import { useDownloader } from "@/lib/bridge";
 
@@ -105,7 +105,7 @@ export function SteamLoginModal() {
   if (!loginKind) return null;
   const isGuard = loginKind.startsWith("guard");
   return (
-    <Dialog
+    <Modal
       title={isGuard ? "Steam Guard" : "Steam login"}
       onClose={cancelLogin}
       onConfirm={submitLogin}
@@ -161,6 +161,6 @@ export function SteamLoginModal() {
           onChange={setLoginText}
         />
       )}
-    </Dialog>
+    </Modal>
   );
 }
