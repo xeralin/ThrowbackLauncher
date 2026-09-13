@@ -136,7 +136,8 @@ type HistoryEntry = {
 };
 
 type CardAction = {
-  kind: "pause" | "dequeue" | "verify" | "cancel" | "play" | "stop";
+  kind:
+    "pause" | "continue" | "dequeue" | "verify" | "cancel" | "play" | "stop";
   label: string;
   primary: boolean;
 };
@@ -664,6 +665,9 @@ export function SeasonBrowser({
             ? { kind: "pause", label: "Pause", primary: false }
             : null;
         }
+        if (activeEdition && dl.state === "paused") {
+          return { kind: "continue", label: "Continue", primary: false };
+        }
         if (activeEdition && dl.state === "failed") {
           return { kind: "verify", label: "Verify", primary: false };
         }
@@ -802,6 +806,9 @@ export function SeasonBrowser({
     switch (action.kind) {
       case "pause":
         dl.setPaused(true);
+        break;
+      case "continue":
+        dl.setPaused(false);
         break;
       case "dequeue":
         dl.dequeue(season.key, season.hm);
