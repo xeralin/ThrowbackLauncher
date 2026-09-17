@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/
+.lock
+/rvpn/
+/Liberator.exe
+/nuitka-out/
+/app-out/
+/installer-out/
+/build/
+/out/
+/appimagetool
+/src/rvpn/build/
+/src/liberator/target/
+/src/liberator/shadow/target/
+/src/liberator/shadow/Shadow.dll

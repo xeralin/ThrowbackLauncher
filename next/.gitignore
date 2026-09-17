@@ -1,0 +1,8 @@
+/node_modules
+/.next/
+/out/
+/public/keyart/
+.pnpm-debug.log*
+.env*.local
+*.tsbuildinfo
+next-env.d.ts

@@ -1,0 +1,4 @@
+* text=auto
+*.ct -text
+src/liberator/src/ownership.rs filter=git-crypt diff=git-crypt
+src/liberator/src/tables/ownership.rs filter=git-crypt diff=git-crypt

@@ -1,0 +1,354 @@
+app = 359550
+depot_content = 359551
+depot_ww = 377237
+depot_rus = 377238
+
+[Y1S0_Vanilla]
+label = 'Y1S0 Vanilla'
+build = '8194013'
+manifest_content = '3893422760579204530'
+manifest_ww = '8358812283631269928'
+manifest_rus = '6835384933146381100'
+size_gb = 14.2
+
+[Y1S1_BlackIce]
+label = 'Y1S1 Black Ice'
+build = '8519860'
+manifest_content = '7932785808040895147'
+manifest_ww = '5188997148801516344'
+manifest_rus = '5362991837480196824'
+size_gb = 16.7
+
+[Y1S2_DustLine]
+label = 'Y1S2 Dust Line'
+build = '9132097'
+manifest_content = '2206497318678061176'
+manifest_ww = '2303064029242396590'
+manifest_rus = '3040224537841664111'
+size_gb = 20.9
+
+[Y1S3_SkullRain]
+label = 'Y1S3 Skull Rain'
+build = '9860556'
+manifest_content = '5851804596427790505'
+manifest_ww = '5819137024728546741'
+manifest_rus = '2956768406107766016'
+size_gb = 25.1
+
+[Y1S4_RedCrow]
+label = 'Y1S4 Red Crow'
+build = '10211195'
+manifest_content = '8569920171217002292'
+manifest_ww = '3576607363557872807'
+manifest_rus = '912564683190696342'
+size_gb = 28.5
+
+[Y2S1_VelvetShell]
+label = 'Y2S1 Velvet Shell'
+build = '10751226'
+manifest_content = '8006071763917433748'
+manifest_ww = '2248734317261478192'
+manifest_rus = '2687181326074258760'
+size_gb = 33.2
+
+[Y2S2_Health]
+label = 'Y2S2 Health'
+build = '11216230'
+manifest_content = '708773000306432190'
+manifest_ww = '5875987479498297665'
+manifest_rus = '8542242518901049325'
+size_gb = 34.0
+
+[Y2S3_BloodOrchid]
+label = 'Y2S3 Blood Orchid'
+build = '11432634'
+manifest_content = '1613631671988840841'
+manifest_ww = '6708129824495912434'
+manifest_rus = '4662662335520989204'
+size_gb = 34.3
+
+[Y2S4_WhiteNoise]
+label = 'Y2S4 White Noise'
+build = '11580709'
+manifest_content = '4221297486420648079'
+manifest_ww = '8748734086032257441'
+manifest_rus = '8175359039160965183'
+size_gb = 48.7
+
+[Y3S1_Chimera]
+label = 'Y3S1 Chimera'
+build = '11726982'
+manifest_content = '4701787239566783972'
+manifest_ww = '5071357104726974256'
+manifest_rus = '4768963659370299631'
+size_gb = 58.8
+
+[Y3S2_ParaBellum]
+label = 'Y3S2 Para Bellum'
+build = '11965022'
+manifest_content = '8765715607275074515'
+manifest_ww = '6507886921175556869'
+manifest_rus = '7995779530685147208'
+size_gb = 63.3
+
+[Y3S3_GrimSky]
+label = 'Y3S3 Grim Sky'
+build = '12362767'
+manifest_content = '7781202564071310413'
+manifest_ww = '5562094852451837435'
+manifest_rus = '5465169470949211447'
+size_gb = 72.6
+
+[Y3S4_WindBastion]
+label = 'Y3S4 Wind Bastion'
+build = '12512571'
+manifest_content = '7659555540733025386'
+manifest_ww = '6502258854032233436'
+manifest_rus = '5406593359909338734'
+size_gb = 76.9
+
+[Y4S1_BurntHorizon]
+label = 'Y4S1 Burnt Horizon'
+build = '12863847'
+manifest_content = '5935578581006804383'
+manifest_ww = '8356277316976403078'
+manifest_rus = '1384328559966859661'
+size_gb = 58.8
+
+[Y4S2_PhantomSight]
+label = 'Y4S2 Phantom Sight'
+build = '13147883'
+manifest_content = '5408324128694463720'
+manifest_ww = '693082837425613508'
+manifest_rus = '3326664059403997209'
+size_gb = 67.1
+
+[Y4S3_EmberRise]
+label = 'Y4S3 Ember Rise'
+build = '13632147'
+manifest_content = '7869081741739849703'
+manifest_ww = '3546781236735558235'
+manifest_rus = '684480090862996679'
+size_gb = 69.6
+
+[Y4S4_ShiftingTides]
+label = 'Y4S4 Shifting Tides'
+build = '13777760'
+manifest_content = '1842268638395240106'
+manifest_ww = '299124516841461614'
+manifest_rus = '510172308722680354'
+size_gb = 75.2
+
+[Y5S1_VoidEdge]
+label = 'Y5S1 Void Edge'
+build = '14303219'
+manifest_content = '6296533808765702678'
+manifest_ww = '4736360397583523381'
+manifest_rus = '2583838033617047180'
+size_gb = 74.3
+
+[Y5S2_SteelWave]
+label = 'Y5S2 Steel Wave'
+build = '14664131'
+manifest_content = '893971391196952070'
+manifest_ww = '4367817844736324940'
+manifest_rus = '5838065097101371940'
+size_gb = 81.3
+
+[Y5S3_ShadowLegacy]
+label = 'Y5S3 Shadow Legacy'
+build = '15018155'
+manifest_content = '3089981610366186823'
+manifest_ww = '85893637567200342'
+manifest_rus = '4020038723910014041'
+size_gb = 88.0
+hm = true
+hm_version = '0.2.3'
+
+[Y5S4_NeonDawn]
+label = 'Y5S4 Neon Dawn'
+build = '15241382'
+manifest_content = '6947060999143280245'
+manifest_ww = '3390446325154338855'
+manifest_rus = '3175150742361965235'
+size_gb = 57.0
+hm = true
+hm_version = 'latest'
+
+[Y6S1_CrimsonHeist]
+label = 'Y6S1 Crimson Heist'
+build = '15680437'
+manifest_content = '7781896841500953375'
+manifest_ww = '2200775373002020326'
+manifest_rus = '8008777170632151465'
+size_gb = 44.9
+
+[Y6S2_NorthStar]
+label = 'Y6S2 North Star'
+build = '15772114'
+manifest_content = '5588923295150591607'
+manifest_ww = '8537616701006158335'
+manifest_rus = '7182046459781166052'
+size_gb = 62.1
+
+[Y6S3_CrystalGuard]
+label = 'Y6S3 Crystal Guard'
+build = '35130040'
+manifest_content = '1030120416124554825'
+manifest_ww = '9055328556991635819'
+manifest_rus = '4405065504084928682'
+size_gb = 50.3
+
+[Y6S4_HighCalibre]
+label = 'Y6S4 High Calibre'
+build = '37046065'
+manifest_content = '8627214406801860013'
+manifest_ww = '2637055726475611418'
+manifest_rus = '2074678920289758165'
+size_gb = 54.2
+
+[Y7S1_DemonVeil]
+label = 'Y7S1 Demon Veil'
+build = '39785137'
+manifest_content = '2178080523228113690'
+manifest_ww = '8323869632165751287'
+manifest_rus = '1970003626423861715'
+size_gb = 58.8
+
+[Y7S2_VectorGlare]
+label = 'Y7S2 Vector Glare'
+build = '43489433'
+manifest_content = '133280937611742404'
+manifest_ww = '1363132201391540345'
+manifest_rus = '4500117484519539380'
+size_gb = 58.8
+
+[Y7S3_BrutalSwarm]
+label = 'Y7S3 Brutal Swarm'
+build = '47165842'
+manifest_content = '5906302942203575464'
+manifest_ww = '6425223567680952075'
+manifest_rus = '4623590620762156001'
+size_gb = 49.2
+
+[Y7S4_SolarRaid]
+label = 'Y7S4 Solar Raid'
+build = '50497889'
+manifest_content = '1819898955518120444'
+manifest_ww = '4466027729495813039'
+manifest_rus = '5107849703917033235'
+size_gb = 51.1
+
+[Y8S1_CommandingForce]
+label = 'Y8S1 Commanding Force'
+build = '55217154'
+manifest_content = '5863062164463920572'
+manifest_ww = '3275824905781062648'
+manifest_rus = '1252692309389076318'
+size_gb = 53.8
+
+[Y8S2_DreadFactor]
+label = 'Y8S2 Dread Factor'
+build = '58222837'
+manifest_content = '5581702357198571389'
+manifest_ww = '4313757428310343948'
+manifest_rus = '4293396692730784956'
+size_gb = 55.0
+
+[Y8S3_HeavyMettle]
+label = 'Y8S3 Heavy Mettle'
+build = '62486471'
+manifest_content = '3005637025719884427'
+manifest_ww = '2068160275622519212'
+manifest_rus = '2579928666708989224'
+size_gb = 54.8
+
+[Y8S4_DeepFreeze]
+label = 'Y8S4 Deep Freeze'
+build = '67466841'
+manifest_content = '4957295777170965935'
+manifest_ww = '7646647065987620875'
+manifest_rus = '8339919149418587132'
+size_gb = 52.9
+
+[Y9S1_DeadlyOmen]
+label = 'Y9S1 Deadly Omen'
+build = '69866602'
+manifest_content = '1140469899661941149'
+manifest_ww = '1959067516419454682'
+manifest_rus = '1619182300337183882'
+size_gb = 54.4
+
+[Y9S2_NewBlood]
+label = 'Y9S2 New Blood'
+build = '72730050'
+manifest_content = '2171250367116101899'
+manifest_ww = '6874184890918352263'
+manifest_rus = '3648252944070415883'
+size_gb = 56.0
+hm = true
+hm_beta = true
+
+[Y9S3_TwinShells]
+label = 'Y9S3 Twin Shells'
+build = '79429095'
+manifest_content = '825321500774263546'
+manifest_ww = '4296569502001540403'
+manifest_rus = '3038245830342960035'
+size_gb = 59.2
+
+[Y9S4_CollisionPoint]
+label = 'Y9S4 Collision Point'
+build = '82873685'
+manifest_content = '3039751959139581613'
+manifest_ww = '9207916394092784817'
+manifest_rus = '6303744364362141965'
+size_gb = 59.2
+
+[Y10S1_PrepPhase]
+label = 'Y10S1 Prep Phase'
+build = '87835624'
+manifest_content = '2619322944995294928'
+manifest_ww = '8382986432868135995'
+manifest_rus = '3364322644809414267'
+size_gb = 51.4
+
+[Y10S2_DayBreak]
+label = 'Y10S2 Day Break'
+build = '91107972'
+manifest_content = '6061565907083200123'
+manifest_ww = '6185866687945877979'
+manifest_rus = '1824670522228133032'
+size_gb = 57.6
+
+[Y10S3_HighStakes]
+label = 'Y10S3 High Stakes'
+build = '97612398'
+manifest_content = '2991287519065391053'
+manifest_ww = '6414584647978564432'
+manifest_rus = '1658045533304550915'
+size_gb = 64.1
+
+[Y10S4_TenfoldPursuit]
+label = 'Y10S4 Tenfold Pursuit'
+build = '101173381'
+manifest_content = '4662717791508703860'
+manifest_ww = '5312359447964179543'
+manifest_rus = '10916617612972931'
+size_gb = 64.1
+
+[Y11S1_SilentHunt]
+label = 'Y11S1 Silent Hunt'
+build = '108519331'
+manifest_content = '4262752188904831422'
+manifest_ww = '6538965566725574323'
+manifest_rus = '5822704009378799838'
+size_gb = 47.8
+
+[Y11S2_SystemOverride]
+label = 'Y11S2 System Override'
+build = '114706078'
+manifest_content = '8562525939111846234'
+manifest_ww = '3438364557114734245'
+manifest_rus = '3173464615412315924'
+size_gb = 45.6

@@ -1,0 +1,258 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  NUITKA_VERSION: "4.2"
+  RUFF_VERSION: "0.16.5"
+  APPIMAGETOOL_VERSION: "1.9.1"
+  APPIMAGETOOL_SHA256: "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
+  NUITKA_COMMON: >-
+    --include-package=core --include-package=bridge
+    --include-data-dir=next/out=next/out
+    --include-data-files=manifest.toml=manifest.toml
+    --include-data-files=.github/icon.png=icon.png
+    --include-data-files=Liberator.exe=Liberator.exe
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: next/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: next/pnpm-lock.yaml
+      - name: Lint frontend
+        run: |
+          pnpm -C next install --frozen-lockfile
+          pnpm -C next lint
+          pnpm -C next format:check
+      - name: Lint app
+        run: |
+          pipx run ruff==$RUFF_VERSION check app/
+          pipx run ruff==$RUFF_VERSION format --check app/
+
+  frontend:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: next/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: next/pnpm-lock.yaml
+      - name: Build frontend
+        run: |
+          pnpm -C next install --frozen-lockfile
+          pnpm -C next build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: next-out
+          path: next/out
+
+  liberator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            src/liberator/target
+          key: cargo-liberator-${{ hashFiles('src/liberator/Cargo.lock') }}
+          restore-keys: cargo-liberator-
+      - name: Install mingw and git-crypt
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 git-crypt
+      - name: Unlock Liberator sources
+        env:
+          LIBERATOR_KEY: ${{ secrets.LIBERATOR_KEY }}
+        run: |
+          printf '%s' "$LIBERATOR_KEY" | base64 -d > "$RUNNER_TEMP/git-crypt.key"
+          git-crypt unlock "$RUNNER_TEMP/git-crypt.key"
+          rm "$RUNNER_TEMP/git-crypt.key"
+      - name: Build Liberator
+        env:
+          RUSTFLAGS: -Awarnings
+        run: sh src/liberator/build.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: liberator
+          path: Liberator.exe
+
+  rvpn:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install mingw + upx
+        run: sudo apt-get update && sudo apt-get install -y gcc make mingw-w64 upx-ucl
+      - name: Build Radmin VPN helpers
+        run: sh src/rvpn/build.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rvpn
+          path: rvpn
+
+  linux:
+    needs: [frontend, liberator, rvpn]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pin version to tag
+        run: |
+          sed -i "s/^VERSION = .*/VERSION = \"${GITHUB_REF_NAME#v}\"/" app/layout.py
+          grep -q "^VERSION = \"${GITHUB_REF_NAME#v}\"" app/layout.py
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: app/requirements.txt
+      - name: Verify asset names against layout.py
+        run: >
+          python -c "import sys; sys.path.insert(0, 'app'); import layout;
+          assert layout.RUNTIME_ASSET == 'Runtime.zip', layout.RUNTIME_ASSET;
+          assert layout.APPIMAGE_ASSET == 'ThrowbackLauncher.AppImage', layout.APPIMAGE_ASSET;
+          assert layout.EXE_NAME == 'ThrowbackLauncher.exe', layout.EXE_NAME"
+      - uses: actions/download-artifact@v8
+        with:
+          name: next-out
+          path: next/out
+      - uses: actions/download-artifact@v8
+        with:
+          name: liberator
+          path: .
+      - uses: actions/download-artifact@v8
+        with:
+          name: rvpn
+          path: rvpn
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/Nuitka
+            ~/.cache/ccache
+          key: nuitka-linux-${{ hashFiles('app/requirements.txt') }}
+          restore-keys: nuitka-linux-
+      - name: Install deps + Nuitka
+        run: |
+          python -m pip install -r app/requirements.txt nuitka==${{ env.NUITKA_VERSION }}
+          sudo apt-get update && sudo apt-get install -y patchelf ccache
+      - name: Nuitka build (standalone)
+        run: |
+          python -m nuitka --deployment --standalone --enable-plugin=pyside6 --assume-yes-for-downloads \
+            $NUITKA_COMMON \
+            --include-data-files=rvpn/*=rvpn/ \
+            --output-filename=ThrowbackLauncher --output-dir=nuitka-out app/main.py
+      - name: Package AppImage
+        run: |
+          dist=$(find nuitka-out -maxdepth 1 -name "*.dist" -type d | head -1)
+          test -d "$dist"
+          appdir=build/AppDir
+          mkdir -p "$appdir/usr/bin"
+          cp -a "$dist"/. "$appdir/usr/bin/"
+          chmod +x "$appdir/usr/bin/rvpn/tap_bridge"
+          cp .github/icon.png "$appdir/ThrowbackLauncher.png"
+          printf '[Desktop Entry]\nType=Application\nName=Throwback Launcher\nComment=A Rainbow Six Siege launcher for Operation Throwback\nExec=ThrowbackLauncher\nIcon=ThrowbackLauncher\nTerminal=false\nCategories=Game;\nStartupWMClass=ThrowbackLauncher\n' > "$appdir/ThrowbackLauncher.desktop"
+          mkdir -p "$appdir/usr/share/applications"
+          cp "$appdir/ThrowbackLauncher.desktop" "$appdir/usr/share/applications/"
+          printf '#!/usr/bin/env bash\nHERE="$(dirname "$(readlink -f "$0")")"\nexport XDG_DATA_DIRS="$HERE/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"\nexport QTWEBENGINE_DISABLE_SANDBOX=1\nexec "$HERE/usr/bin/ThrowbackLauncher" "$@"\n' > "$appdir/AppRun"
+          chmod +x "$appdir/AppRun"
+          curl -fsSL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-x86_64.AppImage"
+          echo "$APPIMAGETOOL_SHA256  appimagetool" | sha256sum -c -
+          chmod +x appimagetool
+          mkdir -p out
+          APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool "$appdir" out/ThrowbackLauncher.AppImage
+      - uses: actions/upload-artifact@v7
+        with:
+          name: appimage
+          path: out/ThrowbackLauncher.AppImage
+
+  windows:
+    needs: [frontend, liberator]
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pin version to tag
+        shell: bash
+        run: |
+          sed -i "s/^VERSION = .*/VERSION = \"${GITHUB_REF_NAME#v}\"/" app/layout.py
+          grep -q "^VERSION = \"${GITHUB_REF_NAME#v}\"" app/layout.py
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: app/requirements.txt
+      - uses: actions/download-artifact@v8
+        with:
+          name: next-out
+          path: next/out
+      - uses: actions/download-artifact@v8
+        with:
+          name: liberator
+          path: .
+      - uses: actions/cache@v6
+        with:
+          path: ~\AppData\Local\Nuitka\Nuitka\Cache
+          key: nuitka-windows-${{ hashFiles('app/requirements.txt') }}
+          restore-keys: nuitka-windows-
+      - name: Install deps + Nuitka
+        run: python -m pip install -r app/requirements.txt nuitka==${{ env.NUITKA_VERSION }}
+      - name: Nuitka build app (standalone)
+        shell: bash
+        run: python -m nuitka --deployment --standalone --enable-plugin=pyside6 --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=.github/icon.ico --product-name="Throwback Launcher" --file-version=${GITHUB_REF_NAME#v} --product-version=${GITHUB_REF_NAME#v} --file-description="Throwback Launcher" $NUITKA_COMMON --output-filename=ThrowbackLauncher.exe --output-dir=app-out app/main.py
+      - name: Nuitka build installer (onefile)
+        shell: bash
+        run: python -m nuitka --deployment --onefile --enable-plugin=pyside6 --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=.github/icon.ico --product-name="Throwback Launcher" --file-version=${GITHUB_REF_NAME#v} --product-version=${GITHUB_REF_NAME#v} --file-description="Throwback Installer" --include-data-dir=app/assets/fonts=assets/fonts --output-filename=Installer.exe --output-dir=installer-out app/installer.py
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Compress-Archive -Path app-out/main.dist/* -DestinationPath out/Runtime.zip -Force
+          Copy-Item installer-out/Installer.exe out/Installer.exe -Force
+      - name: Verify Runtime.zip layout
+        run: >
+          python -c "import zipfile; names = zipfile.ZipFile('out/Runtime.zip').namelist();
+          assert 'ThrowbackLauncher.exe' in names, names[:3]"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: |
+            out/Installer.exe
+            out/Runtime.zip
+
+  release:
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: "{appimage,windows}"
+      - name: Create draft release with binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_name }}"
+          gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1 || \
+            gh release create "$tag" --repo "${{ github.repository }}" --draft --title "$tag" --notes ""
+          gh release upload "$tag" \
+            "artifacts/appimage/ThrowbackLauncher.AppImage" \
+            "artifacts/windows/Installer.exe" \
+            "artifacts/windows/Runtime.zip" \
+            --clobber --repo "${{ github.repository }}"
