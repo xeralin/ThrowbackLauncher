@@ -29,7 +29,7 @@ int wmain(int argc, WCHAR *argv[])
 {
     char cmdline[2048] = "";
     int i;
-    char *addr = NULL, *mask = NULL;
+    char *addr = NULL;
 
     for (i = 1; i < argc; i++) {
         char *a = to_narrow(argv[i]);
@@ -66,42 +66,15 @@ int wmain(int argc, WCHAR *argv[])
         if (addr) {
             char *end = strchr(addr, ' ');
             if (end) *end = '\0';
-        }
-
-        p = strstr(cmdline, "mask=");
-        if (p) {
-            p = strchr(p, '=') + 1;
-            mask = p;
-            char *end = strchr(p, ' ');
-            if (end) *end = '\0';
-        }
-
-        if (addr) {
-
-            const char *cidr = "8";
-            if (mask) {
-                if (strcmp(mask, "255.0.0.0") == 0) cidr = "8";
-                else if (strcmp(mask, "255.255.0.0") == 0) cidr = "16";
-                else if (strcmp(mask, "255.255.255.0") == 0) cidr = "24";
-            }
-
-            if (strstr(addr, "fe80")) {
-                return 0;
-            }
-
             if (!valid_ipv4(addr)) {
                 return 0;
             }
-
-            {
-                FILE *f = _wfopen(L"Z:\\tmp\\rvpn_netsh_cmd", L"a");
-                if (f) {
-                    fprintf(f, "ip addr add %s/%s dev radminvpn0\n", addr, cidr);
-                    fclose(f);
-                    Sleep(NETSH_CMD_DELAY_MS);
-                }
+            FILE *f = _wfopen(L"Z:\\tmp\\rvpn_netsh_cmd", L"a");
+            if (f) {
+                fprintf(f, "ip addr add %s/8 dev radminvpn0\n", addr);
+                fclose(f);
+                Sleep(NETSH_CMD_DELAY_MS);
             }
-            return 0;
         }
     }
 

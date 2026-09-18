@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <stdio.h>
+#include <string.h>
 
 int main(int argc, char *argv[])
 {
@@ -66,7 +67,9 @@ skip_inject:
 
     WaitForSingleObject(pi.hProcess, INFINITE);
 
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
-    return 0;
+    return (int)code;
 }

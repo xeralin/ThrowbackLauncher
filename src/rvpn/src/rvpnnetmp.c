@@ -366,18 +366,15 @@ static void __stdcall rx_thread_proc(PVOID context)
                 }
                 continue;
             }
+            ULONG widx = g_rx_ring.write_idx;
+            if (widx - g_rx_ring.read_idx < RX_RING_SIZE) {
+                ULONG slot = widx % RX_RING_SIZE;
+                RtlCopyMemory(g_rx_ring.frames[slot].data, frameBuf, frameLen);
+                g_rx_ring.frames[slot].len = frameLen;
+                InterlockedIncrement((volatile LONG *)&g_rx_ring.write_idx);
+            }
             KeReleaseSpinLock(&g_irp_queue.Lock, oldIrql);
         }
-
-        ULONG widx = g_rx_ring.write_idx;
-        ULONG ridx = g_rx_ring.read_idx;
-        if (widx - ridx >= RX_RING_SIZE)
-            continue;
-
-        ULONG slot = widx % RX_RING_SIZE;
-        RtlCopyMemory(g_rx_ring.frames[slot].data, frameBuf, frameLen);
-        g_rx_ring.frames[slot].len = frameLen;
-        InterlockedIncrement((volatile LONG *)&g_rx_ring.write_idx);
     }
 
     PsTerminateSystemThread(STATUS_SUCCESS);
@@ -522,7 +519,6 @@ static NTSTATUS NTAPI DispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Ir
     ULONG inLen = irpSp->Parameters.DeviceIoControl.InputBufferLength;
     ULONG outLen = irpSp->Parameters.DeviceIoControl.OutputBufferLength;
     PVOID sysBuffer = Irp->AssociatedIrp.SystemBuffer;
-    NTSTATUS status = STATUS_SUCCESS;
     ULONG info = 0;
 
     PDEVICE_EXTENSION dext = (PDEVICE_EXTENSION)DeviceObject->DeviceExtension;
@@ -591,8 +587,7 @@ static NTSTATUS NTAPI DispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Ir
 
     case IOCTL_RVPN_PEERMAC:
         if (inLen >= 6 && sysBuffer) {
-            PIO_STACK_LOCATION sp2 = IoGetCurrentIrpStackLocation(Irp);
-            PFILE_OBJECT fo = sp2->FileObject;
+            PFILE_OBJECT fo = irpSp->FileObject;
             KIRQL oldIrql;
             LONG assigned = -1;
 
@@ -649,10 +644,10 @@ static NTSTATUS NTAPI DispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Ir
         break;
     }
 
-    Irp->IoStatus.Status = status;
+    Irp->IoStatus.Status = STATUS_SUCCESS;
     Irp->IoStatus.Information = info;
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
-    return status;
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS NTAPI DispatchRead(PDEVICE_OBJECT DeviceObject, PIRP Irp)
@@ -666,9 +661,12 @@ static NTSTATUS NTAPI DispatchRead(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         return STATUS_DEVICE_NOT_CONNECTED;
     }
 
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&g_irp_queue.Lock, &oldIrql);
     ULONG ridx = g_rx_ring.read_idx;
 
     if (ridx < g_rx_ring.write_idx) {
+        KeReleaseSpinLock(&g_irp_queue.Lock, oldIrql);
 
         PUCHAR outBuf = NULL;
         if (Irp->MdlAddress)
@@ -707,43 +705,39 @@ static NTSTATUS NTAPI DispatchRead(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         return STATUS_SUCCESS;
     }
 
-    IoMarkIrpPending(Irp);
+    if (g_irp_queue.Count >= IRP_QUEUE_SIZE) {
 
-    {
-        KIRQL oldIrql;
-        KeAcquireSpinLock(&g_irp_queue.Lock, &oldIrql);
-        if (g_irp_queue.Count >= IRP_QUEUE_SIZE) {
-
-            PIRP oldIrp = g_irp_queue.Irps[g_irp_queue.Head];
-            g_irp_queue.Head = (g_irp_queue.Head + 1) % IRP_QUEUE_SIZE;
-            g_irp_queue.Count--;
-            KeReleaseSpinLock(&g_irp_queue.Lock, oldIrql);
-            if (rx_claim_irp(oldIrp)) {
-                oldIrp->IoStatus.Status = STATUS_CANCELLED;
-                oldIrp->IoStatus.Information = 0;
-                IoCompleteRequest(oldIrp, IO_NO_INCREMENT);
-            }
-            KeAcquireSpinLock(&g_irp_queue.Lock, &oldIrql);
-        }
-        {
-            PIO_STACK_LOCATION sp = IoGetCurrentIrpStackLocation(Irp);
-            g_irp_queue.FileObjs[g_irp_queue.Tail] = sp->FileObject;
-        }
-        g_irp_queue.Irps[g_irp_queue.Tail] = Irp;
-        g_irp_queue.Tail = (g_irp_queue.Tail + 1) % IRP_QUEUE_SIZE;
-        g_irp_queue.Count++;
-
-        IoSetCancelRoutine(Irp, RvpnCancelRoutine);
-        if (Irp->Cancel && IoSetCancelRoutine(Irp, NULL) != NULL) {
-            dequeue_specific_irp_locked(Irp);
-            KeReleaseSpinLock(&g_irp_queue.Lock, oldIrql);
-            Irp->IoStatus.Status = STATUS_CANCELLED;
-            Irp->IoStatus.Information = 0;
-            IoCompleteRequest(Irp, IO_NO_INCREMENT);
-            return STATUS_PENDING;
-        }
+        PIRP oldIrp = g_irp_queue.Irps[g_irp_queue.Head];
+        g_irp_queue.Head = (g_irp_queue.Head + 1) % IRP_QUEUE_SIZE;
+        g_irp_queue.Count--;
         KeReleaseSpinLock(&g_irp_queue.Lock, oldIrql);
+        if (rx_claim_irp(oldIrp)) {
+            oldIrp->IoStatus.Status = STATUS_CANCELLED;
+            oldIrp->IoStatus.Information = 0;
+            IoCompleteRequest(oldIrp, IO_NO_INCREMENT);
+        }
+        KeAcquireSpinLock(&g_irp_queue.Lock, &oldIrql);
     }
+
+    IoMarkIrpPending(Irp);
+    {
+        PIO_STACK_LOCATION sp = IoGetCurrentIrpStackLocation(Irp);
+        g_irp_queue.FileObjs[g_irp_queue.Tail] = sp->FileObject;
+    }
+    g_irp_queue.Irps[g_irp_queue.Tail] = Irp;
+    g_irp_queue.Tail = (g_irp_queue.Tail + 1) % IRP_QUEUE_SIZE;
+    g_irp_queue.Count++;
+
+    IoSetCancelRoutine(Irp, RvpnCancelRoutine);
+    if (Irp->Cancel && IoSetCancelRoutine(Irp, NULL) != NULL) {
+        dequeue_specific_irp_locked(Irp);
+        KeReleaseSpinLock(&g_irp_queue.Lock, oldIrql);
+        Irp->IoStatus.Status = STATUS_CANCELLED;
+        Irp->IoStatus.Information = 0;
+        IoCompleteRequest(Irp, IO_NO_INCREMENT);
+        return STATUS_PENDING;
+    }
+    KeReleaseSpinLock(&g_irp_queue.Lock, oldIrql);
 
     return STATUS_PENDING;
 }

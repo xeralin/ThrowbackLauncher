@@ -38,7 +38,7 @@ $(BUILD)/tap_bridge: src/tap_bridge.c | $(BUILD)
 	$(STRIP) $(STRIP_FLAGS) $@
 	upx --best $@ || true
 
-$(BUILD)/dns_shim.so: src/dns_shim.c | $(BUILD)
+$(BUILD)/dns_shim.so: src/dns_shim.c src/private_v4.h | $(BUILD)
 	$(CC) $(CFLAGS) -fPIC -shared -o $@ $< -ldl
 	$(STRIP) $(STRIP_FLAGS) $@
 
@@ -50,7 +50,7 @@ $(BUILD)/rvpnnetmp.sys: src/rvpnnetmp.c | $(BUILD)
 		-Wl,--subsystem,native -Wl,--entry,DriverEntry
 	$(STRIP64) $(STRIP_FLAGS) $@
 
-$(BUILD)/adapter_hook.dll: src/adapter_hook.c | $(BUILD)
+$(BUILD)/adapter_hook.dll: src/adapter_hook.c src/private_v4.h | $(BUILD)
 	$(MINGW32) $(CFLAGS) -shared -o $@ $< \
 		-liphlpapi -lws2_32
 	$(STRIP32) $(STRIP_FLAGS) $@

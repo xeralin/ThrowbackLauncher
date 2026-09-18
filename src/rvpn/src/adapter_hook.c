@@ -4,8 +4,9 @@
 #include <iphlpapi.h>
 #include <string.h>
 #include <stdio.h>
-#include <stdint.h>
 #include <stdlib.h>
+
+#include "private_v4.h"
 
 #define TAP_DESC     L"radminvpn0"
 #define RADMIN_DESC  L"Famatech Radmin VPN Ethernet Adapter"
@@ -17,11 +18,6 @@ static void longjmp_tramp(void);
 static LONG CALLBACK crash_handler(PEXCEPTION_POINTERS ep)
 {
     DWORD code = ep->ExceptionRecord->ExceptionCode;
-
-    if ((code & 0xC0000000) != 0xC0000000)
-        return EXCEPTION_CONTINUE_SEARCH;
-    if (code == 0xE06D7363u)
-        return EXCEPTION_CONTINUE_SEARCH;
 
     if (code == 0xC0000005u && g_jmp_tls != TLS_OUT_OF_INDEXES &&
         TlsGetValue(g_jmp_tls)) {
@@ -212,7 +208,7 @@ static ULONG WINAPI hook_GetAdaptersAddresses(
         return ret;
 
     for (PIP_ADAPTER_ADDRESSES cur = Addrs; cur; cur = cur->Next) {
-        if (cur->IfIndex == best || cur->IfIndex == g_tap_ifindex)
+        if (cur->IfIndex == best || (g_tap_ifindex && cur->IfIndex == g_tap_ifindex))
             continue;
         cur->FirstUnicastAddress = NULL;
     }
@@ -255,11 +251,6 @@ static struct hostent *(WINAPI *real_gethostbyname)(const char *) = NULL;
 static int (WINAPI *real_getaddrinfo)(const char *, const char *,
     const struct addrinfo *, struct addrinfo **) = NULL;
 
-static BOOL is_cgnat(DWORD s_addr_net)
-{
-    return (ntohl(s_addr_net) & 0xFFC00000u) == 0x64400000u;
-}
-
 static BOOL in_allowed_v4(DWORD s_addr_net)
 {
     for (int i = 0; i < g_allowed_n; i++)
@@ -297,7 +288,7 @@ static void build_allowed_v4(void)
             DWORD ip = ((struct sockaddr_in *)u->Address.lpSockaddr)->sin_addr.s_addr;
             if (a->IfIndex == uplink) {
                 uplink_has_v4 = TRUE;
-                if (is_cgnat(ip)) { free(buf); return; }
+                if ((ntohl(ip) & 0xFFC00000u) == 0x64400000u) { free(buf); return; }
             }
             if (g_allowed_n < ALLOWED_MAX) g_allowed_v4[g_allowed_n++] = ip;
         }
@@ -387,25 +378,13 @@ static int WINAPI hook_getaddrinfo(const char *node, const char *service,
 static int (WSAAPI *real_getnameinfo)(const SOCKADDR *, socklen_t,
     PCHAR, DWORD, PCHAR, DWORD, INT) = NULL;
 
-static BOOL is_private_v4(DWORD s_addr_net)
-{
-    DWORD h = ntohl(s_addr_net);
-    if ((h & 0xFF000000u) == 0x7F000000u) return TRUE;
-    if ((h & 0xFF000000u) == 0x0A000000u) return TRUE;
-    if ((h & 0xFFF00000u) == 0xAC100000u) return TRUE;
-    if ((h & 0xFFFF0000u) == 0xC0A80000u) return TRUE;
-    if ((h & 0xFFFF0000u) == 0xA9FE0000u) return TRUE;
-    if ((h & 0xFFC00000u) == 0x64400000u) return TRUE;
-    return FALSE;
-}
-
 static int WSAAPI hook_getnameinfo(const SOCKADDR *sa, socklen_t salen,
     PCHAR host, DWORD hostlen, PCHAR serv, DWORD servlen, INT flags)
 {
     if (sa && sa->sa_family == AF_INET &&
         salen >= (socklen_t)sizeof(struct sockaddr_in)) {
         const struct sockaddr_in *si = (const struct sockaddr_in *)sa;
-        if (is_private_v4(si->sin_addr.s_addr)) {
+        if (private_v4(ntohl(si->sin_addr.s_addr))) {
             char ip[16];
             lstrcpynA(ip, inet_ntoa(si->sin_addr), sizeof ip);
             if (host && hostlen) lstrcpynA(host, ip, hostlen);
@@ -421,9 +400,6 @@ static int WSAAPI hook_getnameinfo(const SOCKADDR *sa, socklen_t salen,
         ? real_getnameinfo(sa, salen, host, hostlen, serv, servlen, flags)
         : EAI_FAIL;
 }
-
-static LONG (WINAPI *real_RegSetKeySecurity)(HKEY hKey, SECURITY_INFORMATION si,
-    PSECURITY_DESCRIPTOR psd) = NULL;
 
 static LONG WINAPI hook_RegSetKeySecurity(HKEY hKey, SECURITY_INFORMATION si,
     PSECURITY_DESCRIPTOR psd)
@@ -554,7 +530,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         hook_iphlpapi(exe);
         hook_ws2_32(exe);
         hook_import(exe, "ADVAPI32.DLL", "RegSetKeySecurity", 0,
-                    hook_RegSetKeySecurity,  (void **)&real_RegSetKeySecurity);
+                    hook_RegSetKeySecurity,  NULL);
         hook_import(exe, "KERNEL32.dll", "LoadLibraryW", 0,
                     hook_LoadLibraryW,       (void **)&real_LoadLibraryW);
         hook_import(exe, "KERNEL32.dll", "LoadLibraryA", 0,
