@@ -2,7 +2,6 @@ __pycache__/
 *.pyc
 .venv/
 .ruff_cache/
-.lock
 /rvpn/
 /Liberator.exe
 /nuitka-out/

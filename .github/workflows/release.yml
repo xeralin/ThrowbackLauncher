@@ -6,7 +6,7 @@ on:
 
 env:
   NUITKA_VERSION: "4.2"
-  RUFF_VERSION: "0.16.5"
+  RUFF_VERSION: "0.16.8"
   APPIMAGETOOL_VERSION: "1.9.1"
   APPIMAGETOOL_SHA256: "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
   NUITKA_COMMON: >-
@@ -67,6 +67,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: "1.98.1"
           targets: x86_64-pc-windows-gnu
       - uses: actions/cache@v6
         with:
@@ -158,11 +159,9 @@ jobs:
             --output-filename=ThrowbackLauncher --output-dir=nuitka-out app/main.py
       - name: Package AppImage
         run: |
-          dist=$(find nuitka-out -maxdepth 1 -name "*.dist" -type d | head -1)
-          test -d "$dist"
           appdir=build/AppDir
           mkdir -p "$appdir/usr/bin"
-          cp -a "$dist"/. "$appdir/usr/bin/"
+          cp -a nuitka-out/main.dist/. "$appdir/usr/bin/"
           chmod +x "$appdir/usr/bin/rvpn/tap_bridge"
           cp .github/icon.png "$appdir/ThrowbackLauncher.png"
           printf '[Desktop Entry]\nType=Application\nName=Throwback Launcher\nComment=A Rainbow Six Siege launcher for Operation Throwback\nExec=ThrowbackLauncher\nIcon=ThrowbackLauncher\nTerminal=false\nCategories=Game;\nStartupWMClass=ThrowbackLauncher\n' > "$appdir/ThrowbackLauncher.desktop"
@@ -248,11 +247,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${{ github.ref_name }}"
-          gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1 || \
-            gh release create "$tag" --repo "${{ github.repository }}" --draft --title "$tag" --notes ""
-          gh release upload "$tag" \
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --title "$GITHUB_REF_NAME" --notes ""
+          gh release upload "$GITHUB_REF_NAME" \
             "artifacts/appimage/ThrowbackLauncher.AppImage" \
             "artifacts/windows/Installer.exe" \
             "artifacts/windows/Runtime.zip" \
-            --clobber --repo "${{ github.repository }}"
+            --clobber --repo "$GITHUB_REPOSITORY"
