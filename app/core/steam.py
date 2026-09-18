@@ -19,7 +19,7 @@ from core.constants import (
     STEAM_DIR,
     STEAM_ROOTS,
 )
-from core.manifest import edition_folder, hm_folder_name, installed_path, is_installed, partial_path
+from core.manifest import edition_folder, hm_folder_name, is_installed
 from core.settings import get_setting, libraries
 
 _GAME_PROC_RE = re.compile(r"(?:RainbowSix.*|LaunchR6)\.exe")
@@ -27,14 +27,14 @@ _WINE_ROOT_RE = re.compile(r"^[Zz]:\\")
 _DEFAULT_ORDER = tuple(internal for _, internal, _ in PROTON_BUILTIN)
 
 
-def proc_environ(pid: int) -> dict[str, str]:
+def _proc_environ(pid: int) -> dict[str, str]:
     try:
         return dict(psutil.Process(pid).environ())
     except psutil.Error, OSError:
         return {}
 
 
-def proc_cwd(pid: int) -> Path | None:
+def _proc_cwd(pid: int) -> Path | None:
     try:
         return Path(psutil.Process(pid).cwd())
     except psutil.Error, OSError:
@@ -56,7 +56,7 @@ def _game_candidates() -> Iterator[int]:
 
 def running_game_env() -> dict[str, str] | None:
     for pid in _game_candidates():
-        env = proc_environ(pid)
+        env = _proc_environ(pid)
         if env.get("STEAM_COMPAT_DATA_PATH"):
             return env
     return None
@@ -77,7 +77,7 @@ def _game_exe_path(pid: int) -> Path | None:
 
 
 def _game_folder(pid: int, roots: list[Path]) -> str | None:
-    for path in (_game_exe_path(pid), proc_cwd(pid)):
+    for path in (_game_exe_path(pid), _proc_cwd(pid)):
         if path is None or not path.is_absolute():
             continue
         try:
@@ -94,15 +94,11 @@ def _game_folder(pid: int, roots: list[Path]) -> str | None:
     return None
 
 
-def _library_roots() -> list[Path]:
-    return sorted(libraries(), key=lambda p: len(p.parts), reverse=True)
-
-
 def running_game_folders() -> dict[str, list[int]]:
-    roots = _library_roots()
+    roots = sorted(libraries(), key=lambda p: len(p.parts), reverse=True)
     found: dict[str, list[int]] = {}
     for pid in _game_candidates():
-        if not IS_WINDOWS and not proc_environ(pid).get("STEAM_COMPAT_DATA_PATH"):
+        if not IS_WINDOWS and not _proc_environ(pid).get("STEAM_COMPAT_DATA_PATH"):
             continue
         folder = _game_folder(pid, roots)
         if folder is not None:
@@ -210,15 +206,20 @@ def list_protons() -> list[dict]:
     return protons
 
 
-def resolve_proton(settings: dict, protons: list[dict] | None = None) -> dict | None:
+def resolve_proton(settings: dict, protons: list[dict] | None = None, key: str = "") -> dict | None:
     if protons is None:
         protons = list_protons()
     if not protons:
         return None
-    choice = get_setting(settings, "proton", "")
-    for proton in protons:
-        if proton["internal"] == choice:
-            return proton
+    per_season = get_setting(settings, "season_proton", {})
+    choices = [
+        per_season.get(key, "") if isinstance(per_season, dict) else "",
+        get_setting(settings, "proton", ""),
+    ]
+    for choice in choices:
+        for proton in protons:
+            if proton["internal"] == choice:
+                return proton
     for internal in _DEFAULT_ORDER:
         for proton in protons:
             if proton["internal"] == internal:
@@ -267,11 +268,6 @@ def prune_prefixes() -> None:
         shutil.rmtree(prefix, ignore_errors=True)
 
 
-def _prefix_shared(key: str, hm: bool) -> bool:
-    other = not hm
-    return installed_path(key, other) is not None or partial_path(key, other) is not None
-
-
 def uninstall(key: str, hm: bool) -> str:
     folder = edition_folder(key, hm)
     installs = [path for root in libraries() if is_installed(path := root / folder)]
@@ -284,10 +280,11 @@ def uninstall(key: str, hm: bool) -> str:
         try:
             shutil.rmtree(path)
         except OSError as e:
-            return log.fail("Could not remove the game files", e)
-    if prefix.exists() and not _prefix_shared(key, hm):
+            return log.fail("File removal failed", e)
+    other = edition_folder(key, not hm)
+    if prefix.exists() and not any((root / other).is_dir() for root in libraries()):
         try:
             shutil.rmtree(prefix)
         except OSError as e:
-            return log.fail("Could not remove the Proton prefix", e)
+            return log.fail("Proton prefix removal failed", e)
     return ""

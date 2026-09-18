@@ -5,6 +5,7 @@ import socket
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, Slot
 
@@ -12,6 +13,7 @@ from core import log
 from core.constants import (
     IS_WINDOWS,
     LIBERATOR_BIN,
+    NO_PROTON,
     STEAM_DIR,
 )
 from core.steam import resolve_proton, running_game_env
@@ -131,15 +133,16 @@ class LiberatorController(QObject):
                     stderr=subprocess.DEVNULL,
                 )
             else:
-                proton = resolve_proton(self._settings)
-                if proton is None:
-                    self._error_in.emit("Could not find Proton for the running game")
-                    return
                 env_game = running_game_env()
                 if env_game is None:
                     return
+                prefix = env_game["STEAM_COMPAT_DATA_PATH"]
+                proton = resolve_proton(self._settings, key=Path(prefix).name)
+                if proton is None:
+                    self._error_in.emit(NO_PROTON)
+                    return
                 env = dict(os.environ)
-                env["STEAM_COMPAT_DATA_PATH"] = env_game["STEAM_COMPAT_DATA_PATH"]
+                env["STEAM_COMPAT_DATA_PATH"] = prefix
                 client_install = env_game.get("STEAM_COMPAT_CLIENT_INSTALL_PATH")
                 env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = client_install or str(STEAM_DIR)
                 self._proc = subprocess.Popen(
@@ -187,7 +190,7 @@ class LiberatorController(QObject):
             if proc is None:
                 return None
             if proc.poll() is not None:
-                log.fail("Liberator Runtime exited", proc.returncode)
+                log.fail("Liberator Runtime exited", f"exit={proc.returncode}")
                 return None
             try:
                 return listener.accept()[0]

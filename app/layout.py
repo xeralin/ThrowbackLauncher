@@ -26,7 +26,10 @@ def user_data_base() -> Path:
     return Path(os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share"))
 
 
-def start_menu_shortcut(appdata: str) -> Path:
+def start_menu_shortcut() -> Path | None:
+    appdata = os.environ.get("APPDATA")
+    if not appdata:
+        return None
     return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / f"{APP_NAME}.lnk"
 
 

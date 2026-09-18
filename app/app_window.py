@@ -29,7 +29,7 @@ def _open_external(url: QUrl, origin: QUrl) -> bool:
     )
     if url.scheme() in ("http", "https") and not internal:
         if not QDesktopServices.openUrl(url):
-            log.fail("Could not open external URL", url.toString())
+            log.fail("External URL open failed", url.toString())
         return True
     return False
 

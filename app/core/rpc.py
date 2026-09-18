@@ -270,17 +270,16 @@ class Presence:
             raise ConnectionError("malformed frame")
         return op, payload
 
-    def _await_response(self, nonce: str) -> bool:
+    def _await_response(self, nonce: str) -> None:
         while True:
             op, payload = self._recv()
             if op == OP_PING:
                 self._send(OP_PONG, payload)
                 continue
             if op == OP_FRAME and payload.get("nonce") == nonce:
-                if payload.get("evt") != "ERROR":
-                    return True
-                log.fail("Discord rejected the activity", payload.get("data"))
-                return False
+                if payload.get("evt") == "ERROR":
+                    log.fail("Discord rejected the activity", payload.get("data"))
+                return
 
     def set(self, activity: dict) -> bool:
         try:
@@ -293,10 +292,11 @@ class Presence:
                     "nonce": nonce,
                 },
             )
-            return self._await_response(nonce)
+            self._await_response(nonce)
         except OSError:
             self.close()
             return False
+        return True
 
     def drain(self) -> None:
         if not self.sock:

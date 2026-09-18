@@ -4,7 +4,6 @@ import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
-from core import log
 from core.constants import TEXTURE_QUALITIES
 
 KINDS = ("videos", "events", "textures")
@@ -51,10 +50,7 @@ def _video_files(path: Path) -> list[Path]:
     v = path / "videos"
     if not v.is_dir():
         return []
-    try:
-        return [f for f in v.iterdir() if f.is_file()]
-    except OSError:
-        return []
+    return [f for f in v.iterdir() if f.is_file()]
 
 
 def _files_size(files: list[Path]) -> int:
@@ -66,16 +62,13 @@ def _files_size(files: list[Path]) -> int:
 
 
 def _event_files(path: Path, pattern: str) -> list[Path]:
-    try:
-        return [
-            f
-            for f in path.iterdir()
-            if f.is_file()
-            and f.suffix.lower() in (".forge", ".depgraphbin")
-            and pattern in f.stem.lower()
-        ]
-    except OSError:
-        return []
+    return [
+        f
+        for f in path.iterdir()
+        if f.is_file()
+        and f.suffix.lower() in (".forge", ".depgraphbin")
+        and pattern in f.stem.lower()
+    ]
 
 
 def _delete_files(files: list[Path]) -> None:
@@ -88,7 +81,7 @@ def _delete_files(files: list[Path]) -> None:
             failed += 1
             last = e
     if failed:
-        log.fail("Shears could not delete files", f"{failed} files, last: {last}")
+        raise OSError(f"{failed} files not deleted, last: {last}")
 
 
 def scan_download(d: Path, event_pattern: str | None) -> dict:

@@ -2,8 +2,6 @@ import ctypes
 import os
 import subprocess
 
-from core.constants import IS_WINDOWS
-
 NOWINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _BREAKAWAY = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
 
@@ -20,5 +18,4 @@ def spawn_detached(argv: list[str]) -> None:
         proc = subprocess.Popen(argv, creationflags=NOWINDOW | _BREAKAWAY, **kw)
     except OSError:
         proc = subprocess.Popen(argv, creationflags=NOWINDOW, **kw)
-    if IS_WINDOWS:
-        ctypes.windll.user32.AllowSetForegroundWindow(proc.pid)
+    ctypes.windll.user32.AllowSetForegroundWindow(proc.pid)

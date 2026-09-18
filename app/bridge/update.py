@@ -93,7 +93,7 @@ class UpdateController(QObject):
         ]
 
     @Slot(bool)
-    def check(self, force: bool = False) -> None:
+    def check(self, force: bool) -> None:
         if self._busy or self._checking:
             return
         self._checking = True
@@ -176,6 +176,9 @@ class UpdateController(QObject):
         if ok and restart:
             QTimer.singleShot(_RESTART_DELAY_MS, self._restart)
             return
+        if ok:
+            self._pending = [c for c in self._pending if c.name != name]
+            self._components = [c for c in self._components if c["name"] != name]
         self._checking = True
         self._busy = False
         self._applying = ""

@@ -13,6 +13,11 @@ import truststore
 from core.constants import API_CACHE_FILE, HTTP_TIMEOUT
 
 SSL_CONTEXT = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+USER_AGENT = "Throwback"
+_API_CACHE_TTL = 600.0
+_ATTEMPTS = 3
+_RETRY_DELAY = 2
+_CHUNK = 65536
 
 
 class CancelledError(Exception):
@@ -62,13 +67,6 @@ def _api_cache_read() -> dict:
         return {}
 
 
-API_CACHE_TTL = 600.0
-_ATTEMPTS = 3
-_RETRY_DELAY = 2
-_CHUNK = 65536
-_USER_AGENT = "Throwback"
-
-
 def _api_cache_flush(cache: dict) -> None:
     API_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     tmp = API_CACHE_FILE.with_name(API_CACHE_FILE.name + ".tmp")
@@ -97,9 +95,9 @@ def github_json(api_url: str, bypass_ttl: bool = False) -> dict:
     with _api_cache_lock:
         entry = _api_cache_read().get(api_url)
     usable = isinstance(entry, dict) and entry.get("etag") and "data" in entry
-    if usable and not bypass_ttl and 0 <= time.time() - entry.get("ts", 0) < API_CACHE_TTL:
+    if usable and not bypass_ttl and 0 <= time.time() - entry.get("ts", 0) < _API_CACHE_TTL:
         return entry["data"]
-    headers = {"User-Agent": _USER_AGENT}
+    headers = {"User-Agent": USER_AGENT}
     if usable:
         headers["If-None-Match"] = entry["etag"]
     req = urllib.request.Request(api_url, headers=headers)
@@ -127,7 +125,7 @@ def _fetch_part(
     cancelled: Callable[[], bool] | None,
 ) -> None:
     offset = part.stat().st_size if part.exists() else 0
-    headers = {"User-Agent": _USER_AGENT, "Accept": "application/octet-stream"}
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/octet-stream"}
     if offset:
         headers["Range"] = f"bytes={offset}-"
     req = urllib.request.Request(url, headers=headers)

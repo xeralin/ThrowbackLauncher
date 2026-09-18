@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from PySide6.QtCore import Property, QObject, Slot
 
 from core.constants import NEXT_OUT_DIR
@@ -49,15 +47,11 @@ class LibraryController(QObject):
         entries: dict[str, dict] = {}
         folders = [(d, is_installed(d)) for d in local_downloads()]
         for folder, installed in sorted(folders, key=lambda entry: not entry[1]):
-            self._merge(entries, folder, partial=not installed)
+            resolved = resolve_install(folder.name, self._downloads)
+            if resolved is None:
+                continue
+            download, is_hm = resolved
+            entries.setdefault(
+                folder.name, {**_season_entry(download, is_hm), "partial": not installed}
+            )
         return list(entries.values())
-
-    def _merge(self, entries: dict, folder: Path, partial: bool) -> None:
-        resolved = resolve_install(folder.name, self._downloads)
-        if resolved is None:
-            return
-        download, is_hm = resolved
-        entries.setdefault(
-            folder.name,
-            {**_season_entry(download, is_hm), "partial": partial},
-        )

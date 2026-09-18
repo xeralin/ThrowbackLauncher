@@ -234,20 +234,16 @@ def main() -> int:
     watchdog.start()
 
     autorun = bridges.get("rvpn")
-    if (
-        autorun is not None
-        and get_setting(settings, "rvpn_autorun", False)
-        and autorun.snapshot()["installed"]
-    ):
+    if autorun is not None and settings_bridge.rvpn_autorun and autorun.snapshot()["installed"]:
         autorun.run()
 
-    if get_setting(settings, "liberator_enabled", True):
+    if settings_bridge.liberator_enabled:
         liberator.start()
     settings_bridge.liberator_enabled_changed.connect(
         lambda: liberator.start() if settings_bridge.liberator_enabled else liberator.stop()
     )
 
-    presence.set_enabled(get_setting(settings, "discord_rpc", True))
+    presence.set_enabled(settings_bridge.discord_rpc)
     settings_bridge.discord_rpc_changed.connect(
         lambda: presence.set_enabled(settings_bridge.discord_rpc)
     )

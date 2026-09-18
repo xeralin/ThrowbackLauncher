@@ -24,7 +24,7 @@ def load_downloads() -> list[dict]:
     except FileNotFoundError:
         raise RuntimeError(log.fail("manifest.toml not found", MANIFEST_FILE)) from None
     except OSError as e:
-        raise RuntimeError(log.fail("manifest.toml could not be read", e)) from e
+        raise RuntimeError(log.fail("manifest.toml read failed", e)) from e
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
         raise RuntimeError(log.fail("manifest.toml is malformed", e)) from e
 
@@ -115,8 +115,6 @@ def effective_username(settings: dict) -> str:
     return get_setting(settings, "username", DEFAULT_USERNAME)
 
 
-def write_download_username(d: Path, username: str) -> bool:
-    if not (d / TL_TOML).exists():
-        return False
-    write_tl_toml(d, username)
-    return True
+def write_download_username(d: Path, username: str) -> None:
+    if (d / TL_TOML).exists():
+        write_tl_toml(d, username)

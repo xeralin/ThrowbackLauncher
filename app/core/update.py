@@ -127,7 +127,7 @@ def _release_notes(api_url: str) -> ReleaseNotes:
     )
 
 
-def _throwback_apply_windows(reporter: Reporter, url: str, tag: str) -> bool:
+def _throwback_apply_windows(reporter: Reporter, url: str, tag: str) -> None:
     pending = pending_dir()
     try:
         with TemporaryDirectory() as tmp:
@@ -146,15 +146,10 @@ def _throwback_apply_windows(reporter: Reporter, url: str, tag: str) -> bool:
     except BaseException:
         shutil.rmtree(pending, ignore_errors=True)
         raise
-    return True
 
 
-def _throwback_apply_appimage(reporter: Reporter, url: str) -> bool:
-    appimage = os.environ.get("APPIMAGE", "")
-    if not appimage:
-        reporter.fail("Update failed, not running from an AppImage")
-        return False
-    target = Path(appimage)
+def _throwback_apply_appimage(reporter: Reporter, url: str) -> None:
+    target = Path(os.environ["APPIMAGE"])
     replacement = target.with_name(target.name + ".update")
     try:
         fetch_to(url, replacement, on_progress=reporter.progress)
@@ -164,7 +159,6 @@ def _throwback_apply_appimage(reporter: Reporter, url: str) -> bool:
         replacement.unlink(missing_ok=True)
         raise
     write_outcome(True)
-    return True
 
 
 def _throwback_apply(reporter: Reporter) -> bool:
@@ -173,15 +167,15 @@ def _throwback_apply(reporter: Reporter) -> bool:
     release = _throwback_fetch()
     try:
         if IS_WINDOWS:
-            ok = _throwback_apply_windows(reporter, release["url"], release["tag"])
+            _throwback_apply_windows(reporter, release["url"], release["tag"])
         else:
-            ok = _throwback_apply_appimage(reporter, release["url"])
+            _throwback_apply_appimage(reporter, release["url"])
     except RateLimitError:
         raise
     except Exception as e:
         reporter.fail(log.fail("Update failed", e))
         return False
-    return ok
+    return True
 
 
 def _tl_current() -> str | None:
@@ -203,8 +197,11 @@ def _tl_apply(reporter: Reporter) -> bool:
     ensure_tl(reporter, force=True)
     username = effective_username(load_settings())
     for folder in installed_downloads():
-        apply_tl(folder, username)
-        write_launcher(folder)
+        try:
+            apply_tl(folder, username)
+            write_launcher(folder)
+        except OSError as e:
+            raise OSError(log.fail("ThrowbackLoader setup failed", e)) from e
     return True
 
 

@@ -1,4 +1,3 @@
-import contextlib
 import re
 import shlex
 import shutil
@@ -69,7 +68,7 @@ def _wipe_depot_token() -> tuple[bool, list[str]]:
         try:
             shutil.rmtree(store)
         except OSError as e:
-            errors.append(log.fail("Could not remove the Steam token", e))
+            errors.append(log.fail("Steam token removal failed", e))
     return True, errors
 
 
@@ -95,6 +94,7 @@ PREF_DEFAULTS: dict[str, object] = {
     "home_order": [],
     "home_sizes": {},
     "launch_args": {},
+    "season_proton": {},
     "accent": DEFAULT_ACCENT,
     "bar_fill": "#c388e3",
     "bar_stripe": "#dcbaef",
@@ -127,6 +127,7 @@ class SettingsController(QObject):
     home_order_changed = Signal()
     home_sizes_changed = Signal()
     launch_args_changed = Signal()
+    season_proton_changed = Signal()
     liberator_enabled_changed = Signal()
     rvpn_autorun_changed = Signal()
     proton_changed = Signal()
@@ -185,7 +186,10 @@ class SettingsController(QObject):
 
     @Property("QVariantList", notify=home_order_changed)
     def home_order(self) -> list:
-        return [str(k) for k in self._pref("home_order")]
+        raw = self._pref("home_order")
+        if not isinstance(raw, list):
+            return []
+        return [str(k) for k in raw]
 
     @Slot("QVariantList")
     def set_home_order(self, order: list) -> None:
@@ -198,6 +202,8 @@ class SettingsController(QObject):
     @Property("QVariantMap", notify=home_sizes_changed)
     def home_sizes(self) -> dict:
         raw = self._pref("home_sizes")
+        if not isinstance(raw, dict):
+            return {}
         return {str(k): v for k, v in raw.items() if isinstance(v, str)}
 
     @Slot(str, int, int)
@@ -266,6 +272,29 @@ class SettingsController(QObject):
     @Slot(bool)
     def set_rvpn_autorun(self, value: bool) -> None:
         self._store_bool("rvpn_autorun", value, self.rvpn_autorun_changed)
+
+    @Property("QVariantMap", notify=season_proton_changed)
+    def season_proton(self) -> dict:
+        raw = self._pref("season_proton")
+        if not isinstance(raw, dict):
+            return {}
+        return {str(k): v for k, v in raw.items() if isinstance(v, str)}
+
+    @Slot(str, str)
+    def set_season_proton(self, key: str, internal: str) -> None:
+        if internal and internal not in {p["internal"] for p in list_protons()}:
+            return
+        chosen = self.season_proton
+        if not internal:
+            if key not in chosen:
+                return
+            del chosen[key]
+        elif chosen.get(key) == internal:
+            return
+        else:
+            chosen[key] = internal
+        self._store_pref("season_proton", chosen)
+        self.season_proton_changed.emit()
 
     @Property(str, notify=proton_changed)
     def proton(self) -> str:
@@ -374,8 +403,10 @@ class SettingsController(QObject):
             return
         self._store_pref("username", value)
         for d in installed_downloads():
-            with contextlib.suppress(OSError):
+            try:
                 write_download_username(d, value)
+            except OSError as e:
+                log.fail("Username write failed", e)
         self.username_changed.emit()
 
     def set_steam_account(self, value: str) -> None:
@@ -569,7 +600,7 @@ class SettingsController(QObject):
             try:
                 _clear_download_cache()
             except Exception as e:
-                message = log.fail("Could not clear the cache", e)
+                message = log.fail("Cache clearing failed", e)
             self._cache_cleared_in.emit(message)
 
         threading.Thread(target=work, daemon=True).start()

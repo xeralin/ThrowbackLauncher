@@ -1,7 +1,5 @@
 import contextlib
-import ctypes
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -53,11 +51,13 @@ from PySide6.QtWidgets import (
 from core.constants import DEFAULT_ACCENT, HTTP_TIMEOUT, UPDATE_API_URL
 from core.github import (
     SSL_CONTEXT,
+    USER_AGENT,
     CancelledError,
     RateLimitError,
     fetch_to,
     rate_limit_error,
 )
+from core.winspawn import spawn_detached
 from layout import (
     APP_NAME,
     APP_SUBDIR,
@@ -73,8 +73,6 @@ from layout import (
     start_menu_shortcut,
     user_data_base,
 )
-
-DEFAULT_DIR = user_data_base() / DIR_NAME
 
 CARD_WIDTH = 440
 CARD_PADDING = 24
@@ -115,7 +113,6 @@ STYLE = f"""
     background: {CARD_BG};
     border: 1px solid {BORDER};
     border-radius: 8px;
-    font-family: "Barlow";
 }}
 #title {{ color: {TEXT}; font-family: "Rajdhani"; font-weight: 600; font-size: 19px; }}
 #option {{ color: {TEXT}; font-family: "Rajdhani"; font-weight: 700; font-size: 17px; }}
@@ -167,7 +164,7 @@ def _button_font() -> QFont:
     return font
 
 
-def _folder_pixmap(color: str, opacity: float = 1.0) -> QPixmap:
+def _folder_icon(color: str, opacity: float = 1.0) -> QIcon:
     k = 48 / 24
     pixmap = QPixmap(48, 48)
     pixmap.fill(Qt.GlobalColor.transparent)
@@ -199,11 +196,7 @@ def _folder_pixmap(color: str, opacity: float = 1.0) -> QPixmap:
         painter.drawPath(path)
     finally:
         painter.end()
-    return pixmap
-
-
-def _folder_icon(color: str, opacity: float = 1.0) -> QIcon:
-    return QIcon(_folder_pixmap(color, opacity))
+    return QIcon(pixmap)
 
 
 def _format_size(size: int) -> str:
@@ -250,11 +243,6 @@ def _apply_pending(root: Path) -> None:
             (app / name).unlink(missing_ok=True)
 
 
-def _launch_app(root: Path) -> None:
-    proc = subprocess.Popen([str(app_exe(root))], cwd=str(root))
-    ctypes.windll.user32.AllowSetForegroundWindow(proc.pid)
-
-
 def _write_shortcut(lnk: Path, root: Path) -> None:
     lnk_ps = str(lnk).replace("'", "''")
     exe_ps = str(app_exe(root)).replace("'", "''")
@@ -271,13 +259,6 @@ def _write_shortcut(lnk: Path, root: Path) -> None:
         creationflags=subprocess.CREATE_NO_WINDOW,
         check=False,
     )
-
-
-def _create_shortcut(root: Path) -> None:
-    appdata = os.environ.get("APPDATA")
-    if not appdata:
-        return
-    _write_shortcut(start_menu_shortcut(appdata), root)
 
 
 def _register_uninstall(root: Path) -> None:
@@ -297,7 +278,7 @@ def _register_uninstall(root: Path) -> None:
 
 
 def _latest_release() -> tuple[str, str, int]:
-    req = urllib.request.Request(UPDATE_API_URL, headers={"User-Agent": APP_NAME})
+    req = urllib.request.Request(UPDATE_API_URL, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT, context=SSL_CONTEXT) as r:
             data = json.load(r)
@@ -323,6 +304,7 @@ class Installer(QThread):
         self._cancel = False
         self.root = root
         self.desktop = False
+        self.url = ""
 
     def cancel(self) -> None:
         self._cancel = True
@@ -343,14 +325,15 @@ class Installer(QThread):
                 self.progress.emit(pct)
 
         try:
-            _, url, _ = _latest_release()
+            url = self.url or _latest_release()[1]
             self.message.emit("Downloading")
             fetch_to(url, archive, on_progress=on_progress, cancelled=lambda: self._cancel)
             self._check()
             root = self.root
             self._extract(archive, root)
-            with contextlib.suppress(OSError):
-                _create_shortcut(root)
+            if (lnk := start_menu_shortcut()) is not None:
+                with contextlib.suppress(OSError):
+                    _write_shortcut(lnk, root)
             if self.desktop:
                 with contextlib.suppress(OSError):
                     _write_shortcut(desktop_shortcut(), root)
@@ -552,7 +535,7 @@ class ProgressButton(QPushButton):
 
 
 class InstallerWindow(QWidget):
-    release_fetched = Signal(str, str)
+    release_fetched = Signal(str, str, str)
 
     def __init__(self, root: Path) -> None:
         super().__init__()
@@ -665,13 +648,14 @@ class InstallerWindow(QWidget):
 
     def _fetch_release(self) -> None:
         try:
-            tag, _, size = _latest_release()
+            tag, url, size = _latest_release()
         except Exception:
             return
         with contextlib.suppress(RuntimeError):
-            self.release_fetched.emit(tag, _format_size(size))
+            self.release_fetched.emit(tag, url, _format_size(size))
 
-    def _on_release(self, tag: str, size: str) -> None:
+    def _on_release(self, tag: str, url: str, size: str) -> None:
+        self._installer.url = url
         self._version.setText(tag)
         self._version.setVisible(True)
         self._size.setText(size)
@@ -701,6 +685,7 @@ class InstallerWindow(QWidget):
         self._primary.set_active(True)
         self._browse.set_active(True)
         self._on_message(reason)
+        self._message_text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._primary.setText("Retry")
         self._close.setEnabled(True)
         self._close.setText("Close")
@@ -710,7 +695,7 @@ class InstallerWindow(QWidget):
             return
         if self._installed:
             try:
-                _launch_app(self._root)
+                spawn_detached([str(app_exe(self._root))])
             except OSError as e:
                 self._on_message(f"{type(e).__name__}: {e}"[:ERROR_TEXT_MAX])
                 return
@@ -722,6 +707,7 @@ class InstallerWindow(QWidget):
         self._option_label.setVisible(False)
         self._desktop.setVisible(False)
         self._installer.desktop = self._desktop.isChecked()
+        self._message_text.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self._on_message("Preparing")
         self._installer.start()
 
@@ -775,11 +761,11 @@ class InstallerWindow(QWidget):
 
 
 def main() -> int:
-    root = _installed_dir() or DEFAULT_DIR
+    root = _installed_dir() or user_data_base() / DIR_NAME
     _apply_pending(root)
     if app_exe(root).exists():
         with contextlib.suppress(OSError):
-            _launch_app(root)
+            spawn_detached([str(app_exe(root))])
             return 0
     app = QApplication(sys.argv)
     lock = QLockFile(str(Path(tempfile.gettempdir()) / f"{DIR_NAME}.lock"))

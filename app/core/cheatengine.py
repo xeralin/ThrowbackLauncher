@@ -74,7 +74,7 @@ _WINE_NOISE = re.compile(r"^(\d+:)?(fixme|warn|trace):")
 
 def install_cheat_engine(key: str, installer: Path, settings: dict) -> None:
     folder = _season_folder(key)
-    proton = resolve_proton(settings)
+    proton = resolve_proton(settings, key=key)
     if proton is None:
         raise OSError(NO_PROTON)
     try:
@@ -87,7 +87,7 @@ def install_cheat_engine(key: str, installer: Path, settings: dict) -> None:
             check=False,
         )
     except Exception as e:
-        raise OSError(log.fail("Cheat Engine installer could not be started", e)) from e
+        raise OSError(log.fail("Cheat Engine installer failed to start", e)) from e
     exe = _find_ce_exe(_drive_c(key))
     if exe is None:
         stderr_line = next(

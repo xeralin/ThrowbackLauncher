@@ -19,7 +19,7 @@ def load_settings() -> dict:
     except FileNotFoundError:
         return {}
     except OSError as e:
-        warning = log.fail("Settings could not be read", e)
+        warning = log.fail("Settings read failed", e)
         return {}
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
         log.fail("Settings were malformed", e)

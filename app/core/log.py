@@ -17,13 +17,15 @@ def record(line: str) -> None:
     with _lock, contextlib.suppress(OSError):
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         with LOG_FILE.open("a", encoding="utf-8") as file:
-            if not _started:
+            if not _started or file.tell() == 0:
                 _started = True
                 file.write(f"[{stamp}] v{VERSION}\n")
             file.write(f"[{stamp}] {line}\n")
 
 
 def fail(message: str, detail: object) -> str:
+    if isinstance(detail, BaseException):
+        detail = f"{type(detail).__name__}: {detail}"
     record(f"ERROR {message} - {detail}")
     return message
 

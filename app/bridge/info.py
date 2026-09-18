@@ -49,7 +49,7 @@ class InfoController(QObject):
         if target not in settings.libraries() or not target.exists():
             return
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(target))):
-            log.fail("Could not open folder", target)
+            log.fail("Folder open failed", target)
 
     @Slot(str, bool)
     def open_season(self, key: str, hm: bool) -> None:
@@ -57,4 +57,4 @@ class InfoController(QObject):
         if target is None:
             return
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(target))):
-            log.fail("Could not open folder", target)
+            log.fail("Folder open failed", target)

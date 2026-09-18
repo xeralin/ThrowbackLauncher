@@ -1,5 +1,4 @@
 import contextlib
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -32,8 +31,9 @@ def run() -> None:
 
     registered = _registered_dir()
     if registered is None or registered == install_dir:
-        with contextlib.suppress(OSError):
-            start_menu_shortcut(os.environ.get("APPDATA", "")).unlink(missing_ok=True)
+        if (lnk := start_menu_shortcut()) is not None:
+            with contextlib.suppress(OSError):
+                lnk.unlink(missing_ok=True)
         with contextlib.suppress(OSError):
             desktop_shortcut().unlink(missing_ok=True)
         with contextlib.suppress(OSError):
@@ -64,4 +64,4 @@ def run() -> None:
         bat.write_text(script, encoding="utf-8")
         spawn_detached(["cmd", "/d", "/c", str(bat)])
     except OSError as e:
-        log.fail("Uninstall helper could not be started", e)
+        log.fail("Uninstall helper failed to start", e)

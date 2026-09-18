@@ -100,7 +100,7 @@ class LaunchController(QObject):
                 failed = self._launching
                 self._set_launching(None)
                 self._jobs.put(partial(self._on_closed, failed[0]))
-                self.error.emit(log.fail("R6S could not be launched", proc.returncode))
+                self.error.emit(log.fail("Launch failed", f"exit={proc.returncode}"))
         if self._launching is not None:
             self._watchdog.keep_fast()
 
@@ -157,7 +157,7 @@ class LaunchController(QObject):
         try:
             write_tl_args(folder, value.strip())
         except OSError as e:
-            return log.fail("Game arguments could not be saved", e)
+            return log.fail("Arguments save failed", e)
         return ""
 
     @Slot(str, bool)
@@ -196,7 +196,7 @@ class LaunchController(QObject):
                     stderr=subprocess.DEVNULL,
                 )
             else:
-                proton = resolve_proton(self._settings)
+                proton = resolve_proton(self._settings, key=key)
                 if proton is None:
                     self._fail_in.emit(NO_PROTON, gen)
                     return

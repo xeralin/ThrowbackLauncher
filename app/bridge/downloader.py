@@ -54,7 +54,7 @@ from core.throwbackloader import apply_tl, ensure_tl, write_launcher
 
 _PERCENT = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*%")
 _STAGING_HEADROOM = 2 * GIB
-_LOG_HISTORY_LIMIT = 2000
+_LOG_HISTORY_LIMIT = 1000
 _SHUTDOWN_WAIT_MS = 2000
 
 
@@ -183,7 +183,7 @@ class DownloadController(QObject):
                 self._state = "paused"
             else:
                 self._clear_paused_flag()
-        self.log_line.connect(self._history.append)
+        self.log_line.connect(lambda chunk: self._history.extend(chunk.split("\n")))
         self._prepare_done_in.connect(self._on_prepare_done_in)
         self._apply_done_in.connect(self._on_apply_done_in)
         self._deleted_in.connect(self._on_deleted_in)
@@ -285,13 +285,6 @@ class DownloadController(QObject):
             return CACHE_CLEARING
         return None
 
-    def _conflicts(self, season_key: str) -> bool:
-        blocker = self._peer_blocker(season_key)
-        if blocker is None:
-            return False
-        self.error.emit(blocker)
-        return True
-
     def _find_download(self, season_key: str) -> dict | None:
         return next((d for d in self._downloads if d["key"] == season_key), None)
 
@@ -300,7 +293,7 @@ class DownloadController(QObject):
             return None
         download = self._find_download(season_key)
         if download is None:
-            self.error.emit("Unknown download")
+            self.error.emit("Unknown season")
             return None
         steam_account = get_setting(self._settings, "steam_account", "")
         if not steam_account or not NAME_PATTERN.match(steam_account):
@@ -566,7 +559,7 @@ class DownloadController(QObject):
             else:
                 self._set_active_key("")
                 self._set_state("idle")
-                self._clear_paused_flag()
+                self._clear_paused_flag(save=False)
             self._queue_updated()
         self.partial_deleted.emit(season_key, hm, ok, message)
         self._start_next()
@@ -617,7 +610,7 @@ class DownloadController(QObject):
                 QueueEntry(self._active_key, self._active_hm, str(self._target.parent), False),
             )
             self.queue_changed.emit()
-        self._clear_paused_flag()
+        self._clear_paused_flag(save=False)
 
     def _pick_hm_archive(self, resume: Callable[[], None]) -> None:
         self._picking = True
@@ -634,7 +627,7 @@ class DownloadController(QObject):
             try:
                 cached = cache_hm_archive(Path(picked))
             except OSError as e:
-                self._hm_cached_in.emit("", log.fail("Could not store the Heated Metal archive", e))
+                self._hm_cached_in.emit("", log.fail("Heated Metal archive copy failed", e))
             else:
                 self._hm_cached_in.emit(str(cached), "")
 
@@ -810,7 +803,7 @@ class DownloadController(QObject):
         else:
             return
         self._login_pending = True
-        if kind == "password" and self._pending_password and self._process is not None:
+        if kind == "password" and self._pending_password:
             password = self._pending_password
             self._pending_password = ""
             self._login_pending = False
@@ -896,9 +889,7 @@ class DownloadController(QObject):
 
     def _history_tail(self) -> str:
         lines = [
-            line
-            for line in "\n".join(self._history).splitlines()
-            if not line.lstrip().startswith(("at ", "--- End of"))
+            line for line in self._history if not line.lstrip().startswith(("at ", "--- End of"))
         ]
         return "\n".join(lines[-8:]) if lines else "no output"
 
@@ -928,7 +919,6 @@ class DownloadController(QObject):
                 self._download,
                 self._active_hm,
                 username,
-                self._verifying,
                 self._archive,
             ),
             daemon=True,
@@ -941,7 +931,6 @@ class DownloadController(QObject):
         download: dict,
         is_hm: bool,
         username: str,
-        verify: bool,
         archive: Path | None,
         pre: Callable[[], None] | None = None,
         fail_label: str = "Install failed",
@@ -984,7 +973,10 @@ class DownloadController(QObject):
         if self._deleting_key == season_key:
             self.error.emit(REMOVING_FILES)
             return True
-        return self._conflicts(season_key)
+        blocker = self._peer_blocker(season_key)
+        if blocker is not None:
+            self.error.emit(blocker)
+        return blocker is not None
 
     @deferred_slot(str)
     def switch_to_hm(self, season_key: str) -> None:
@@ -1037,7 +1029,6 @@ class DownloadController(QObject):
             download,
             True,
             effective_username(self._settings),
-            False,
             archive,
             pre=move_to_hm,
             fail_label="Switch failed",

@@ -99,13 +99,7 @@ def _7z_error(proc: subprocess.CompletedProcess) -> str:
         ),
         "",
     )
-    return stderr_line or f"7z exited with code {proc.returncode}"
-
-
-def _prune_archives(keep: Path) -> None:
-    for old in BIN_DIR.glob("*.7z"):
-        if old != keep:
-            old.unlink(missing_ok=True)
+    return stderr_line or f"7z exit={proc.returncode}"
 
 
 def _fetch_hm_mod(hm_version: str, tmp_dir: Path, reporter: Reporter) -> tuple[str, Path]:
@@ -120,7 +114,9 @@ def _fetch_hm_mod(hm_version: str, tmp_dir: Path, reporter: Reporter) -> tuple[s
             raise
         except Exception as e:
             raise OSError(log.fail("Heated Metal download failed", e)) from e
-        _prune_archives(archive_path)
+        for old in BIN_DIR.glob("HeatedMetal-*.7z"):
+            if old != archive_path:
+                old.unlink(missing_ok=True)
     return tag, _extract_hm_archive(archive_path, tmp_dir, reporter)
 
 
@@ -130,7 +126,9 @@ def cache_hm_archive(archive: Path) -> Path:
     if archive.resolve() == cached.resolve():
         return cached
     shutil.copy2(archive, cached)
-    _prune_archives(cached)
+    for old in BIN_DIR.glob("*.7z"):
+        if old != cached and not old.name.startswith("HeatedMetal-"):
+            old.unlink(missing_ok=True)
     return cached
 
 

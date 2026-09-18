@@ -21,14 +21,14 @@ from core.github import RateLimitError, fetch_to, github_asset
 from core.reporter import NullReporter, Reporter
 from core.settings import toml_str
 
-TL_USERNAME_RX = re.compile(r"""username\s*=\s*["']([^"']*)["']""")
+_TL_USERNAME_RX = re.compile(r"""username\s*=\s*["']([^"']*)["']""")
 
 
 def tl_present() -> bool:
     return all((TL_DIR / f).exists() for f in TL_EXTRACT)
 
 
-def pe_file_version(path: Path) -> str | None:
+def _pe_file_version(path: Path) -> str | None:
     try:
         data = path.read_bytes()
     except OSError:
@@ -44,7 +44,7 @@ def pe_file_version(path: Path) -> str | None:
 
 
 def tl_folder_version(folder: Path) -> str | None:
-    return pe_file_version(folder / TL_LAUNCHER)
+    return _pe_file_version(folder / TL_LAUNCHER)
 
 
 def tl_version() -> str | None:
@@ -80,7 +80,7 @@ def ensure_tl(reporter: Reporter | None = None, force: bool = False) -> None:
 def write_tl_toml(target_dir: Path, username: str) -> None:
     config = target_dir / TL_TOML
     config.write_text(
-        TL_USERNAME_RX.sub(
+        _TL_USERNAME_RX.sub(
             lambda _: f"username = {toml_str(username)}",
             config.read_text(encoding="utf-8"),
             count=1,

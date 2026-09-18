@@ -81,9 +81,9 @@ def _single_root(tmp_dir: Path) -> Path:
     return tmp_dir
 
 
-def ensure_wine(reporter: Reporter, cancelled: Callable[[], bool] | None = None) -> Path:
+def ensure_wine(reporter: Reporter, cancelled: Callable[[], bool] | None = None) -> None:
     if WINE_BIN.exists():
-        return WINE_DIR
+        return
 
     reporter.update("Fetching Wine")
     BIN_DIR.mkdir(parents=True, exist_ok=True)
@@ -102,7 +102,6 @@ def ensure_wine(reporter: Reporter, cancelled: Callable[[], bool] | None = None)
         if WINE_DIR.exists():
             shutil.rmtree(WINE_DIR)
         staged.replace(WINE_DIR)
-        return WINE_DIR
     except CancelledError, RateLimitError:
         raise
     except Exception as e:
@@ -203,7 +202,7 @@ def _font_family(path: Path) -> str | None:
             if family is None or language == 0x409:
                 family = value
         return family
-    except OSError, IndexError:
+    except OSError:
         return None
 
 
@@ -215,7 +214,7 @@ def _font_is_bold(path: Path) -> bool:
             if data[record : record + 4] == b"head":
                 table = int.from_bytes(data[record + 8 : record + 12], "big")
                 return bool(int.from_bytes(data[table + 44 : table + 46], "big") & 1)
-    except OSError, IndexError:
+    except OSError:
         pass
     return False
 
@@ -359,19 +358,15 @@ class _Root:
         self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()
 
-    def open(self) -> str | None:
+    def open(self) -> None:
         self.close()
         loop = 'while IFS= read -r c; do [ "$c" = __END__ ] && break; eval "$c"; done'
-        try:
-            self._proc = subprocess.Popen(
-                ["pkexec", "sh", "-c", loop],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except FileNotFoundError:
-            return "pkexec not found"
-        return None
+        self._proc = subprocess.Popen(
+            ["pkexec", "sh", "-c", loop],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     def alive(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
@@ -382,7 +377,7 @@ class _Root:
             if proc is None or proc.stdin is None or proc.poll() is not None:
                 return "authorization was declined"
             try:
-                proc.stdin.write((script.replace("\n", "; ") + "\n").encode())
+                proc.stdin.write((script + "\n").encode())
                 proc.stdin.flush()
             except (OSError, ValueError) as error:
                 return str(error)
@@ -431,14 +426,13 @@ class Session:
             _kill_helpers(self._env)
             if not self._ensure_installed(installer, reporter):
                 return
-            error = self._root.open()
-            if error:
-                reporter.fail(log.fail("Network setup failed", error))
-                return
+            self._root.open()
             self._stage_artifacts(reporter)
             self._load_mac()
             reporter.update("Creating network device")
             error = self._net_bringup()
+            if self._cancel.is_set():
+                return
             if error:
                 reporter.fail(log.fail("Network setup failed", error))
                 return
@@ -522,7 +516,7 @@ class Session:
                 break
         if not is_installed():
             reporter.fail(
-                log.fail("Radmin VPN installation failed", f"installer exit={proc.returncode}")
+                log.fail("Radmin VPN install failed", f"installer exit={proc.returncode}")
             )
             return False
         _wineserver_stop(self._env)
@@ -555,7 +549,7 @@ class Session:
                     _copy(font, _FONTS_DIR / font.name)
             self._scrub_ndis()
         except OSError as e:
-            raise OSError(log.fail("Component install failed", e)) from e
+            raise OSError(log.fail("Radmin VPN setup failed", e)) from e
 
     def _load_mac(self) -> None:
         mac = ""
@@ -568,16 +562,16 @@ class Session:
                 RVPN_STATE_DIR.mkdir(parents=True, exist_ok=True)
                 RVPN_MAC_FILE.write_text(mac)
             except OSError as e:
-                raise OSError(log.fail("Could not write the adapter MAC file", e)) from e
+                raise OSError(log.fail("Adapter MAC file write failed", e)) from e
         self._mac = mac
         raw = bytes(int(p, 16) for p in mac.split(":"))
         _rm(_MAC_RAW)
         try:
             fd = os.open(_MAC_RAW, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(raw)
         except OSError as e:
-            raise OSError(log.fail("Could not write the adapter MAC file", e)) from e
-        with os.fdopen(fd, "wb") as f:
-            f.write(raw)
+            raise OSError(log.fail("Adapter MAC file write failed", e)) from e
 
     def _net_bringup(self) -> str | None:
         if not _MAC_RE.match(self._mac):
@@ -606,7 +600,7 @@ class Session:
             return error
         for _ in range(600):
             if self._cancel.is_set():
-                return "cancelled"
+                return None
             if not self._root.alive():
                 return "authorization was declined"
             if Path("/sys/class/net", _TAP).exists():
@@ -630,6 +624,13 @@ class Session:
         for _ in range(10):
             if _is_fifo(_FIFO_B2D) and _is_fifo(_FIFO_D2B_LOW):
                 return True
+            if self._bridge_proc.poll() is not None:
+                reporter.fail(
+                    log.fail(
+                        "Network bridge failed to start", f"exit={self._bridge_proc.returncode}"
+                    )
+                )
+                return False
             time.sleep(0.1)
         reporter.fail(log.fail("Network bridge failed to start", "fifo timeout"))
         return False
@@ -736,17 +737,20 @@ class Session:
         if shim.exists():
             preload = env.get("LD_PRELOAD", "")
             env["LD_PRELOAD"] = f"{shim}:{preload}" if preload else str(shim)
-        self._service_proc = subprocess.Popen(
-            ["wine", "rvpn_launcher.exe", "/run"],
-            cwd=str(_RVPN_APP),
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        try:
+            self._service_proc = subprocess.Popen(
+                ["wine", "rvpn_launcher.exe", "/run"],
+                cwd=str(_RVPN_APP),
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as e:
+            raise OSError(log.fail("Radmin VPN daemon failed to start", e)) from e
         for _ in range(_SERVICE_TIMEOUT_S * 5):
+            time.sleep(0.2)
             if self._cancel.is_set():
                 return False
-            time.sleep(0.2)
             text = _read_utf16(_SERVICE_LOG)
             if text:
                 match = _SERVICE_VER.search(text)

@@ -21,7 +21,7 @@ from layout import (
     VERSION,
 )
 
-OUTCOME = ".update-outcome"
+_OUTCOME = ".update-outcome"
 _POLL_INTERVAL = 0.25
 _MOVE_DEADLINE_S = 60
 _ROLLBACK_DEADLINE_S = 15
@@ -92,7 +92,7 @@ def _move(src: Path, dst: Path, deadline: float) -> bool:
             if dst.exists() and not src.exists():
                 return True
             if time.monotonic() > deadline:
-                log.fail(f"Update helper could not move {src} to {dst}", e)
+                log.fail("App folder move failed", f"{src} -> {dst}: {e}")
                 return False
             time.sleep(_POLL_INTERVAL)
 
@@ -128,7 +128,7 @@ def _pending_ok(pending: Path) -> bool:
 
 def write_outcome(ok: bool) -> None:
     with contextlib.suppress(OSError):
-        (DATA_ROOT / OUTCOME).write_text("ok" if ok else "", encoding="ascii")
+        (DATA_ROOT / _OUTCOME).write_text("ok" if ok else "", encoding="ascii")
 
 
 def helper_argv(target: Path, bounce: int = 0) -> list[str]:
@@ -160,7 +160,7 @@ def maybe_apply_pending() -> bool:
     try:
         spawn_detached(helper_argv(pending))
     except OSError as e:
-        log.fail("Update helper could not be started", e)
+        log.fail("Update helper failed to start", e)
         _remove(pending)
         write_outcome(False)
         return False
@@ -168,7 +168,7 @@ def maybe_apply_pending() -> bool:
 
 
 def take_outcome() -> bool | None:
-    marker = DATA_ROOT / OUTCOME
+    marker = DATA_ROOT / _OUTCOME
     try:
         outcome = marker.read_text(encoding="ascii")
     except OSError:

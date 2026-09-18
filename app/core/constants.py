@@ -21,23 +21,21 @@ def version_tuple(v: str) -> tuple[int, ...]:
     return tuple(int(p) for p in v.split("."))
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 FROZEN = bool(getattr(sys, "frozen", False)) or "__compiled__" in globals()
 IS_WINDOWS = sys.platform.startswith("win")
-
-
-_INSTALL_SUBDIRS = (APP_SUBDIR, PENDING_SUBDIR, PREVIOUS_SUBDIR)
 
 
 def _asset_root() -> Path:
     if FROZEN:
         return Path(sys.executable).resolve().parent
-    return PROJECT_ROOT
+    return Path(__file__).resolve().parent.parent.parent
 
 
 def _data_root() -> Path:
     if FROZEN and IS_WINDOWS:
-        return ASSET_ROOT.parent if ASSET_ROOT.name in _INSTALL_SUBDIRS else ASSET_ROOT
+        if ASSET_ROOT.name in (APP_SUBDIR, PENDING_SUBDIR, PREVIOUS_SUBDIR):
+            return ASSET_ROOT.parent
+        return ASSET_ROOT
     return user_data_base() / DIR_NAME
 
 

@@ -53,7 +53,7 @@ class Watchdog(QObject):
         except Exception as e:
             if not self._scan_failed:
                 self._scan_failed = True
-                log.fail("Game scan failed", e)
+                log.fail("Process scan failed", e)
             self.keep_fast()
             folders = {}
         self._scanned_in.emit(folders)
