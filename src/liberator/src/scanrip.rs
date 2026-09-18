@@ -58,43 +58,8 @@ static X87M3: [u64; 8] = [
     0x00FFFF0100000000,
 ];
 
-pub fn read_i32(b: &[u8], i: usize) -> i32 {
+fn read_i32(b: &[u8], i: usize) -> i32 {
     i32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]])
-}
-
-fn find_modrm_index(buf: &[u8], start: usize) -> Option<usize> {
-    let len = buf.len();
-    let mut p = start;
-    while p < len {
-        let b = buf[p];
-        if b == 0x66
-            || b == 0x67
-            || b == 0xF0
-            || b == 0xF2
-            || b == 0xF3
-            || b == 0x2E
-            || b == 0x36
-            || b == 0x3E
-            || b == 0x26
-            || b == 0x64
-            || b == 0x65
-        {
-            p += 1;
-        } else {
-            break;
-        }
-    }
-    if p < len && (buf[p] & 0xF0) == 0x40 {
-        p += 1;
-    }
-    if p >= len {
-        return None;
-    }
-    p += 1;
-    if p >= len {
-        return None;
-    }
-    Some(p)
 }
 
 fn decode_modrm(buf: &[u8], pos: &mut usize, len: usize, rip_disp: &mut Option<usize>) -> bool {
@@ -150,7 +115,7 @@ fn push_rip_fix(
     mod_hi: u64,
     instr_end: usize,
     rip_disp: Option<usize>,
-    fix: &mut Vec<i32>,
+    fix: &mut Vec<usize>,
 ) {
     let Some(rip_disp_pos) = rip_disp else {
         return;
@@ -160,22 +125,21 @@ fn push_rip_fix(
         .wrapping_add(instr_end as u64)
         .wrapping_add(disp32 as i64 as u64);
     if tgt >= mod_lo && tgt < mod_hi {
-        fix.push(rip_disp_pos as i32);
+        fix.push(rip_disp_pos);
     }
 }
 
-pub fn apply_rip_delta(buf: &mut [u8], fix: &[i32], delta: i64) {
+pub fn apply_rip_delta(buf: &mut [u8], fix: &[usize], delta: i64) {
     for &fi in fix {
-        let fi = fi as usize;
         let v = read_i32(buf, fi);
         let nv = ((v as i64) - delta) as i32;
         buf[fi..fi + 4].copy_from_slice(&nv.to_le_bytes());
     }
 }
 
-pub fn scan_rip_rel(buf: &[u8], buf_base: u64, mod_lo: u64, mod_hi: u64) -> Vec<i32> {
+pub fn scan_rip_rel(buf: &[u8], buf_base: u64, mod_lo: u64, mod_hi: u64) -> Vec<usize> {
     let len = buf.len();
-    let mut fix: Vec<i32> = Vec::new();
+    let mut fix: Vec<usize> = Vec::new();
     let mut pos = 0usize;
     while pos < len {
         let start = pos;
@@ -313,9 +277,13 @@ pub fn scan_rip_rel(buf: &[u8], buf_base: u64, mod_lo: u64, mod_hi: u64) -> Vec<
         }
         let is_rel8 = (flags & F_REL8) != 0;
         let is_rel32 = (flags & F_REL32) != 0;
+        let mut modrm_reg = 0u8;
         if (flags & F_MODRM) != 0 {
+            if pos < len {
+                modrm_reg = (buf[pos] >> 3) & 7;
+            }
             if op_len == 1 && pos < len {
-                let rreg = (buf[pos] >> 3) & 7;
+                let rreg = modrm_reg;
                 let rmod = (buf[pos] >> 6) & 3;
                 let mut invalid = false;
                 if op0 == 0xFE {
@@ -344,19 +312,14 @@ pub fn scan_rip_rel(buf: &[u8], buf_base: u64, mod_lo: u64, mod_hi: u64) -> Vec<
         }
         let mut imm_size: usize = 0;
         if op_len == 1 && (op0 == 0xF6 || op0 == 0xF7) {
-            if let Some(mi) = find_modrm_index(buf, start) {
-                if mi < len {
-                    let reg = (buf[mi] >> 3) & 7;
-                    if reg == 0 || reg == 1 {
-                        imm_size = if op0 == 0xF6 {
-                            1
-                        } else if pfx66 {
-                            2
-                        } else {
-                            4
-                        };
-                    }
-                }
+            if modrm_reg == 0 || modrm_reg == 1 {
+                imm_size = if op0 == 0xF6 {
+                    1
+                } else if pfx66 {
+                    2
+                } else {
+                    4
+                };
             }
         } else {
             if flags & F_IMM8 != 0 {
@@ -394,7 +357,7 @@ pub fn scan_rip_rel(buf: &[u8], buf_base: u64, mod_lo: u64, mod_hi: u64) -> Vec<
                 .wrapping_add(pos as u64)
                 .wrapping_add(read_i32(buf, rel_pos) as i64 as u64);
             if tgt < buf_base || tgt >= buf_base.wrapping_add(len as u64) {
-                fix.push(rel_pos as i32);
+                fix.push(rel_pos);
             }
         }
         push_rip_fix(buf, buf_base, mod_lo, mod_hi, pos, rip_disp, &mut fix);

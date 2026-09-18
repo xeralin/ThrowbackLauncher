@@ -38,7 +38,7 @@ pub struct TreeParams {
     pub i_gym: i32,
     pub i_vr: i32,
     pub i_ob: i32,
-    pub situ_adv: i32,
+    pub situ_adv: bool,
     pub event_mode: &'static str,
     pub remove: &'static [i32],
 }
@@ -51,6 +51,5 @@ include!("season_names.rs");
 include!("tree_params.rs");
 include!("map_names.rs");
 include!("gametype_names.rs");
-include!("feature_values.rs");
 include!("shadow_regions.rs");
 include!("ownership.rs");

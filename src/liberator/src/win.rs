@@ -1,7 +1,7 @@
 use core::ffi::c_void;
 use std::mem::{size_of, zeroed};
 
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, STILL_ACTIVE};
 use windows_sys::Win32::Networking::WinSock::{
     closesocket, connect, htonl, htons, recv, select, send, socket, WSAStartup, FD_SET,
     INVALID_SOCKET, IN_ADDR, IN_ADDR_0, SOCKADDR, SOCKADDR_IN, SOCKET, TIMEVAL, WSADATA,
@@ -38,46 +38,42 @@ fn cstr_eq_ignore_case(raw: &[i8], name: &str) -> bool {
     i == nb.len()
 }
 
-fn find_pid_by_name(name: &str) -> u32 {
-    unsafe {
-        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if snap == INVALID_HANDLE_VALUE {
-            return 0;
-        }
-        let mut pe: PROCESSENTRY32 = zeroed();
-        pe.dwSize = size_of::<PROCESSENTRY32>() as u32;
-        let mut pid = 0u32;
-        if Process32First(snap, &mut pe) != 0 {
-            loop {
-                if cstr_eq_ignore_case(&pe.szExeFile, name) {
-                    pid = pe.th32ProcessID;
-                    break;
-                }
-                if Process32Next(snap, &mut pe) == 0 {
-                    break;
-                }
+fn find_process(names: &[&'static str]) -> Option<(u32, &'static str)> {
+    let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snap == INVALID_HANDLE_VALUE {
+        return None;
+    }
+    let mut pe: PROCESSENTRY32 = unsafe { zeroed() };
+    pe.dwSize = size_of::<PROCESSENTRY32>() as u32;
+    let mut found = None;
+    if unsafe { Process32First(snap, &mut pe) } != 0 {
+        loop {
+            if let Some(name) = names.iter().find(|n| cstr_eq_ignore_case(&pe.szExeFile, n)) {
+                found = Some((pe.th32ProcessID, *name));
+                break;
+            }
+            if unsafe { Process32Next(snap, &mut pe) } == 0 {
+                break;
             }
         }
-        CloseHandle(snap);
-        pid
     }
+    unsafe { CloseHandle(snap) };
+    found
 }
 
 fn module_info(pid: u32) -> Option<(u64, u32)> {
-    unsafe {
-        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
-        if snap == INVALID_HANDLE_VALUE {
-            return None;
-        }
-        let mut me: MODULEENTRY32 = zeroed();
-        me.dwSize = size_of::<MODULEENTRY32>() as u32;
-        let mut out = None;
-        if Module32First(snap, &mut me) != 0 {
-            out = Some((me.modBaseAddr as u64, me.modBaseSize));
-        }
-        CloseHandle(snap);
-        out
+    let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid) };
+    if snap == INVALID_HANDLE_VALUE {
+        return None;
     }
+    let mut me: MODULEENTRY32 = unsafe { zeroed() };
+    me.dwSize = size_of::<MODULEENTRY32>() as u32;
+    let mut out = None;
+    if unsafe { Module32First(snap, &mut me) } != 0 {
+        out = Some((me.modBaseAddr as u64, me.modBaseSize));
+    }
+    unsafe { CloseHandle(snap) };
+    out
 }
 
 pub struct Engine {
@@ -102,54 +98,49 @@ impl Engine {
     }
 
     pub fn attach(&mut self) -> bool {
-        for name in [
-            "RainbowSix.exe",
-            "RainbowSix_DX11.exe",
-            "RainbowSixGame.exe",
-        ] {
-            let pid = find_pid_by_name(name);
-            if pid == 0 {
-                continue;
+        let Some((pid, name)) = find_process(&["RainbowSix.exe", "RainbowSix_DX11.exe"]) else {
+            return false;
+        };
+        let h = unsafe {
+            OpenProcess(
+                PROCESS_QUERY_INFORMATION
+                    | PROCESS_VM_READ
+                    | PROCESS_VM_WRITE
+                    | PROCESS_VM_OPERATION
+                    | PROCESS_CREATE_THREAD,
+                0,
+                pid,
+            )
+        };
+        if h.is_null() {
+            return false;
+        }
+        match module_info(pid) {
+            Some((base, size)) => {
+                self.proc = h;
+                self.base = base;
+                self.modsize = size;
+                self.exe = name;
+                true
             }
-            let h = unsafe {
-                OpenProcess(
-                    PROCESS_QUERY_INFORMATION
-                        | PROCESS_VM_READ
-                        | PROCESS_VM_WRITE
-                        | PROCESS_VM_OPERATION
-                        | PROCESS_CREATE_THREAD,
-                    0,
-                    pid,
-                )
-            };
-            if h.is_null() {
-                continue;
-            }
-            match module_info(pid) {
-                Some((base, size)) => {
-                    self.proc = h;
-                    self.base = base;
-                    self.modsize = size;
-                    self.exe = name;
-                    return true;
-                }
-                None => {
-                    unsafe { CloseHandle(h) };
-                }
+            None => {
+                unsafe { CloseHandle(h) };
+                false
             }
         }
-        false
     }
 
     pub fn reader(&self) -> impl FnMut(u64, &mut [u8]) + '_ {
-        let h = self.proc;
-        move |a: u64, b: &mut [u8]| read_zero(h, a, b)
+        move |a: u64, b: &mut [u8]| {
+            b.fill(0);
+            self.read_mem(a, b);
+        }
     }
 
     pub fn process_alive(&self) -> bool {
         let mut code: u32 = 0;
         let ok = unsafe { GetExitCodeProcess(self.proc, &mut code) };
-        ok != 0 && code == STILL_ACTIVE
+        ok != 0 && code == STILL_ACTIVE as u32
     }
 
     pub fn read_mem(&self, addr: u64, buf: &mut [u8]) -> usize {
@@ -164,6 +155,15 @@ impl Engine {
             );
         }
         got
+    }
+
+    pub(crate) fn read_u64(&self, addr: u64) -> u64 {
+        let mut b = [0u8; 8];
+        if self.read_mem(addr, &mut b) == 8 {
+            u64::from_le_bytes(b)
+        } else {
+            0
+        }
     }
 
     pub fn write_mem(&self, addr: u64, bytes: &[u8]) -> bool {
@@ -198,12 +198,12 @@ impl Engine {
         }
         None
     }
+}
 
-    pub fn find_chain(&self, feature: &str, build: &str) -> Option<&'static FeatureChain> {
-        FEATURE_CHAINS
-            .iter()
-            .find(|fc| fc.feature == feature && fc.build == build)
-    }
+fn find_chain(feature: &str, build: &str) -> Option<&'static FeatureChain> {
+    FEATURE_CHAINS
+        .iter()
+        .find(|fc| fc.feature == feature && fc.build == build)
 }
 
 impl Engine {
@@ -216,14 +216,13 @@ impl Engine {
         depth: i32,
     ) -> TNode {
         let mut rd = self.reader();
-        let mut node = TNode::new();
+        let mut node = TNode::default();
         let num = if direct {
             address
         } else {
-            let first = crate::memread::mr_u64(&mut rd, address);
-            crate::memread::mr_u64(&mut rd, first)
+            self.read_u64(self.read_u64(address))
         };
-        let name_addr = crate::memread::mr_u64(&mut rd, num + name_off as u64);
+        let name_addr = self.read_u64(num + name_off as u64);
         let name_bytes = crate::memread::mr_read_ascii(&mut rd, name_addr, 100);
         let name = String::from_utf8_lossy(&name_bytes);
         node.text = if name.is_empty() {
@@ -237,7 +236,7 @@ impl Engine {
         }
         let cnt = crate::memread::mr_read_u16(&mut rd, num + children_off as u64 + 8);
         let cnt = if cnt > 64 { 0 } else { cnt };
-        let kids_base = crate::memread::mr_u64(&mut rd, num + children_off as u64);
+        let kids_base = self.read_u64(num + children_off as u64);
         for j in 0..cnt {
             let child = self.build_nodes(
                 kids_base + (j as u64) * 8,
@@ -260,42 +259,21 @@ fn relabel_event(mp: &mut TNode, extract: &[usize], rm_path: &[usize], rm_idx: u
     set_text(mp, &[5], label);
 }
 
-pub(crate) fn read_zero(h: HANDLE, addr: u64, buf: &mut [u8]) {
-    buf.fill(0);
-    let mut got: usize = 0;
-    unsafe {
-        ReadProcessMemory(
-            h,
-            addr as usize as *const c_void,
-            buf.as_mut_ptr() as *mut c_void,
-            buf.len(),
-            &mut got,
-        );
-    }
-}
-
 impl Engine {
-    fn read1(&self, addr: u64) -> i32 {
+    fn read1(&self, addr: u64) -> u8 {
         let mut b = [0u8; 1];
         self.read_mem(addr, &mut b);
-        b[0] as i32
-    }
-
-    fn write_int64(&self, addr: u64, val: i64) {
-        self.write_mem(addr, &val.to_le_bytes());
+        b[0]
     }
 
     fn resolve_ptr_chain(&self, base_offset: u64, offsets: &[u64]) -> u64 {
         if offsets.is_empty() {
             return self.base + base_offset;
         }
-        let mut rd = self.reader();
-        let mut num = self.base + base_offset;
-        let mut ptr = crate::memread::mr_u64(&mut rd, num);
+        let mut ptr = self.read_u64(self.base + base_offset);
         let n = offsets.len();
         for off in &offsets[..n - 1] {
-            num = ptr.wrapping_add(*off);
-            ptr = crate::memread::mr_u64(&mut rd, num);
+            ptr = self.read_u64(ptr.wrapping_add(*off));
         }
         ptr.wrapping_add(offsets[n - 1])
     }
@@ -337,8 +315,6 @@ fn json_str(line: &str, key: &str) -> Option<String> {
 fn json_bool(line: &str, key: &str) -> bool {
     json_find(line, key).is_some_and(|i| line[i..].starts_with("true"))
 }
-
-const STILL_ACTIVE: u32 = 259;
 
 const CAP_COUNT: usize = 12;
 
@@ -480,7 +456,6 @@ pub struct Runner {
     eng: Engine,
     client: SOCKET,
     build: String,
-    attached: bool,
     applied: bool,
     pending: bool,
     countdown: i32,
@@ -503,12 +478,10 @@ pub struct Runner {
 }
 
 fn bs_season_of(build: &str) -> i32 {
-    for (b, s) in BUILD_SEASONS {
-        if *b == build {
-            return *s;
-        }
-    }
-    -1
+    BUILD_SEASONS
+        .iter()
+        .find(|(b, _)| *b == build)
+        .map_or(-1, |(_, s)| *s)
 }
 
 impl Runner {
@@ -517,12 +490,11 @@ impl Runner {
             eng: Engine::new(),
             client: INVALID_SOCKET,
             build: String::new(),
-            attached: false,
             applied: false,
             pending: true,
             countdown: 0,
             shadow_ready: false,
-            status: "Waiting for R6S to launch".to_string(),
+            status: String::new(),
             season: -1,
             disable_primary: false,
             disable_secondary: false,
@@ -684,7 +656,7 @@ impl Runner {
         let mut rd = self.eng.reader();
         let value = crate::memread::mr_read_pointer(&mut rd, template);
         if value != 0 {
-            self.eng.write_int64(field, value as i64);
+            self.eng.write_mem(field, &value.to_le_bytes());
         }
     }
 
@@ -721,25 +693,35 @@ impl Runner {
         pve.sort_by_key(|i| Y5_GAMETYPE_NAMES[*i]);
         let mut roots: Vec<TNode> = Vec::new();
         if !pvp.is_empty() {
-            let mut multiplayer = TNode::new();
-            multiplayer.text = "Multiplayer".to_string();
+            let mut multiplayer = TNode {
+                text: "Multiplayer".to_string(),
+                ..Default::default()
+            };
             for gt in &pvp {
-                let mut gametype = TNode::new();
-                gametype.text = Y5_GAMETYPE_NAMES[*gt].to_string();
+                let mut gametype = TNode {
+                    text: Y5_GAMETYPE_NAMES[*gt].to_string(),
+                    ..Default::default()
+                };
                 gametype.children = self.y5_map_nodes(*gt);
                 multiplayer.children.push(gametype);
             }
             roots.push(multiplayer);
         }
         if !pve.is_empty() {
-            let mut hunt = TNode::new();
-            hunt.text = "Terrorist Hunt".to_string();
+            let mut hunt = TNode {
+                text: "Terrorist Hunt".to_string(),
+                ..Default::default()
+            };
             for gt in &pve {
-                let mut gametype = TNode::new();
-                gametype.text = Y5_GAMETYPE_NAMES[*gt].to_string();
+                let mut gametype = TNode {
+                    text: Y5_GAMETYPE_NAMES[*gt].to_string(),
+                    ..Default::default()
+                };
                 for (m, map_name) in Y5_MAP_NAMES.iter().enumerate() {
-                    let mut map = TNode::new();
-                    map.text = map_name.to_string();
+                    let mut map = TNode {
+                        text: map_name.to_string(),
+                        ..Default::default()
+                    };
                     for (d, diff_name) in Y5_DIFF_NAMES.iter().enumerate() {
                         map.children.push(TNode {
                             text: diff_name.to_string(),
@@ -754,13 +736,17 @@ impl Runner {
             roots.push(hunt);
         }
         if !gym.is_empty() {
-            let mut development = TNode::new();
-            development.text = "Development".to_string();
+            let mut development = TNode {
+                text: "Development".to_string(),
+                ..Default::default()
+            };
             development.children = self.y5_map_nodes(gym[0]);
             roots.push(development);
         }
-        let mut events = TNode::new();
-        events.text = "Events".to_string();
+        let mut events = TNode {
+            text: "Events".to_string(),
+            ..Default::default()
+        };
         events.children.push(TNode {
             text: "Grand Larceny".to_string(),
             id: "y5:evt:1".to_string(),
@@ -779,7 +765,7 @@ impl Runner {
         if self.season == SEASON_Y5S1 {
             self.build_y5s1_tree_json()
         } else {
-            self.build_tree_json(&self.build)
+            self.build_tree_json()
         }
     }
 
@@ -900,7 +886,7 @@ impl Runner {
         if self.write_state("EndRound") {
             return;
         }
-        if let Some(fc) = self.eng.find_chain("EndRound", &self.build) {
+        if let Some(fc) = find_chain("EndRound", &self.build) {
             let a = self.eng.resolve_ptr_chain(fc.base_offset, fc.offsets);
             self.eng.write_mem(a, &[1u8]);
         }
@@ -913,11 +899,11 @@ impl Runner {
         if self.write_state("EndMatch") {
             return;
         }
-        if let Some(fc) = self.eng.find_chain("EndMatch", &self.build) {
+        if let Some(fc) = find_chain("EndMatch", &self.build) {
             let a = self.eng.resolve_ptr_chain(fc.base_offset, fc.offsets);
             self.eng.write_mem(a, &[1u8]);
         }
-        if let Some(fc) = self.eng.find_chain("EndMatchTrigger", &self.build) {
+        if let Some(fc) = find_chain("EndMatchTrigger", &self.build) {
             let a = self.eng.resolve_ptr_chain(fc.base_offset, fc.offsets);
             self.eng.write_mem(a, &[1u8]);
         }
@@ -958,7 +944,7 @@ impl Runner {
                 }
                 let entry = self.y5_deref(container, &[*slot, 0x20, 0x00]);
                 if entry != 0 {
-                    self.eng.write_int64(entry + 0x18, 0);
+                    self.eng.write_mem(entry + 0x18, &0u64.to_le_bytes());
                 }
             }
         }
@@ -1045,7 +1031,7 @@ impl Runner {
             }
         }
         if mod_ == "infiniteTime" {
-            if let Some(fc) = self.eng.find_chain("SetInfiniteTime", &self.build) {
+            if let Some(fc) = find_chain("SetInfiniteTime", &self.build) {
                 let num = self.eng.resolve_ptr_chain(fc.base_offset, fc.offsets);
                 let v: u8 = if enabled { 0 } else { 1 };
                 self.eng.write_mem(num, &[v]);
@@ -1079,7 +1065,7 @@ impl Runner {
         } else {
             id_str
         };
-        if let Some(fc) = self.eng.find_chain("SetGametype", &self.build) {
+        if let Some(fc) = find_chain("SetGametype", &self.build) {
             let id: i64 = raw.parse().unwrap_or(0);
             let num = self.eng.resolve_ptr_chain(fc.base_offset, fc.offsets);
             self.eng.write_mem(num, &id.to_le_bytes());
@@ -1102,25 +1088,6 @@ impl Runner {
         } else {
             self.status = "Loading".to_string();
         }
-    }
-
-    fn reset_attach_state(&mut self) {
-        self.eng.shadow_pages.clear();
-        self.eng.shadow_delta = 0;
-        self.build.clear();
-        self.scanned.clear();
-        self.season = -1;
-        self.applied = false;
-        self.pending = true;
-        self.countdown = 0;
-        self.shadow_ready = false;
-        self.y5_map = -1;
-        self.y5_gametype = -1;
-        self.y5_difficulty = -1;
-        self.y5_event = 0;
-        self.tree_sent = false;
-        self.available = [false; CAP_COUNT];
-        self.ownership = Ownership::default();
     }
 
     fn apply_event_mode(&self, root: &mut TNode, em: &str) {
@@ -1170,8 +1137,8 @@ impl Runner {
         }
     }
 
-    fn build_tree_json(&self, build: &str) -> String {
-        let tp = match TREE_PARAMS.iter().find(|t| t.build == build) {
+    fn build_tree_json(&self) -> String {
+        let tp = match TREE_PARAMS.iter().find(|t| t.build == self.build) {
             Some(t) => t,
             None => return TREE_NULL.to_string(),
         };
@@ -1180,19 +1147,17 @@ impl Runner {
             return TREE_NULL.to_string();
         }
         let nroot = tp.root_count.min(64);
-        let mut rh = TNode::new();
-        {
-            for i in 0..nroot {
-                let mut rd = self.eng.reader();
-                let a = crate::memread::mr_read_pointer(
-                    &mut rd,
-                    root_addr + (i as u64) * (tp.stride as u64),
-                );
-                let child = self
-                    .eng
-                    .build_nodes(a, true, tp.name_off, tp.children_off, 0);
-                rh.children.push(child);
-            }
+        let mut rh = TNode::default();
+        let mut rd = self.eng.reader();
+        for i in 0..nroot {
+            let a = crate::memread::mr_read_pointer(
+                &mut rd,
+                root_addr + (i as u64) * (tp.stride as u64),
+            );
+            let child = self
+                .eng
+                .build_nodes(a, true, tp.name_off, tp.children_off, 0);
+            rh.children.push(child);
         }
         self.apply_event_mode(&mut rh, tp.event_mode);
         let mut rem: Vec<i32> = tp.remove.iter().copied().take(8).collect();
@@ -1249,22 +1214,16 @@ impl Runner {
     }
 
     fn set_old_hereford(&self, on: bool) {
-        if let Some(fc) = self.eng.find_chain("SetOldHereford", &self.build) {
+        if let Some(fc) = find_chain("SetOldHereford", &self.build) {
             let a = self.eng.resolve_ptr_chain(fc.base_offset, fc.offsets);
-            self.eng.write_int64(
-                a,
-                if on {
-                    OLD_HEREFORD_VALUE_A
-                } else {
-                    OLD_HEREFORD_VALUE_B
-                },
-            );
+            let value: i64 = if on { 708483531 } else { 127951053400 };
+            self.eng.write_mem(a, &value.to_le_bytes());
         }
     }
 
     fn scan_features(&mut self) {
         for (i, feature) in CAP_FEATURES.iter().enumerate() {
-            self.available[i] = self.eng.find_chain(feature, &self.build).is_some()
+            self.available[i] = find_chain(feature, &self.build).is_some()
                 || patches_have(feature, &self.build)
                 || (self.season == SEASON_Y5S1 && Y5S1_SUPPORTED_FEATURES.contains(feature))
                 || STATE_WRITES
@@ -1274,7 +1233,7 @@ impl Runner {
     }
 
     fn build_state(&self) -> String {
-        let detected = self.attached && !self.build.is_empty() && self.season >= 0;
+        let detected = !self.eng.proc.is_null() && !self.build.is_empty() && self.season >= 0;
         let full = detected && self.is_full_feature();
         let have = |feature: &str| {
             CAP_FEATURES
@@ -1297,7 +1256,7 @@ impl Runner {
         let jb = |b: bool| if b { "true" } else { "false" };
         format!(
             "{{\"event\":\"state\",\"attached\":{},\"applied\":{},\"status\":\"{}\",\"capabilities\":{{\"deathless\":{},\"disableAI\":{},\"unlimitedAmmo\":{},\"unlimitedEquip\":{},\"infiniteTime\":{},\"disablePrimary\":{},\"disableSecondary\":{},\"disablePrimaryGadget\":{},\"disableSecondaryGadget\":{},\"displayBuild\":{},\"endRound\":{},\"endMatch\":{},\"fullFeature\":{}}}}}",
-            jb(self.attached), jb(self.applied), self.status,
+            jb(!self.eng.proc.is_null()), jb(self.applied), self.status,
             jb(deathless), jb(disable_ai), jb(unlimited_ammo), jb(unlimited_equip),
             jb(infinite_time), jb(disable_primary), jb(disable_secondary),
             jb(disable_primary_gadget), jb(disable_secondary_gadget),
@@ -1317,26 +1276,16 @@ impl Runner {
     }
 
     fn tick(&mut self) {
-        let was_attached = self.attached;
         if !self.eng.proc.is_null() && !self.eng.process_alive() {
-            unsafe { CloseHandle(self.eng.proc) };
-            self.eng.proc = core::ptr::null_mut();
-            if was_attached {
-                std::process::exit(0);
-            }
+            std::process::exit(0);
         }
         if self.eng.proc.is_null() && !self.eng.attach() {
-            self.attached = false;
-            self.reset_attach_state();
-            self.status = "Waiting for R6S to launch".to_string();
             return;
         }
-        self.attached = true;
         if self.scanned.is_empty() {
             match self.eng.detect_build() {
                 Some(s) => self.scanned = s,
                 None => {
-                    self.reset_attach_state();
                     self.status = "Loading".to_string();
                     return;
                 }
@@ -1352,9 +1301,12 @@ impl Runner {
             self.season = bs_season_of(&self.build);
             self.scan_features();
         }
-        let shadow_enabled = shadow_regions_for_build(&self.build).is_some_and(|r| !r.is_empty());
-        if shadow_enabled && !self.shadow_ready {
-            self.shadow_ready = self.eng.shadow_run(&self.build) == 0;
+        let regions = shadow_regions_for_build(&self.build);
+        let shadow_enabled = regions.is_some();
+        if let Some(regions) = regions {
+            if !self.shadow_ready {
+                self.shadow_ready = self.eng.shadow_run(regions);
+            }
         }
         if self.pending {
             self.set_loading_status();
@@ -1500,6 +1452,7 @@ impl Runner {
                     let line = String::from_utf8_lossy(&rbuf[start..nl]).into_owned();
                     if !line.is_empty() {
                         self.handle_command(&line);
+                        self.push_state();
                     }
                     start = nl + 1;
                 }
@@ -1510,8 +1463,8 @@ impl Runner {
             if last_tick.elapsed() >= std::time::Duration::from_secs(1) {
                 last_tick = std::time::Instant::now();
                 self.tick();
+                self.push_state();
             }
-            self.push_state();
         }
         unsafe {
             closesocket(self.client);

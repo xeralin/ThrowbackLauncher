@@ -31,10 +31,4 @@ pub static SEASON_NAMES: &[&str] = &[
     "Y8S1 Commanding Force",
     "Y8S2 Dread Factor",
     "Y8S3 Heavy Mettle",
-    "Y8S4 Deep Freeze",
-    "Y9S1 Deadly Omen",
-    "Y9S2 New Blood",
-    "Y9S3 Twin Shells",
-    "Y9S4 Collision Point",
-    "Y10S1 Prep Phase",
 ];

@@ -4,7 +4,6 @@ use core::ffi::c_void;
 use core::panic::PanicInfo;
 
 const FILE_MAP_READ: u32 = 0x0004;
-const FILE_MAP_WRITE: u32 = 0x0002;
 const STATUS_ACCESS_VIOLATION: u32 = 0xC000_0005;
 const EXCEPTION_CONTINUE_EXECUTION: i32 = -1;
 const EXCEPTION_CONTINUE_SEARCH: i32 = 0;
@@ -106,12 +105,11 @@ static MAP_NAME: [u16; 14] = [
 ];
 
 unsafe fn install() {
-    let access = FILE_MAP_READ | FILE_MAP_WRITE;
-    let map = OpenFileMappingW(access, 0, MAP_NAME.as_ptr());
+    let map = OpenFileMappingW(FILE_MAP_READ, 0, MAP_NAME.as_ptr());
     if map.is_null() {
         return;
     }
-    let view = MapViewOfFile(map, access, 0, 0, 0);
+    let view = MapViewOfFile(map, FILE_MAP_READ, 0, 0, 0);
     if view.is_null() {
         return;
     }

@@ -1,23 +1,13 @@
 use crate::tables::*;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TNode {
     pub text: String,
     pub id: String,
     pub children: Vec<TNode>,
 }
 
-impl TNode {
-    pub fn new() -> TNode {
-        TNode {
-            text: String::new(),
-            id: String::new(),
-            children: Vec::new(),
-        }
-    }
-}
-
-pub fn get_path_mut<'a>(node: &'a mut TNode, path: &[usize]) -> Option<&'a mut TNode> {
+fn get_path_mut<'a>(node: &'a mut TNode, path: &[usize]) -> Option<&'a mut TNode> {
     let mut cur = node;
     for &i in path {
         cur = cur.children.get_mut(i)?;
@@ -56,15 +46,11 @@ fn lookup(table: &[(&str, &str)], raw: &str) -> String {
     raw.to_string()
 }
 
-pub fn map_display(raw: &str) -> String {
+fn map_display(raw: &str) -> String {
     lookup(MAP_NAMES, raw)
 }
 
-pub fn gametype_display(raw: &str) -> String {
-    lookup(GAMETYPE_NAMES, raw)
-}
-
-pub fn json_escape(s: &str, out: &mut String) {
+fn json_escape(s: &str, out: &mut String) {
     out.push('"');
     for c in s.chars() {
         match c {
@@ -77,7 +63,7 @@ pub fn json_escape(s: &str, out: &mut String) {
     out.push('"');
 }
 
-pub fn event_node_names(event_mode: &str) -> &'static [&'static str] {
+fn event_node_names(event_mode: &str) -> &'static [&'static str] {
     match event_mode {
         "Mad_House" => &["Mad House"],
         "Rainbow_Is_Magic" => &["Rainbow is Magic"],
@@ -94,8 +80,10 @@ pub fn group_event_nodes(root: &mut TNode, event_mode: &str) {
     if names.is_empty() || root.children.is_empty() {
         return;
     }
-    let mut events = TNode::new();
-    events.text = "Events".to_string();
+    let mut events = TNode {
+        text: "Events".to_string(),
+        ..Default::default()
+    };
     for name in names {
         if let Some(i) = root.children[0]
             .children
@@ -126,8 +114,10 @@ pub fn group_development_nodes(root: &mut TNode, gym_index: i32, video_review_in
         (Some(g), Some(v)) => {
             let first = g.min(v);
             let second = g.max(v);
-            let mut development = TNode::new();
-            development.text = "Development".to_string();
+            let mut development = TNode {
+                text: "Development".to_string(),
+                ..Default::default()
+            };
             let tail = root.children.remove(second);
             let head = root.children.remove(first);
             development.children.push(head);
@@ -141,7 +131,7 @@ pub fn group_development_nodes(root: &mut TNode, gym_index: i32, video_review_in
     }
 }
 
-pub fn tn_json(node: &TNode, out: &mut String) {
+fn tn_json(node: &TNode, out: &mut String) {
     out.push_str("{\"text\":");
     json_escape(&node.text, out);
     out.push_str(",\"id\":");
@@ -162,8 +152,17 @@ pub fn tn_list(nodes: &[TNode]) -> String {
     out
 }
 
-pub fn sort_gametypes_by_name(nodes: &mut [TNode]) {
+fn sort_gametypes_by_name(nodes: &mut [TNode]) {
     nodes.sort_by(|a, b| a.text.cmp(&b.text));
+}
+
+fn trim_season_maps(maps: &mut Vec<TNode>, season: i32) {
+    if season == SEASON_Y1S2 && maps.len() > 13 {
+        maps.remove(13);
+    }
+    if season == SEASON_Y2S3 && maps.len() > 17 {
+        maps.remove(17);
+    }
 }
 
 pub fn label_multiplayer(node: &mut TNode, season: i32) {
@@ -198,12 +197,7 @@ pub fn label_multiplayer(node: &mut TNode, season: i32) {
             }
             j += 1;
         }
-        if season == SEASON_Y1S2 && node.children[i].children.len() > 13 {
-            node.children[i].children.remove(13);
-        }
-        if season == SEASON_Y2S3 && node.children[i].children.len() > 17 {
-            node.children[i].children.remove(17);
-        }
+        trim_season_maps(&mut node.children[i].children, season);
     }
     sort_gametypes_by_name(&mut node.children);
 }
@@ -222,19 +216,15 @@ pub fn label_terrorist_hunt(node: &mut TNode, season: i32) {
             node.children[i].children[j].text = disp;
             for k in 0..node.children[i].children[j].children.len() {
                 for m in 0..node.children[i].children[j].children[k].children.len() {
-                    let d = gametype_display(
+                    let d = lookup(
+                        GAMETYPE_NAMES,
                         &node.children[i].children[j].children[k].children[m].text,
                     );
                     node.children[i].children[j].children[k].children[m].text = d;
                 }
             }
         }
-        if season == SEASON_Y1S2 && node.children[i].children.len() > 13 {
-            node.children[i].children.remove(13);
-        }
-        if season == SEASON_Y2S3 && node.children[i].children.len() > 17 {
-            node.children[i].children.remove(17);
-        }
+        trim_season_maps(&mut node.children[i].children, season);
         if season == SEASON_Y3S2 {
             set_text(&mut node.children[i], &[18], "Villa");
         }
@@ -250,11 +240,11 @@ pub fn label_terrorist_hunt(node: &mut TNode, season: i32) {
     }
 }
 
-pub fn label_situation(node: &mut TNode, advanced_order: i32) {
+pub fn label_situation(node: &mut TNode, advanced_order: bool) {
     node.text = "Situations".to_string();
     set_text(node, &[0], "01 CQB Basics");
     set_text(node, &[1], "02 Suburban Extraction");
-    if advanced_order != 0 {
+    if advanced_order {
         set_text(node, &[2], "03 Tubular Assault");
         set_text(node, &[3], "04 Asset Protection");
         set_text(node, &[4], "05 Improvise Defense");
@@ -376,7 +366,7 @@ pub fn label_outbreak(node: &mut TNode) {
     }
 }
 
-pub fn tag_ids(node: &mut TNode, tag: &str) {
+fn tag_ids(node: &mut TNode, tag: &str) {
     if !node.id.is_empty() {
         node.id = format!("{}{}", tag, node.id);
     }

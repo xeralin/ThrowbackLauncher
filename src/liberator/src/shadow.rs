@@ -20,16 +20,14 @@ use crate::win::Engine;
 static SHADOW_DLL: &[u8] = include_bytes!("../shadow/Shadow.dll");
 
 pub(crate) fn shadow_regions_for_build(build: &str) -> Option<&'static [ShadowRegion]> {
-    for ms in SHADOW_SEASONS {
-        if ms.build == build {
-            return Some(ms.regions);
-        }
-    }
-    None
+    SHADOW_SEASONS
+        .iter()
+        .find(|s| s.build == build)
+        .map(|s| s.regions)
 }
 
 impl Engine {
-    pub(crate) fn get_text_section(&self) -> Option<(u64, u32)> {
+    fn get_text_section(&self) -> Option<(u64, u32)> {
         let mut dos = [0u8; 64];
         if self.read_mem(self.base, &mut dos) < 64 {
             return None;
@@ -164,7 +162,7 @@ impl Engine {
 
     fn shadow_dll_path(&self) -> Option<String> {
         let path = std::env::temp_dir().join(concat!("Shadow_", env!("CARGO_PKG_VERSION"), ".dll"));
-        if !path.exists() {
+        if std::fs::read(&path).ok().as_deref() != Some(SHADOW_DLL) {
             std::fs::write(&path, SHADOW_DLL).ok()?;
         }
         Some(path.to_string_lossy().into_owned())
@@ -200,30 +198,23 @@ impl Engine {
         self.write_mem((addr as i64 + self.shadow_delta) as u64, &buf)
     }
 
-    fn release_and_fail(&self, shadow_base: u64) -> i32 {
+    fn release_and_fail(&self, shadow_base: u64) -> bool {
         unsafe { VirtualFreeEx(self.proc, shadow_base as *mut c_void, 0, MEM_RELEASE) };
-        1
+        false
     }
 
-    pub(crate) fn shadow_run(&mut self, build: &str) -> i32 {
+    pub(crate) fn shadow_run(&mut self, regions: &[ShadowRegion]) -> bool {
         let (text_base, text_size) = match self.get_text_section() {
             Some(x) => x,
-            None => return 1,
+            None => return false,
         };
         let mod_hi = self.base + self.modsize as u64;
-        let regions = match shadow_regions_for_build(build) {
-            Some(r) if !r.is_empty() => r,
-            _ => return 1,
-        };
 
         let shadow_base = self.reserve_near(text_base, text_size as u64);
-        let reserved_delta = shadow_base as i64 - text_base as i64;
         if shadow_base == 0 {
-            return 1;
+            return false;
         }
-        if !(-0x3FFFFFFF..=0x3FFFFFFF).contains(&reserved_delta) {
-            return self.release_and_fail(shadow_base);
-        }
+        let reserved_delta = shadow_base as i64 - text_base as i64;
 
         let mut windows: Vec<(u64, u64)> = Vec::new();
         for r in regions {
@@ -292,7 +283,6 @@ impl Engine {
         }
 
         let mut payload = [0u8; 32];
-        payload[0..4].copy_from_slice(&1u32.to_le_bytes());
         payload[4..8].copy_from_slice(&3u32.to_le_bytes());
         payload[8..16].copy_from_slice(&text_base.to_le_bytes());
         payload[16..24].copy_from_slice(&(text_size as u64).to_le_bytes());
@@ -369,6 +359,6 @@ impl Engine {
                 self.shadow_pages.push(pa);
             }
         }
-        0
+        true
     }
 }

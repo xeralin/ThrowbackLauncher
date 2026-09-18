@@ -5,8 +5,6 @@ edition = "2021"
 
 [lib]
 crate-type = ["cdylib"]
-name = "shadow"
-path = "src/lib.rs"
 
 [profile.release]
 opt-level = "s"
