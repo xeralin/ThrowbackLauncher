@@ -1,4 +1,4 @@
-import type { Metadata, Viewport } from "next";
+import type { Metadata } from "next";
 import Script from "next/script";
 import { Rajdhani, Share_Tech_Mono, Barlow } from "next/font/google";
 import { site } from "@/config/site";
@@ -35,12 +35,6 @@ export const metadata: Metadata = {
     default: site.name,
     template: `${site.name} | %s`,
   },
-  description: site.description,
-  applicationName: site.name,
-};
-
-export const viewport: Viewport = {
-  themeColor: site.themeColor,
 };
 
 export default function RootLayout({

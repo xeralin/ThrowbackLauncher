@@ -37,13 +37,12 @@ export function Topbar() {
               </span>
             );
           }
-          const destination = normalizePath(crumb.href);
           return (
             <span key={index}>
               <Link
-                href={destination}
+                href={crumb.href}
                 onClick={(event) => {
-                  if (detail && destination === pathname) {
+                  if (detail && crumb.href === pathname) {
                     event.preventDefault();
                     detail.reset();
                   }

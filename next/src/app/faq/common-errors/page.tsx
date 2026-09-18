@@ -95,6 +95,37 @@ const faqs: FaqItem[] = [
     ),
   },
   {
+    id: "d3dcompiler-dll",
+    q: "How do I fix the D3DCOMPILER_43.dll error?",
+    display: (
+      <>
+        How do I fix the <code>D3DCOMPILER_43.dll</code> error?
+      </>
+    ),
+    platform: "windows",
+    a: (
+      <>
+        <p>
+          This error means your system is missing a legacy DirectX library that
+          is not included in Windows.
+        </p>
+        <ol>
+          <li>
+            Download the{" "}
+            <ExternalLink href="https://www.microsoft.com/en-US/download/details.aspx?id=35">
+              DirectX End-User Runtime Web Installer
+            </ExternalLink>{" "}
+            from Microsoft
+          </li>
+          <li>
+            Run <code>dxwebsetup.exe</code>
+          </li>
+          <li>Restart your computer and try launching the game again</li>
+        </ol>
+      </>
+    ),
+  },
+  {
     id: "missing-exe",
     q: "How do I fix a missing .exe or the uplay_rx_loader64.dll error?",
     display: (

@@ -10,26 +10,20 @@ import {
 
 export type SupportView = "full" | "unlock";
 
-function FullSupport() {
-  return (
-    <>
-      <SeasonTable rows={FULL_SUPPORT} />
-      <SeasonTable rows={FULL_SUPPORT_EVENTS} showEvent />
-    </>
-  );
-}
-
-function UnlockAll() {
-  return yearPairs(UNLOCK_ALL_SEASONS).map((rows) => (
-    <SeasonTable key={rows[0].build} rows={rows} />
-  ));
-}
-
 export function SupportedSeasons({ view }: { view: SupportView }) {
   return (
     <Prose>
       <div className="flex flex-wrap items-start gap-x-4">
-        {view === "full" ? <FullSupport /> : <UnlockAll />}
+        {view === "full" ? (
+          <>
+            <SeasonTable rows={FULL_SUPPORT} />
+            <SeasonTable rows={FULL_SUPPORT_EVENTS} showEvent />
+          </>
+        ) : (
+          yearPairs(UNLOCK_ALL_SEASONS).map((rows) => (
+            <SeasonTable key={rows[0].build} rows={rows} />
+          ))
+        )}
         <div className="mb-5 flex max-w-[280px] flex-col gap-3">
           {view === "full" && (
             <div className={stepBox}>

@@ -18,6 +18,8 @@ export const microLabel = "font-mono uppercase tracking-[0.2em]";
 
 export const heading = "font-display text-[1.05rem] font-bold text-text";
 
+export const link = "text-link hover:underline";
+
 export const stepBox =
   "rounded-lg border border-border px-[0.6rem] py-[0.45rem]";
 

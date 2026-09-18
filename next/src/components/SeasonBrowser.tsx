@@ -17,7 +17,7 @@ import { Note } from "@/components/Note";
 import { SeasonDetail } from "@/components/SeasonDetail";
 import { CardKeyArt, SeasonKeyArt } from "@/components/SeasonKeyArt";
 import { StrokeIcon } from "@/components/icons";
-import { iconBox, inputClasses, heading } from "@/components/ui";
+import { iconBox, inputClasses, heading, panel } from "@/components/ui";
 import {
   editionActive,
   editionLaunching,
@@ -43,6 +43,9 @@ import { useTopbarSlot } from "@/lib/topbar-slot";
 import { withViewTransition } from "@/lib/view-transition";
 import { hasOpenModal } from "@/components/Modal";
 
+const bannerTitle =
+  "font-display text-[1.9rem] font-bold leading-none text-text";
+
 const BannerCard = memo(function BannerCard({
   season,
   onOpen,
@@ -67,14 +70,14 @@ const BannerCard = memo(function BannerCard({
 
       <div className="absolute inset-0 bg-black/32 transition-colors duration-200 group-hover:bg-black/12 group-focus-visible:bg-black/12" />
 
-      <div className="absolute left-10 top-1/2 -translate-y-1/2 font-display text-[1.9rem] font-bold leading-none text-text">
+      <div
+        className={`absolute left-10 top-1/2 -translate-y-1/2 ${bannerTitle}`}
+      >
         {season.code}
       </div>
 
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-28">
-        <span className="font-display text-[1.9rem] font-bold leading-none text-text">
-          {season.name}
-        </span>
+        <span className={bannerTitle}>{season.name}</span>
       </div>
     </button>
   );
@@ -297,7 +300,7 @@ const DashCard = memo(function DashCard({
       }}
       onDrop={(event) => event.preventDefault()}
       onDragEnd={(event) => onDragEnd(event.dataTransfer.dropEffect === "none")}
-      className={`group relative h-full rounded-lg border border-border bg-surface transition-[border-color,box-shadow,opacity] duration-200 ${
+      className={`group relative h-full ${panel} transition-[border-color,box-shadow,opacity] duration-200 ${
         editing
           ? "cursor-grab active:cursor-grabbing"
           : "cursor-pointer overflow-hidden card-glow-hover card-line-hover"
@@ -667,9 +670,6 @@ export function SeasonBrowser({
         }
         if (activeEdition && dl.state === "paused") {
           return { kind: "continue", label: "Continue", primary: false };
-        }
-        if (activeEdition && dl.state === "failed") {
-          return { kind: "verify", label: "Verify", primary: false };
         }
         if (editionQueued(dl, season.key, season.hm)) {
           return {

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { iconButton } from "@/components/Button";
 import { Modal } from "@/components/Modal";
 import { Note } from "@/components/Note";
-import { ListRow } from "@/components/ui";
+import { ListRow, link } from "@/components/ui";
 import { RemoveIcon, StrokeIcon } from "@/components/icons";
 import { useCheatEngine, type CheatEngineSeason } from "@/lib/bridge";
 import { showToast } from "@/lib/toast";
@@ -56,7 +56,7 @@ export function CheatEngineInstaller() {
         disabled={!ce.ready}
         aria-disabled={busy || undefined}
         onClick={busy ? undefined : open}
-        className={`text-link hover:underline disabled:cursor-not-allowed disabled:no-underline ${busy ? "pointer-events-none animate-pulse" : "disabled:opacity-40"}`}
+        className={`${link} disabled:cursor-not-allowed disabled:no-underline ${busy ? "pointer-events-none animate-pulse" : "disabled:opacity-40"}`}
       >
         Set up Cheat Engine
       </button>

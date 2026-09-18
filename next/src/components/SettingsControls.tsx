@@ -364,7 +364,6 @@ export function TextSetting({
   className,
   maxLength,
   placeholder,
-  autoFocus,
   sanitize,
 }: {
   value: string;
@@ -372,7 +371,6 @@ export function TextSetting({
   className: string;
   maxLength?: number;
   placeholder?: string;
-  autoFocus?: boolean;
   sanitize?: (value: string) => string;
 }) {
   const [draft, setDraft] = useDraft(value);
@@ -383,7 +381,6 @@ export function TextSetting({
       value={draft}
       maxLength={maxLength}
       placeholder={placeholder}
-      autoFocus={autoFocus}
       onChange={(event) =>
         setDraft(sanitize ? sanitize(event.target.value) : event.target.value)
       }

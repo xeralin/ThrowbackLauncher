@@ -150,7 +150,7 @@ export function Sidebar({
   onNavigate,
 }: {
   open: boolean;
-  onNavigate?: () => void;
+  onNavigate: () => void;
 }) {
   const pathname = normalizePath(usePathname());
   const router = useRouter();
@@ -249,7 +249,7 @@ export function Sidebar({
   }, [dl.queue]);
 
   function moveQueueEntry(from: number, to: number) {
-    if (from < 0 || to < 0 || to >= dl.queue.length) return;
+    if (from < 0 || to < 0 || to >= dl.queue.length) return false;
     const refs = dl.queue.map((entry) => ({
       key: entry.key,
       hm: entry.hm,
@@ -257,10 +257,11 @@ export function Sidebar({
     const [moved] = refs.splice(from, 1);
     refs.splice(to, 0, moved);
     dl.reorderQueue(refs);
+    return true;
   }
 
   function openSeason(season: Season) {
-    onNavigate?.();
+    onNavigate();
     const ref = { key: season.key, hm: season.hm };
     if (detail?.seasonKey === season.key || pathname === "/download") {
       window.dispatchEvent(
@@ -318,7 +319,7 @@ export function Sidebar({
                     key={item.href}
                     href={item.href}
                     onClick={(event) => {
-                      onNavigate?.();
+                      onNavigate();
                       if (active && detail) {
                         event.preventDefault();
                         detail.reset();
@@ -383,15 +384,13 @@ export function Sidebar({
                   )
                     return;
                   event.preventDefault();
-                  pendingQueueFocus.current = editionId(season);
                   const from = dl.queue.findIndex(
                     (entry) =>
                       entry.key === season.key && entry.hm === season.hm,
                   );
-                  moveQueueEntry(
-                    from,
-                    from + (event.key === "ArrowUp" ? 1 : -1),
-                  );
+                  const to = from + (event.key === "ArrowUp" ? 1 : -1);
+                  if (moveQueueEntry(from, to))
+                    pendingQueueFocus.current = editionId(season);
                 }}
                 onClick={() => openSeason(season)}
                 data-queue-id={editionId(season)}

@@ -16,11 +16,11 @@ export function applySwitch(apply: () => void): void {
   });
 }
 
-export function withViewTransition(apply: () => void, type?: string): void {
+export function withViewTransition(apply: () => void, type: string): void {
   const update = () => applySwitch(apply);
   if (typeof document.startViewTransition !== "function") {
     update();
     return;
   }
-  document.startViewTransition(type ? { update, types: [type] } : update);
+  document.startViewTransition({ update, types: [type] });
 }

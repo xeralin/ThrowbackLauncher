@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { dismissToast } from "@/lib/toast";
 
 type Entry = {
@@ -18,19 +18,6 @@ const LEAVE_MS = 200;
 
 export function Toasts() {
   const [toasts, setToasts] = useState<Entry[]>([]);
-  const timers = useRef(new Map<number, number>());
-
-  const pause = (id: number) => {
-    const timer = timers.current.get(id);
-    if (timer !== undefined) window.clearTimeout(timer);
-  };
-  const resume = (id: number) => {
-    pause(id);
-    timers.current.set(
-      id,
-      window.setTimeout(() => dismissToast({ id }), VISIBLE_MS),
-    );
-  };
 
   useEffect(() => {
     let list: Entry[] = [];
@@ -72,10 +59,7 @@ export function Toasts() {
           leaving: false,
         },
       ]);
-      timers.current.set(
-        id,
-        window.setTimeout(() => dismiss(id), VISIBLE_MS),
-      );
+      window.setTimeout(() => dismiss(id), VISIBLE_MS);
     }
 
     function onDismiss(raw: Event) {
@@ -119,10 +103,6 @@ export function Toasts() {
           <div className="min-h-0 self-start">
             <button
               type="button"
-              onMouseEnter={() => pause(toast.id)}
-              onMouseLeave={() => resume(toast.id)}
-              onFocus={() => pause(toast.id)}
-              onBlur={() => resume(toast.id)}
               onClick={() => {
                 navigator.clipboard.writeText(toast.text).catch(() => {});
                 dismissToast({ id: toast.id });

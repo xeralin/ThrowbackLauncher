@@ -53,8 +53,6 @@ function subscribeSession(listener: () => void): () => void {
   return () => sessionListeners.delete(listener);
 }
 
-const PICK_HIGHLIGHT_MS = 5000;
-
 type Mod = { key: keyof LiberatorCapabilities; label: string; hint?: string };
 
 const PLAYERS_GROUP: Mod[] = [
@@ -253,7 +251,7 @@ export default function LiberatorPage() {
 
   useEffect(() => {
     if (!lastPicked) return;
-    const timer = setTimeout(() => setLastPicked(""), PICK_HIGHLIGHT_MS);
+    const timer = setTimeout(() => setLastPicked(""), 5000);
     return () => clearTimeout(timer);
   }, [lastPicked]);
 

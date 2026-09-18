@@ -2,7 +2,6 @@
 
 @theme {
   --color-brand: #c0152a;
-  --color-border-brand: #3a1020;
   --color-bg: #0d0d0f;
   --color-keyart-fallback: #1a0d12;
   --color-surface: #13131a;
@@ -75,7 +74,6 @@
   --color-important-link: #d0a0f0;
   --color-important-link-hover: #e0b8ff;
   --color-important-edge: #b47ad4;
-  --color-tag-muted-border: #34343f;
 
   --font-display: var(--font-rajdhani), sans-serif;
   --font-mono: var(--font-share-tech-mono), monospace;
@@ -86,9 +84,6 @@
   --text-ui: 0.85rem;
   --text-body: 0.92rem;
   --text-body--line-height: 1.75;
-
-  --bar-fill: #c388e3;
-  --bar-stripe: #dcbaef;
 
   --z-topbar: 50;
   --z-sidebar: 100;
@@ -356,7 +351,7 @@
 }
 
 [data-accent="default"] {
-  --color-action-edge: var(--color-border-brand);
+  --color-action-edge: #3a1020;
   --color-action-veil: #1a0810;
 }
 
@@ -454,7 +449,7 @@
 }
 [data-tone="muted"] {
   --card-accent-line: var(--color-muted);
-  --card-accent-border: var(--color-tag-muted-border);
+  --card-accent-border: #34343f;
   --card-accent-glow: color-mix(in srgb, var(--color-muted) 13%, transparent);
 }
 
@@ -631,9 +626,6 @@
   }
   .notes img {
     display: inline-block;
-    max-width: 100%;
-    height: auto;
-    vertical-align: middle;
   }
   .notes [data-figure] > a {
     display: block;
@@ -800,7 +792,6 @@
   }
   .prose table,
   .notes table {
-    border-collapse: collapse;
     font-size: 0.78rem;
   }
   .prose th,
@@ -892,12 +883,8 @@
     align-items: center;
     padding: 1rem;
     gap: 1rem;
-    background: none;
-    border: none;
     cursor: pointer;
     text-align: left;
-    font: inherit;
-    color: inherit;
   }
   .question-title {
     font-family: var(--font-display);
@@ -933,7 +920,6 @@
     padding: 1rem;
     border-top: 1px solid var(--color-border);
   }
-  .answer-inner p,
   .answer-inner ol,
   .answer-inner ul {
     margin-bottom: 0.75rem;
@@ -945,9 +931,6 @@
   }
   .answer-inner img {
     width: auto;
-    max-width: 100%;
-    height: auto;
-    display: block;
     border-radius: var(--radius-md);
     border: 1px solid var(--color-border);
     margin: 0.75rem 0;

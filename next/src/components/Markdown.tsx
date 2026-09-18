@@ -5,6 +5,7 @@ import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 import { ExternalLink } from "@/components/ExternalLink";
 import { CHECK, CHEVRON_RIGHT, StrokeIcon } from "@/components/icons";
 import { Note } from "@/components/Note";
+import { link } from "@/components/ui";
 import { OPENABLE, parseInline, toAlert } from "@/lib/markdown";
 
 const ALERTS: Record<string, [string, ComponentProps<typeof Note>["variant"]]> =
@@ -16,16 +17,15 @@ const ALERTS: Record<string, [string, ComponentProps<typeof Note>["variant"]]> =
     CAUTION: ["Caution", "error"],
   };
 
-const link =
-  "text-link hover:underline [&_code]:text-inherit [&_strong]:text-inherit";
+const mdLink = `${link} [&_code]:text-inherit [&_strong]:text-inherit`;
 const components: Partial<Components> = {
   a: ({ href, id, title, children }) =>
     href && OPENABLE.test(href) ? (
-      <ExternalLink href={href} id={id} title={title} className={link}>
+      <ExternalLink href={href} id={id} title={title} className={mdLink}>
         {children}
       </ExternalLink>
     ) : href?.startsWith("#") ? (
-      <a href={href} id={id} title={title} className={link}>
+      <a href={href} id={id} title={title} className={mdLink}>
         {children}
       </a>
     ) : (

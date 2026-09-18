@@ -11,7 +11,7 @@ import {
 import { BackHeading } from "@/components/BackHeading";
 import { Button, iconButton } from "@/components/Button";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { Modal } from "@/components/Modal";
+import { Modal, modalTitle } from "@/components/Modal";
 import { ExternalLink } from "@/components/ExternalLink";
 import {
   DefaultLibraryIcon,
@@ -23,9 +23,8 @@ import {
   THROWBACK_MARK,
 } from "@/components/icons";
 import { type LogLine } from "@/components/LogBox";
-import { Note } from "@/components/Note";
 import { SeasonInfo } from "@/components/SeasonInfo";
-import { PickerRow, iconBox } from "@/components/ui";
+import { PickerRow, iconBox, link } from "@/components/ui";
 import { SaveCheck, TextSetting } from "@/components/SettingsControls";
 import { CardKeyArt } from "@/components/SeasonKeyArt";
 import { ShearsModal } from "@/components/ShearsModal";
@@ -59,6 +58,7 @@ import {
   type SeasonInstalls,
   type LibraryEntry,
   type GameArgs,
+  type ProtonOption,
   type Season,
   type ShearsKind,
   type ShearsScan,
@@ -105,7 +105,7 @@ function BetaHint() {
       <code>.7z</code> archive from{" "}
       <ExternalLink
         href={site.indevReleasesUrl}
-        className="text-link hover:underline [&>code]:text-inherit"
+        className={`${link} [&>code]:text-inherit`}
       >
         <code>#indev-releases</code>
       </ExternalLink>{" "}
@@ -130,11 +130,6 @@ const RENDERER_ARGS = Object.values(RENDERERS)
   .map((option) => option.arg)
   .filter(Boolean);
 
-const NO_INSTALLS: SeasonInstalls = {
-  tb: { installed: false, partial: false },
-  hm: { installed: false, partial: false },
-};
-
 type TabId = "manage" | "info";
 
 type SeasonModal =
@@ -144,7 +139,7 @@ type SeasonModal =
   | { kind: "download" }
   | { kind: "lockedOperators" }
   | { kind: "removeDownload"; hm: boolean }
-  | { kind: "launchArgs" };
+  | { kind: "proton" };
 
 const EDITION_TABS: TabItem<"tb" | "hm">[] = [
   {
@@ -175,14 +170,17 @@ export function SeasonDetail({
   const [modal, setModal] = useState<SeasonModal | null>(null);
   const [dlLibrary, setDlLibrary] = useState("");
   const [argsSaved, setArgsSaved] = useState(0);
+  const [protons, setProtons] = useState<ProtonOption[] | null>(null);
   const [gameArgs, setGameArgs] = useState<GameArgs>({
     args: "",
     renderer: "",
   });
   const [tab, setTab] = useState<TabId>("manage");
-  const [installs, setInstalls] = useState<SeasonInstalls>(NO_INSTALLS);
+  const [installs, setInstalls] = useState<SeasonInstalls>({
+    tb: { installed: false, partial: false },
+    hm: { installed: false, partial: false },
+  });
   const [shearsScan, setShearsScan] = useState<ShearsScan | null>(null);
-  const [cutting, setCutting] = useState(false);
   const [homeSeasons] = useHomeSeasons();
   const deferredLog = useDeferredValue(log);
   const seededRef = useRef(false);
@@ -228,7 +226,9 @@ export function SeasonDetail({
           : [],
       );
     },
-    onDone: () => refresh(),
+    onDone: (key) => {
+      if (key === season.key) refresh();
+    },
     onPartialDeleted: (key) => {
       if (key === season.key) refresh();
     },
@@ -257,7 +257,7 @@ export function SeasonDetail({
     modal.kind !== "download" &&
     modal.kind !== "removeDownload" &&
     modal.kind !== "lockedOperators" &&
-    modal.kind !== "launchArgs"
+    modal.kind !== "proton"
   )
     setModal(null);
 
@@ -279,9 +279,8 @@ export function SeasonDetail({
 
   useEffect(() => {
     if (!settings) return;
-    const onLibraries = () => refresh();
-    settings.libraries_changed.connect(onLibraries);
-    return () => settings.libraries_changed.disconnect(onLibraries);
+    settings.libraries_changed.connect(refresh);
+    return () => settings.libraries_changed.disconnect(refresh);
   }, [settings, refresh]);
 
   const prevLibPaths = useRef<string[] | null>(null);
@@ -295,6 +294,10 @@ export function SeasonDetail({
   }, [libs, modal]);
 
   const storedArgs = settings?.launch_args[season.key] ?? "";
+  const seasonProton = settings?.season_proton[season.key] ?? "";
+  const activeProton = protons?.some((p) => p.internal === seasonProton)
+    ? seasonProton
+    : settings?.proton;
   const gameTokens = gameArgs.args.split(/\s+/).filter(Boolean);
   const renderers = gameArgs.renderer ? RENDERERS[gameArgs.renderer] : null;
   const activeRenderer =
@@ -317,6 +320,11 @@ export function SeasonDetail({
   }
 
   useEffect(() => {
+    if (modal?.kind === "proton" && settings)
+      settings.proton_options(setProtons);
+  }, [modal, settings]);
+
+  useEffect(() => {
     if (!settings) return;
     const onSaved = () => setArgsSaved((tick) => tick + 1);
     settings.launch_args_changed.connect(onSaved);
@@ -335,11 +343,10 @@ export function SeasonDetail({
   }
 
   function cut(kind: ShearsKind, level: number) {
-    setCutting(true);
     shears.cut(season.key, kind, level, (result) => {
-      setCutting(false);
       if (!result.ok) {
         showToast(result.message);
+        refresh();
         return;
       }
       setShearsScan(result.scan);
@@ -347,23 +354,26 @@ export function SeasonDetail({
     });
   }
 
-  function preferredLibrary(): string {
-    const preferred =
-      libs.find((library) => library.default && library.exists) ??
-      libs.find((library) => library.exists);
-    return preferred?.path ?? "";
-  }
-
   function openDownloadPrompt() {
     refreshLibraries();
-    const library = preferredLibrary();
+    const library =
+      (
+        libs.find((entry) => entry.default && entry.exists) ??
+        libs.find((entry) => entry.exists)
+      )?.path ?? "";
     setDlLibrary(library);
     const chosen = libs.find((entry) => entry.default && !entry.fixed);
     if (multiLib && !chosen?.exists) setModal({ kind: "download" });
     else startDownload(library);
   }
 
-  function playButton() {
+  function playButtons() {
+    if (playingEdition || launchingEdition)
+      return (
+        <Button variant="primary" onClick={() => lc.stop(season.key)}>
+          Stop
+        </Button>
+      );
     const play = (
       <Button
         variant="primary"
@@ -385,16 +395,6 @@ export function SeasonDetail({
       </RendererMenu>
     ) : (
       play
-    );
-  }
-
-  function playButtons() {
-    return playingEdition || launchingEdition ? (
-      <Button variant="primary" onClick={() => lc.stop(season.key)}>
-        Stop
-      </Button>
-    ) : (
-      playButton()
     );
   }
 
@@ -608,8 +608,8 @@ export function SeasonDetail({
                   {platform === "linux" && (
                     <button
                       type="button"
-                      aria-label="Launch options"
-                      onClick={() => setModal({ kind: "launchArgs" })}
+                      aria-label="Proton"
+                      onClick={() => setModal({ kind: "proton" })}
                       className={iconButton}
                     >
                       <TerminalIcon />
@@ -778,28 +778,48 @@ export function SeasonDetail({
         </ConfirmModal>
       )}
 
-      {modal?.kind === "launchArgs" && (
+      {modal?.kind === "proton" && settings && protons && (
         <Modal
-          title="Launch options"
+          title="Proton"
           onClose={() => setModal(null)}
           footer={
-            <Note className="mr-auto">
-              Set arguments like <code>MANGOHUD=1 %command%</code>.
-            </Note>
+            <div className="flex w-full flex-col gap-3">
+              <h2 className={modalTitle}>Launch options</h2>
+              <div className="relative">
+                <TextSetting
+                  value={storedArgs}
+                  placeholder="%command%"
+                  className="w-full pr-8"
+                  onCommit={(draft) => {
+                    if (draft.trim() !== storedArgs)
+                      settings.set_launch_args(season.key, draft.trim());
+                  }}
+                />
+                <SaveCheck confirm={argsSaved} />
+              </div>
+            </div>
           }
         >
-          <div className="relative">
-            <TextSetting
-              value={storedArgs}
-              placeholder="%command%"
-              autoFocus
-              className="w-full pr-8"
-              onCommit={(draft) => {
-                if (draft.trim() !== storedArgs)
-                  settings?.set_launch_args(season.key, draft.trim());
-              }}
-            />
-            <SaveCheck confirm={argsSaved} />
+          <div className="flex flex-col gap-2">
+            {protons.map((proton) => {
+              const isDefault = proton.internal === settings.proton;
+              return (
+                <PickerRow
+                  key={proton.internal}
+                  label={proton.display}
+                  selected={proton.internal === activeProton}
+                  onSelect={() => {
+                    settings.set_season_proton(
+                      season.key,
+                      isDefault ? "" : proton.internal,
+                    );
+                    setModal(null);
+                  }}
+                >
+                  {isDefault && <code className="chip">Default</code>}
+                </PickerRow>
+              );
+            })}
           </div>
         </Modal>
       )}
@@ -807,7 +827,6 @@ export function SeasonDetail({
       {modal?.kind === "shears" && (
         <ShearsModal
           actions={shearsCuts}
-          busy={cutting}
           onCut={cut}
           onClose={() => setModal(null)}
         />

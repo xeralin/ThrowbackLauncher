@@ -4,6 +4,7 @@ import { keyArtFade } from "@/components/SeasonKeyArt";
 import { BuildChips } from "@/components/SeasonTable";
 import { renderInline } from "@/components/Markdown";
 import { eventsForBuild } from "@/config/liberator-builds";
+import { panel } from "@/components/ui";
 import type {
   SeasonInfoEntry,
   InfoOperator,
@@ -21,7 +22,7 @@ function assetSlug(name: string): string {
 
 function OperatorCard({ op }: { op: InfoOperator }) {
   return (
-    <div className="flex h-[72px] items-stretch overflow-hidden rounded-lg border border-border bg-surface">
+    <div className={`flex h-[72px] items-stretch overflow-hidden ${panel}`}>
       <div className="relative w-12 shrink-0 border-r border-border bg-surface-2">
         <Image
           src={`/info/ops/${op.img ?? assetSlug(op.name)}.webp`}
@@ -69,8 +70,8 @@ export function SeasonInfo({
   sizeGb,
 }: {
   entry: SeasonInfoEntry;
-  build?: string;
-  sizeGb?: number;
+  build: string;
+  sizeGb: number;
 }) {
   const note = entry.note ? (
     <Note className="max-w-[720px]">{entry.note}</Note>
@@ -95,28 +96,24 @@ export function SeasonInfo({
         <thead>
           <tr>
             <th>Release</th>
-            {sizeGb != null && <th className="w-px whitespace-nowrap">Size</th>}
-            {build && <th className="w-px whitespace-nowrap">Build</th>}
+            <th className="w-px whitespace-nowrap">Size</th>
+            <th className="w-px whitespace-nowrap">Build</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td>{entry.release}</td>
-            {sizeGb != null && (
-              <td className="w-px whitespace-nowrap">{sizeGb} GB</td>
-            )}
-            {build && (
-              <td className="w-px whitespace-nowrap">
-                <BuildChips builds={[build]} />
-              </td>
-            )}
+            <td className="w-px whitespace-nowrap">{sizeGb} GB</td>
+            <td className="w-px whitespace-nowrap">
+              <BuildChips builds={[build]} />
+            </td>
           </tr>
         </tbody>
       </table>
     </div>
   );
 
-  const events = build ? eventsForBuild(build) : [];
+  const events = eventsForBuild(build);
 
   const rows = Math.max(entry.highlights.length, events.length);
 

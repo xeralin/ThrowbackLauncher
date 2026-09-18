@@ -178,6 +178,7 @@ type SettingsObject = {
   home_order: string[];
   home_sizes: Record<string, string>;
   launch_args: Record<string, string>;
+  season_proton: Record<string, string>;
   liberator_enabled: boolean;
   rvpn_autorun: boolean;
   proton: string;
@@ -198,6 +199,7 @@ type SettingsObject = {
   set_home_order(order: string[]): void;
   set_home_size(key: string, width: number, height: number): void;
   set_launch_args(key: string, value: string): void;
+  set_season_proton(key: string, internal: string): void;
   reset_home_layout(): void;
   set_liberator_enabled(value: boolean): void;
   set_rvpn_autorun(value: boolean): void;
@@ -221,6 +223,7 @@ type SettingsObject = {
   home_order_changed: QtSignal;
   home_sizes_changed: QtSignal;
   launch_args_changed: QtSignal;
+  season_proton_changed: QtSignal;
   liberator_enabled_changed: QtSignal;
   rvpn_autorun_changed: QtSignal;
   proton_changed: QtSignal;
@@ -567,6 +570,7 @@ export function useSettings(): SettingsObject | null {
         connected.home_order_changed,
         connected.home_sizes_changed,
         connected.launch_args_changed,
+        connected.season_proton_changed,
         connected.liberator_enabled_changed,
         connected.rvpn_autorun_changed,
         connected.proton_changed,

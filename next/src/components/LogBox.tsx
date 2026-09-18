@@ -4,8 +4,6 @@ import { useEffect, useRef } from "react";
 
 export type LogLine = { id: number; text: string };
 
-const FOLLOW_THRESHOLD_PX = 4;
-
 export function LogBox({
   lines,
   className,
@@ -37,9 +35,7 @@ export function LogBox({
           follow.current = true;
           return;
         }
-        follow.current =
-          el.scrollHeight - el.scrollTop - el.clientHeight <
-          FOLLOW_THRESHOLD_PX;
+        follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
       }}
       className={`select-text overflow-auto [overflow-anchor:none] rounded-lg border border-border bg-well p-3 font-mono text-label leading-[1.5] text-text-muted ${className}`}
     >

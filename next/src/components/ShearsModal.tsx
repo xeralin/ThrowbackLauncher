@@ -9,12 +9,10 @@ import { formatBytes, type ShearsAction, type ShearsKind } from "@/lib/bridge";
 
 export function ShearsModal({
   actions,
-  busy,
   onCut,
   onClose,
 }: {
   actions: ShearsAction[];
-  busy: boolean;
   onCut: (kind: ShearsKind, level: number) => void;
   onClose: () => void;
 }) {
@@ -23,7 +21,7 @@ export function ShearsModal({
     if (document.activeElement === document.body) firstCutRef.current?.focus();
   }, [actions]);
   return (
-    <Modal title="Shears" onClose={busy ? undefined : onClose}>
+    <Modal title="Shears" onClose={onClose}>
       <div className="flex flex-col gap-2">
         {actions.map((action, index) => (
           <ListRow key={action.key} label={action.label}>
@@ -33,11 +31,8 @@ export function ShearsModal({
                 type="button"
                 ref={index === 0 ? firstCutRef : undefined}
                 aria-label={`Remove ${action.label}`}
-                aria-disabled={busy || undefined}
-                onClick={
-                  busy ? undefined : () => onCut(action.kind, action.level)
-                }
-                className={`${iconButton}${busy ? " pointer-events-none opacity-40" : ""}`}
+                onClick={() => onCut(action.kind, action.level)}
+                className={iconButton}
               >
                 <RemoveIcon />
               </button>

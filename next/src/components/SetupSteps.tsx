@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import Link from "next/link";
 import { ExternalLink } from "@/components/ExternalLink";
 import { stepBox, stepList } from "@/components/ui";
 import { site } from "@/config/site";
@@ -72,8 +71,8 @@ export function ProtonSteps() {
           <code>~/.local/share/ThrowbackLauncher/bin/proton</code>
         </li>
         <li>
-          Restart the Launcher, then pick it under <strong>Proton</strong> in
-          the <Link href="/settings">Settings</Link>
+          Restart the Launcher, then pick it under <strong>Proton</strong> on
+          this page
         </li>
       </ol>
     </div>

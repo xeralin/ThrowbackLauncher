@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/Button";
 import { Modal } from "@/components/Modal";
 import { StrokeIcon } from "@/components/icons";
-import { inputClasses } from "@/components/ui";
+import { inputClasses, link } from "@/components/ui";
 import { useDownloader } from "@/lib/bridge";
 
 function EyeIcon({ open }: { open: boolean }) {
@@ -61,7 +61,7 @@ export function SteamLoginModal() {
   const [loginAccount, setLoginAccount] = useState("");
 
   const dl = useDownloader({
-    onLogin: (kind) => setOverride(kind),
+    onLogin: setOverride,
     onDone: () => setOverride(null),
   });
 
@@ -105,7 +105,7 @@ export function SteamLoginModal() {
           {loginKind === "account" && (
             <Link
               href="/faq/general#steam-login"
-              className="mr-auto self-center text-ui text-link hover:underline"
+              className={`mr-auto self-center text-ui ${link}`}
             >
               Why does the Launcher need my Steam login?
             </Link>

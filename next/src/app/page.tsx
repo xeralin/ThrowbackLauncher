@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { SeasonBrowser } from "@/components/SeasonBrowser";
+import { link } from "@/components/ui";
 import { useHomeSeasons } from "@/lib/bridge";
 
 export default function HomePage() {
@@ -17,11 +18,11 @@ export default function HomePage() {
           </h1>
           <p className="text-body leading-[1.6] text-text-muted">
             Pick a season from the{" "}
-            <Link href="/download" className="text-link hover:underline">
+            <Link href="/download" className={link}>
               Download
             </Link>{" "}
             page, or add a library in{" "}
-            <Link href="/settings" className="text-link hover:underline">
+            <Link href="/settings" className={link}>
               Settings
             </Link>
             .

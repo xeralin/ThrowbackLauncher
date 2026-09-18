@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { hasOpenInfoHint } from "@/components/InfoHint";
+import { panel } from "@/components/ui";
 
 const stack: { id: symbol; el: HTMLElement | null }[] = [];
 
@@ -23,6 +24,8 @@ function setBackgroundInert(inert: boolean) {
       element.inert = inert;
   }
 }
+
+export const modalTitle = "font-display text-[1.2rem] font-bold text-text";
 
 export function Modal({
   title,
@@ -113,12 +116,9 @@ export function Modal({
         <div
           ref={panelRef}
           tabIndex={-1}
-          className="flex max-h-[calc(100dvh-3rem)] w-[min(440px,calc(100vw-2rem))] flex-col rounded-lg border border-border bg-surface p-6 outline-none"
+          className={`flex max-h-[calc(100dvh-3rem)] w-[min(440px,calc(100vw-2rem))] flex-col ${panel} p-6 outline-none`}
         >
-          <h2
-            id={titleId}
-            className="mb-3 shrink-0 font-display text-[1.2rem] font-bold text-text"
-          >
+          <h2 id={titleId} className={`mb-3 shrink-0 ${modalTitle}`}>
             {title}
           </h2>
           {children && (

@@ -26,8 +26,11 @@ const ERROR_TARGETS: [string, string | undefined][] = [
   ["update", undefined],
 ];
 
-function BridgeToasts() {
-  const settings = useSettings();
+function BridgeToasts({
+  settings,
+}: {
+  settings: ReturnType<typeof useSettings>;
+}) {
   const info = useInfo();
 
   useEffect(() => {
@@ -171,10 +174,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       const current = normalizePath(pathname);
       const crumbs = breadcrumbFor(current);
       const parent = crumbs.length > 1 ? crumbs[crumbs.length - 2].href : null;
-      if (!parent) return;
-      const destination = normalizePath(parent);
-      if (destination === current) return;
-      router.push(destination);
+      if (!parent || parent === current) return;
+      router.push(parent);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -247,7 +248,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <Toasts />
-      <BridgeToasts />
+      <BridgeToasts settings={settings} />
       <SteamLoginModal />
       <DiskSpaceModal />
       <ScrollReveal />
