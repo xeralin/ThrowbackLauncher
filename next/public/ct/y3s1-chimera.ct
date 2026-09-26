@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CheatTable CheatEngineTableVersion="38">
+  <CheatEntries>
+    <CheatEntry>
+      <ID>71175</ID>
+      <Description>"There is a hard cap of 63 Terrorists Alive at any given Time"</Description>
+      <LastState Value="" RealAddress="00000000"/>
+      <GroupHeader>1</GroupHeader>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>71038</ID>
+      <Description>"Terrorist Spawn Multiplier"</Description>
+      <Options moHideChildren="1"/>
+      <LastState/>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript>[ENABLE]
+alloc(newmem,2048,"RainbowSix.exe"+131AD4A)
+label(returnhere)
+label(exit)
+label(MaxTerroristCount)
+registersymbol(MaxTerroristCount)
+newmem:
+push r8
+push r9
+push r10
+push r11
+push rdx
+mov r8,r15
+mov r9,rax
+mov r10,[Rainbowsix.exe+04A1F9B0]
+mov r10d,[r10+20]
+mov r11,[MaxTerroristCount]
+sub r11,r10
+xor rdx,rdx
+mov r15d,08
+div r15
+mov r15,rax
+mov rax,r11
+div r15
+xor r11,r11
+loopstart:
+mov r10,[r8+r11*8]
+mov [r10+70],rax
+cmp rdx,00
+je loopend
+inc [r10+70]
+dec rdx
+loopend:
+inc r11
+cmp r11,r15
+jne loopstart
+exit:
+mov r15,r8
+mov rax,r9
+pop rdx
+pop r11
+pop r10
+pop r9
+pop r8
+add rax,r15
+mov [rsp+00000088],rax
+jmp returnhere
+MaxTerroristCount:
+db 3F 00 00 00 00 00 00 00
+"RainbowSix.exe"+131AD4A:
+jmp newmem
+nop 6
+returnhere:
+[DISABLE]
+dealloc(newmem)
+unregistersymbol(MaxTerroristCount)
+"RainbowSix.exe"+131AD4A:
+add rax,r15
+mov [rsp+00000088],rax
+</AssemblerScript>
+      <CheatEntries>
+        <CheatEntry>
+          <ID>71039</ID>
+          <Description>"Max Amount of Terrorists"</Description>
+          <ShowAsSigned>0</ShowAsSigned>
+          <VariableType>8 Bytes</VariableType>
+          <Address>MaxTerroristCount</Address>
+        </CheatEntry>
+      </CheatEntries>
+    </CheatEntry>
+  </CheatEntries>
+  <UserdefinedSymbols>
+    <SymbolEntry>
+      <Name>specValue</Name>
+      <Address>20CD74B0000</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>Timestop</Name>
+      <Address>7FED29C0028</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>fovGetAOB_jmp</Name>
+      <Address>7FED84E7A8B</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>cameraAOB</Name>
+      <Address>7FEDA24C742</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>camCoords1</Name>
+      <Address>7FED849002C</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>fovPointer</Name>
+      <Address>7FEDC0E0028</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>_wd64Stealth_v3_aob_jmp</Name>
+      <Address>7FED4FDC05C</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>_wd64Stealth_v3_aob_retaddress</Name>
+      <Address>7FED4FDC0A9</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>_wd64PlayerHook_aob_jmp</Name>
+      <Address>7FED6D61D7E</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>_wd64PlayerHook_player</Name>
+      <Address>7FED5AD0128</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>_wd64God_var_1</Name>
+      <Address>7FED5AC0000</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>_wd64God_var_2</Name>
+      <Address>7FED5AC0008</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>_wd64_Godmode_aob_jmp_1</Name>
+      <Address>7FEDADFE099</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>_wd64_Godmode_aob_jmp_2</Name>
+      <Address>7FEDA5A8FA0</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>timeOfDayAOB</Name>
+      <Address>7FED38F613C</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>timeStopAOB</Name>
+      <Address>7FED36CB808</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>randomvalue</Name>
+      <Address>1C5D4D50000</Address>
+    </SymbolEntry>
+    <SymbolEntry>
+      <Name>aitoggle</Name>
+      <Address>7FF72F1D0000</Address>
+    </SymbolEntry>
+  </UserdefinedSymbols>
+  <DisassemblerComments>
+    <DisassemblerComment>
+      <Address>"RainbowSix.exe"+105B275</Address>
+      <Comment>Ammo change
+</Comment>
+    </DisassemblerComment>
+  </DisassemblerComments>
+</CheatTable>

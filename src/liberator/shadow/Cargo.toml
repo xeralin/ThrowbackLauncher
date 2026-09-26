@@ -1,0 +1,16 @@
+[package]
+name = "shadow"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+opt-level = "s"
+panic = "abort"
+lto = true
+strip = true
+codegen-units = 1
