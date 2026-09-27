@@ -280,6 +280,7 @@ type DownloaderObject = {
   verify(key: string, hm: boolean): void;
   delete_partial(key: string, hm: boolean): void;
   switch_to_hm(key: string): void;
+  hm_archive_cached(callback: (cached: boolean) => void): void;
   remove_hm(key: string): void;
   import_hm(key: string): void;
   cancel(): void;
@@ -682,6 +683,7 @@ type DownloaderActions = {
   verify: (key: string, hm: boolean) => void;
   deletePartial: (key: string, hm: boolean) => void;
   switchToHm: (key: string) => void;
+  hmArchiveCached: (callback: (cached: boolean) => void) => void;
   removeHm: (key: string) => void;
   importHm: (key: string) => void;
   cancel: () => void;
@@ -794,6 +796,8 @@ export function useDownloader(events?: DownloaderEvents): Downloader {
       verify: (key, hm) => objRef.current?.verify(key, hm),
       deletePartial: (key, hm) => objRef.current?.delete_partial(key, hm),
       switchToHm: (key) => objRef.current?.switch_to_hm(key),
+      hmArchiveCached: (callback) =>
+        objRef.current?.hm_archive_cached(callback),
       removeHm: (key) => objRef.current?.remove_hm(key),
       importHm: (key) => objRef.current?.import_hm(key),
       cancel: () => objRef.current?.cancel(),

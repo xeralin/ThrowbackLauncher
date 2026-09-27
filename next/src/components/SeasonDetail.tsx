@@ -92,22 +92,6 @@ function LibraryPicker({
   );
 }
 
-function BetaHint() {
-  return (
-    <p className="text-body text-text-muted">
-      This build is only available on the Heated Metal Discord. Download the{" "}
-      <code>.7z</code> archive from{" "}
-      <ExternalLink
-        href={site.indevReleasesUrl}
-        className={`${link} [&>code]:text-inherit`}
-      >
-        <code>#indev-releases</code>
-      </ExternalLink>{" "}
-      first, then choose it here.
-    </p>
-  );
-}
-
 const RENDERERS = {
   vulkan: [
     { arg: "", label: "DirectX" },
@@ -129,7 +113,7 @@ type TabId = "manage" | "info";
 type SeasonModal =
   | { kind: "shears" }
   | { kind: "uninstall"; hm: boolean }
-  | { kind: "switch"; toHm: boolean }
+  | { kind: "hmArchive" }
   | { kind: "download" }
   | { kind: "lockedOperators" }
   | { kind: "removeDownload"; hm: boolean }
@@ -581,9 +565,15 @@ export function SeasonDetail({
                         <Button
                           variant="secondary"
                           disabled={playingSeason || downloading}
-                          onClick={() =>
-                            setModal({ kind: "switch", toHm: hmActive })
-                          }
+                          onClick={() => {
+                            if (!hmActive) dl.removeHm(season.key);
+                            else if (!season.hmBeta) dl.switchToHm(season.key);
+                            else
+                              dl.hmArchiveCached((cached) => {
+                                if (cached) dl.switchToHm(season.key);
+                                else setModal({ kind: "hmArchive" });
+                              });
+                          }}
                         >
                           {hmActive ? "Switch to HM" : "Switch to TB"}
                         </Button>
@@ -755,29 +745,26 @@ export function SeasonDetail({
         </ConfirmModal>
       )}
 
-      {modal?.kind === "switch" && (
+      {modal?.kind === "hmArchive" && (
         <ConfirmModal
-          title={modal.toHm ? "Switch to Heated Metal" : "Switch to Throwback"}
-          confirmLabel={
-            modal.toHm && season.hmBeta ? "Choose archive" : "Switch"
-          }
+          title="Switch to Heated Metal"
+          confirmLabel="Choose archive"
           onConfirm={() => {
-            const toHm = modal.toHm;
             setModal(null);
-            if (toHm) dl.switchToHm(season.key);
-            else dl.removeHm(season.key);
+            dl.switchToHm(season.key);
           }}
           onCancel={() => setModal(null)}
         >
-          {modal.toHm && season.hmBeta ? (
-            <BetaHint />
-          ) : (
-            <p className="text-body text-text-muted">
-              {modal.toHm
-                ? "This switches your Throwback install to Heated Metal."
-                : "This switches your Heated Metal install to Throwback."}
-            </p>
-          )}
+          <p className="text-body text-text-muted">
+            Download the <code>.7z</code> archive from{" "}
+            <ExternalLink
+              href={site.indevReleasesUrl}
+              className={`${link} [&>code]:text-inherit`}
+            >
+              <code>#indev-releases</code>
+            </ExternalLink>{" "}
+            and choose it here.
+          </p>
         </ConfirmModal>
       )}
 

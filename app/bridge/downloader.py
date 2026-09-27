@@ -641,11 +641,19 @@ class DownloadController(QObject):
                 resume()
         self._start_next()
 
+    def _cached_hm_archive(self) -> Path | None:
+        cached = BIN_DIR / Path(str(get_setting(self._settings, "hm_archive", ""))).name
+        return cached if cached.is_file() else None
+
+    @Slot(result=bool)
+    def hm_archive_cached(self) -> bool:
+        return self._cached_hm_archive() is not None
+
     def _ensure_hm_archive(self, download: dict, resume: Callable[[], None]) -> bool:
         if not download.get("hm_beta") or self._picked_archive is not None:
             return True
-        cached = BIN_DIR / Path(str(get_setting(self._settings, "hm_archive", ""))).name
-        if cached.is_file():
+        cached = self._cached_hm_archive()
+        if cached is not None:
             self._picked_archive = cached
             return True
         self._pick_hm_archive(resume)
