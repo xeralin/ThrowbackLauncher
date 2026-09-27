@@ -18,7 +18,7 @@ import {
   TextSetting,
 } from "@/components/SettingsControls";
 import { Switch } from "@/components/Switch";
-import { NyanCat } from "@/components/NyanCat";
+import { NyanCat, toggleNyan } from "@/components/NyanCat";
 import { RvpnCard } from "@/components/RvpnCard";
 import { Tabs, type TabItem } from "@/components/Tabs";
 import {
@@ -296,13 +296,7 @@ export default function SettingsPage() {
                     <span className="flex h-8 items-center">
                       <span
                         className="h-3.5 w-full rounded-full border border-border bg-well"
-                        onClick={(event) => {
-                          if (
-                            event.detail === 3 &&
-                            !(event.target as Element).closest("a")
-                          )
-                            settings.set_bar_nyan(!settings.bar_nyan);
-                        }}
+                        onClick={(event) => toggleNyan(event, settings)}
                       >
                         <span className="transfer-fill block h-full w-[70%] rounded-full">
                           <NyanCat />

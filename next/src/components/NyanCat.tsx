@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore, type MouseEvent } from "react";
 import { ExternalLink } from "@/components/ExternalLink";
-import { useSettings } from "@/lib/bridge";
+import { useSettings, type SettingsObject } from "@/lib/bridge";
 
 const NYAN_GIF = "https://www.nyan.cat/cats/original.gif";
 
@@ -40,6 +40,11 @@ export function useNyan(enabled: boolean): boolean {
   }, [enabled]);
 
   return enabled && current === "ready";
+}
+
+export function toggleNyan(event: MouseEvent, settings: SettingsObject) {
+  if (event.detail === 3 && !(event.target as Element).closest("a"))
+    settings.set_bar_nyan(!settings.bar_nyan);
 }
 
 export function NyanCat() {

@@ -168,7 +168,7 @@ export type LibraryEntry = {
 
 export type ProtonOption = { internal: string; display: string };
 
-type SettingsObject = {
+export type SettingsObject = {
   username: string;
   steam_account: string;
   max_downloads: number;

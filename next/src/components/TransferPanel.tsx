@@ -1,8 +1,12 @@
 "use client";
 
 import { LogBox, type LogLine } from "@/components/LogBox";
-import { NyanCat } from "@/components/NyanCat";
-import { determinatePercent, useDownloadProgress } from "@/lib/bridge";
+import { NyanCat, toggleNyan } from "@/components/NyanCat";
+import {
+  determinatePercent,
+  useDownloadProgress,
+  useSettings,
+} from "@/lib/bridge";
 
 export function TransferBar({
   active,
@@ -12,6 +16,7 @@ export function TransferBar({
   state: string;
 }) {
   const { progress, step, steps } = useDownloadProgress();
+  const settings = useSettings();
   if (!active) return null;
 
   const paused = state === "paused";
@@ -22,7 +27,10 @@ export function TransferBar({
 
   return (
     <>
-      <div className="h-3.5 min-w-0 flex-1 rounded-full border border-border bg-well">
+      <div
+        className="h-3.5 min-w-0 flex-1 rounded-full border border-border bg-well"
+        onClick={(event) => settings && toggleNyan(event, settings)}
+      >
         <div
           key={percent === null ? "indeterminate" : "determinate"}
           data-paused={paused || undefined}
