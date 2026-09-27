@@ -24,8 +24,8 @@ export function SupportedSeasons({ view }: { view: SupportView }) {
             <SeasonTable key={rows[0].build} rows={rows} />
           ))
         )}
-        <div className="mb-5 flex max-w-[280px] flex-col gap-3">
-          {view === "full" && (
+        {view === "full" && (
+          <div className="mb-5 flex max-w-[280px] flex-col gap-3">
             <div className={stepBox}>
               <ol className={stepList}>
                 <li>Create a local custom game</li>
@@ -38,14 +38,14 @@ export function SupportedSeasons({ view }: { view: SupportView }) {
                 </li>
               </ol>
             </div>
-          )}
-          <div className={stepBox}>
-            <p className="mb-0 text-[0.78rem] leading-[1.45]">
-              Liberator does not support <strong>Vulkan</strong>. Launch the
-              season with <strong>DirectX</strong>.
-            </p>
+            <div className={stepBox}>
+              <p className="mb-0 text-[0.78rem] leading-[1.45]">
+                Liberator does not support <strong>Vulkan</strong>. Launch the
+                season with <strong>DirectX</strong>.
+              </p>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </Prose>
   );
