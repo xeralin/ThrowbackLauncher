@@ -741,7 +741,7 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "**Dynamic Matchmaking** 1.0 adapting to server load",
     ],
   },
-  Y10S2_DayBreak: {
+  Y10S2_Daybreak: {
     release: "Jun 10, 2025",
     operators: [
       {

@@ -37,5 +37,5 @@ pub static SEASON_NAMES: &[&str] = &[
     "Y9S3 Twin Shells",
     "Y9S4 Collision Point",
     "Y10S1 Prep Phase",
-    "Y10S2 Day Break",
+    "Y10S2 Daybreak",
 ];

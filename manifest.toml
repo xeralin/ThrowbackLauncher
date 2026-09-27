@@ -313,8 +313,8 @@ manifest_ww = '8382986432868135995'
 manifest_rus = '3364322644809414267'
 size_gb = 51.4
 
-[Y10S2_DayBreak]
-label = 'Y10S2 Day Break'
+[Y10S2_Daybreak]
+label = 'Y10S2 Daybreak'
 build = '91107972'
 manifest_content = '6061565907083200123'
 manifest_ww = '6185866687945877979'

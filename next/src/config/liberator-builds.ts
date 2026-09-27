@@ -100,7 +100,7 @@ export const UNLOCK_ALL_SEASONS: SeasonRow[] = [
   { season: "Y9S3", operation: "Twin Shells", build: "79429095" },
   { season: "Y9S4", operation: "Collision Point", build: "82873685" },
   { season: "Y10S1", operation: "Prep Phase", build: "87835624" },
-  { season: "Y10S2", operation: "Day Break", build: "91107972" },
+  { season: "Y10S2", operation: "Daybreak", build: "91107972" },
 ];
 
 export function eventsForBuild(build: string): string[] {

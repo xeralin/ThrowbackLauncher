@@ -55,6 +55,7 @@ from core.constants import (
     NEXT_OUT_DIR,
 )
 from core.manifest import load_downloads
+from core.migrate import migrate
 from core.settings import get_setting, load_settings, set_libraries
 from core.steam import prune_prefixes
 from layout import APP_NAME, DIR_NAME
@@ -152,6 +153,7 @@ def main() -> int:
         DEFAULT_DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
     settings = load_settings()
     set_libraries(get_setting(settings, "libraries", []))
+    migrate(settings)
     try:
         downloads = load_downloads()
     except RuntimeError as e:
