@@ -504,7 +504,7 @@ export function SeasonDetail({
                         disabled={playingSeason || downloading}
                         onClick={() => dl.importHm(season.key)}
                       >
-                        Replace HM files
+                        Update HM
                       </Button>
                     )}
                     {!hmActive && (
