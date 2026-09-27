@@ -170,6 +170,16 @@ _PF_SSE4_2_INSTRUCTIONS_AVAILABLE = 38
 _PF_AVX_INSTRUCTIONS_AVAILABLE = 39
 
 
+def hm_build_time(target_dir: Path) -> int:
+    try:
+        with (target_dir / _HM_DIR / "HeatedMetal.dll").open("rb") as f:
+            header = f.read(4096)
+    except OSError:
+        return 0
+    pe = int.from_bytes(header[0x3C:0x40], "little")
+    return int.from_bytes(header[pe + 8 : pe + 12], "little")
+
+
 def hm_version_file(target_dir: Path) -> Path:
     return target_dir / _HM_DIR / ".version"
 

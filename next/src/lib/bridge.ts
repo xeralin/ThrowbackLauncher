@@ -60,6 +60,7 @@ type InstallInfo = {
   installed: boolean;
   partial: boolean;
   library: string;
+  built: number;
 };
 
 export type SeasonInstalls = {

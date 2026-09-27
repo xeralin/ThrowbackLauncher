@@ -165,8 +165,8 @@ export function SeasonDetail({
   });
   const [tab, setTab] = useState<TabId>("manage");
   const [installs, setInstalls] = useState<SeasonInstalls>({
-    tb: { installed: false, partial: false, library: "" },
-    hm: { installed: false, partial: false, library: "" },
+    tb: { installed: false, partial: false, library: "", built: 0 },
+    hm: { installed: false, partial: false, library: "", built: 0 },
   });
   const [shearsScan, setShearsScan] = useState<ShearsScan | null>(null);
   const [homeSeasons] = useHomeSeasons();
@@ -630,7 +630,18 @@ export function SeasonDetail({
                 <SeasonInfo
                   entry={{
                     ...HM_INFO,
-                    release: info?.release ?? "",
+                    release:
+                      season.hmBeta && installs.hm.built
+                        ? new Date(installs.hm.built * 1000).toLocaleDateString(
+                            "en-US",
+                            {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                              timeZone: "UTC",
+                            },
+                          )
+                        : (info?.release ?? ""),
                     setup:
                       platform === "windows" ? (
                         <ExclusionSteps library={installs.hm.library} />

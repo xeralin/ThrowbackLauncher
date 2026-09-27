@@ -20,6 +20,7 @@ from core.constants import (
     UPDATE_RUNNING,
     VULKAN_EXE,
 )
+from core.heatedmetal import hm_build_time
 from core.manifest import (
     hm_folder_name,
     installed_path,
@@ -131,12 +132,18 @@ class LaunchController(QObject):
         def edition(hm: bool) -> dict:
             folder = installed_path(key, hm)
             if folder is not None:
-                return {"installed": True, "partial": False, "library": str(folder.parent)}
+                return {
+                    "installed": True,
+                    "partial": False,
+                    "library": str(folder.parent),
+                    "built": hm_build_time(folder) if hm else 0,
+                }
             folder = partial_path(key, hm)
             return {
                 "installed": False,
                 "partial": folder is not None,
                 "library": str(folder.parent) if folder is not None else "",
+                "built": 0,
             }
 
         return {"tb": edition(False), "hm": edition(True)}
