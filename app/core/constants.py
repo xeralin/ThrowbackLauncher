@@ -54,7 +54,7 @@ ICON_FILE = ASSET_ROOT / "icon.png" if FROZEN else ASSET_ROOT / ".github" / "ico
 SETTINGS_FILE = DATA_ROOT / "settings.toml"
 BIN_DIR = DATA_ROOT / "bin"
 API_CACHE_FILE = BIN_DIR / "api_cache.json"
-LOG_FILE = BIN_DIR / "log.txt"
+ERRORS_FILE = BIN_DIR / "errors.txt"
 
 
 DEFAULT_DOWNLOADS_DIR = DATA_ROOT / "downloads"

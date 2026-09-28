@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from core import log
-from core.constants import PREFIX_DIR
+from core.constants import ERRORS_FILE, PREFIX_DIR
 from core.settings import get_setting, libraries, save_settings, set_setting
 from core.steam import running_game_folders
 
@@ -37,7 +37,21 @@ def _renamed(value: object) -> object:
     return value
 
 
+def _migrate_errors_file() -> None:
+    old = ERRORS_FILE.with_name("log.txt")
+    if not old.exists():
+        return
+    try:
+        if ERRORS_FILE.exists():
+            old.unlink()
+        else:
+            old.rename(ERRORS_FILE)
+    except OSError as e:
+        log.fail("Errors file migration failed", e)
+
+
 def migrate(settings: dict) -> None:
+    _migrate_errors_file()
     for old, new in _RENAMED_KEYS.items():
         roots = [root for root in libraries() if _has_entry(root, old)]
         if not roots and not _has_entry(PREFIX_DIR, old):

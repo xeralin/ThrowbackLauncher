@@ -19,9 +19,9 @@ from core.constants import (
     DEFAULT_USERNAME,
     DOWNLOADS_MAX,
     DOWNLOADS_MIN,
+    ERRORS_FILE,
     FOLDER_NOT_FOUND,
     HEX_PATTERN,
-    LOG_FILE,
     MAX_USERNAME_LENGTH,
     NAME_CHARS,
     SCALE_LEVELS,
@@ -58,7 +58,7 @@ from core.throwbackloader import apply_tl, tl_folder_version, tl_present, tl_ver
 def _clear_download_cache() -> None:
     DD_BIN.unlink(missing_ok=True)
     SEVENZ_BIN.unlink(missing_ok=True)
-    LOG_FILE.unlink(missing_ok=True)
+    ERRORS_FILE.unlink(missing_ok=True)
     for archive in BIN_DIR.glob("*.7z"):
         archive.unlink(missing_ok=True)
     if TL_DIR.exists():

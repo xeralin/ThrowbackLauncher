@@ -4,7 +4,7 @@ import threading
 import traceback
 from datetime import datetime
 
-from core.constants import LOG_FILE
+from core.constants import ERRORS_FILE
 from layout import VERSION
 
 _lock = threading.Lock()
@@ -15,8 +15,8 @@ def record(line: str) -> None:
     global _started
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with _lock, contextlib.suppress(OSError):
-        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with LOG_FILE.open("a", encoding="utf-8") as file:
+        ERRORS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with ERRORS_FILE.open("a", encoding="utf-8") as file:
             if not _started or file.tell() == 0:
                 _started = True
                 file.write(f"[{stamp}] v{VERSION}\n")
