@@ -90,6 +90,7 @@ export default function HeatedMetal() {
           <OnWindows>
             <li>The latest Visual C++ Redistributables</li>
           </OnWindows>
+          <li>Medium or above in-game textures on Y5S3 Shadow Legacy</li>
           <li>
             External overlays disabled, as they can stop the UI from rendering
           </li>
