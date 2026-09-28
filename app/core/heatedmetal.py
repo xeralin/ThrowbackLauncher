@@ -188,7 +188,10 @@ def hm_crash_log(target_dir: Path) -> list[Path]:
     ]
     if not logs:
         return []
-    newest = max(logs, key=lambda path: path.stat().st_mtime).stem
+    try:
+        newest = max(logs, key=lambda path: path.stat().st_mtime).stem
+    except OSError:
+        return []
     return sorted(path for path in logs if path.stem == newest)
 
 
