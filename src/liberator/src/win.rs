@@ -18,6 +18,7 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
 };
 
+use crate::badges::Badges;
 use crate::onboarding::Onboarding;
 use crate::ownership::{unlock, Ownership};
 use crate::shadow::shadow_regions_for_build;
@@ -458,6 +459,7 @@ pub struct Runner {
     available: [bool; CAPS.len()],
     ownership: Ownership,
     onboarding: Onboarding,
+    badges: Badges,
 }
 
 impl Runner {
@@ -484,6 +486,7 @@ impl Runner {
             available: [false; CAPS.len()],
             ownership: Ownership::default(),
             onboarding: Onboarding::default(),
+            badges: Badges::default(),
         }
     }
 
@@ -1199,6 +1202,7 @@ impl Runner {
             self.build,
             &mut self.ownership,
             &mut self.onboarding,
+            &mut self.badges,
         ) {
             self.set_loading_status();
             return;

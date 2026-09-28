@@ -6,6 +6,9 @@ pub mod tables;
 pub mod tree;
 
 #[cfg(windows)]
+pub mod badges;
+
+#[cfg(windows)]
 pub mod onboarding;
 
 #[cfg(windows)]

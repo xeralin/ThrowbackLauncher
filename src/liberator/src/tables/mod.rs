@@ -50,3 +50,4 @@ include!("gametype_names.rs");
 include!("shadow_regions.rs");
 include!("ownership.rs");
 include!("onboarding.rs");
+include!("badges.rs");
