@@ -28,12 +28,12 @@ import {
   RemoveIcon,
 } from "@/components/icons";
 import { BAR_PRESETS, DEFAULT_ACCENT } from "@/config/accents";
-import { usePlatformView } from "@/lib/platform-view";
 import {
   onBridgeReady,
   useDiskUsage,
   useDownloader,
   useLibraries,
+  usePlatform,
   useSettings,
   type LibraryEntry,
   type ProtonOption,
@@ -57,7 +57,7 @@ export default function SettingsPage() {
   const [protons, setProtons] = useState<ProtonOption[] | null>(null);
   const [protonOpen, setProtonOpen] = useState(false);
   const [tab, setTab] = useState<TabId>("downloads");
-  const platform = usePlatformView();
+  const platform = usePlatform();
 
   useEffect(() => {
     if (platform === "linux" && settings) settings.proton_options(setProtons);

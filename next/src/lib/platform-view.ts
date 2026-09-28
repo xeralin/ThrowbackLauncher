@@ -1,10 +1,8 @@
 "use client";
 
-import { createContext, useContext, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { usePlatform, type ThrowbackOS } from "@/lib/bridge";
 import { applySwitch } from "@/lib/view-transition";
-
-export const PlatformViewScope = createContext(false);
 
 let override: ThrowbackOS | null = null;
 const listeners = new Set<() => void>();
@@ -34,7 +32,6 @@ export function resetPlatformView() {
 
 export function usePlatformView(): ThrowbackOS | null {
   const os = usePlatform();
-  const scoped = useContext(PlatformViewScope);
   const view = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  return (scoped ? view : null) ?? os;
+  return view ?? os;
 }

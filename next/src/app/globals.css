@@ -770,9 +770,6 @@
     border-radius: var(--radius-md);
     background: var(--color-surface-2);
   }
-  .prose {
-    max-width: 100%;
-  }
   .prose h3 {
     font-family: var(--font-display);
     font-weight: 700;

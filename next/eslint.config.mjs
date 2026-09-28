@@ -9,12 +9,7 @@ const eslintConfig = defineConfig([
     files: ["src/components/Markdown.tsx", "src/components/NyanCat.tsx"],
     rules: { "@next/next/no-img-element": "off" },
   },
-  globalIgnores([
-    ".next/**",
-    "out/**",
-    "next-env.d.ts",
-    "public/qwebchannel.js",
-  ]),
+  globalIgnores(["public/qwebchannel.js"]),
 ]);
 
 export default eslintConfig;

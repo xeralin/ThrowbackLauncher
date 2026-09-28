@@ -39,7 +39,6 @@ const PATH_LABELS: Record<string, string> = Object.fromEntries([
 ]);
 
 export function normalizePath(path: string): string {
-  if (!path) return "/";
   const trimmed = path.replace(/\/+$/, "");
   return trimmed === "" ? "/" : trimmed;
 }
