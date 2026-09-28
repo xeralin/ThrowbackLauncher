@@ -591,7 +591,7 @@ export function SeasonDetail({
                 )}
               </span>
               <span className="flex min-w-0 flex-1 items-center gap-3">
-                <TransferBar active={transferring} state={editionState} />
+                <TransferBar state={editionState} />
               </span>
               {!transferring && editionInstall.installed && (
                 <span className={`${iconBox} bg-surface`}>

@@ -8,22 +8,15 @@ import {
   useSettings,
 } from "@/lib/bridge";
 
-export function TransferBar({
-  active,
-  state,
-}: {
-  active: boolean;
-  state: string;
-}) {
+export function TransferBar({ state }: { state: string }) {
   const { progress, step, steps } = useDownloadProgress();
   const settings = useSettings();
-  if (!active) return null;
-
   const paused = state === "paused";
   const percent =
     state === "downloading" || paused
       ? determinatePercent(progress, step, steps)
       : null;
+  if (percent === null) return null;
 
   return (
     <>
@@ -32,23 +25,16 @@ export function TransferBar({
         onClick={(event) => settings && toggleNyan(event, settings)}
       >
         <div
-          key={percent === null ? "indeterminate" : "determinate"}
           data-paused={paused || undefined}
-          className={`transfer-fill h-full min-w-3 rounded-full ${
-            percent === null
-              ? "w-full"
-              : "transition-[width] duration-200 ease-out"
-          }`}
-          style={percent === null ? undefined : { width: `${progress}%` }}
+          className="transfer-fill h-full min-w-3 rounded-full transition-[width] duration-200 ease-out"
+          style={{ width: `${progress}%` }}
         >
           <NyanCat />
         </div>
       </div>
-      {percent !== null && (
-        <span className="block translate-y-[1px] font-display text-[1.2rem] font-bold leading-none tabular-nums text-text">
-          {percent}%
-        </span>
-      )}
+      <span className="block translate-y-[1px] font-display text-[1.2rem] font-bold leading-none tabular-nums text-text">
+        {percent}%
+      </span>
     </>
   );
 }
