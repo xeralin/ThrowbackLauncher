@@ -18,7 +18,7 @@ import {
   CHEVRON_RIGHT,
 } from "@/components/icons";
 import { rovingStep } from "@/components/Tabs";
-import { inputClasses, heading } from "@/components/ui";
+import { inputClasses, heading, saveCheck } from "@/components/ui";
 
 function useEscapeRevert(reset: () => void) {
   const skip = useRef(false);
@@ -130,10 +130,7 @@ export function SaveCheck({ confirm }: { confirm: number }) {
       key={confirm}
       className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2"
     >
-      <StrokeIcon
-        d={CHECK}
-        className="animate-save-check size-4 text-success opacity-0 [&]:stroke-[2.5]"
-      />
+      <StrokeIcon d={CHECK} className={saveCheck} />
     </span>
   );
 }

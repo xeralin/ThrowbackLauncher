@@ -20,7 +20,7 @@ from core.constants import (
     UPDATE_RUNNING,
     VULKAN_EXE,
 )
-from core.heatedmetal import hm_build_time
+from core.heatedmetal import hm_build_time, hm_crash_log
 from core.manifest import (
     hm_folder_name,
     installed_path,
@@ -137,6 +137,7 @@ class LaunchController(QObject):
                     "partial": False,
                     "library": str(folder.parent),
                     "built": hm_build_time(folder) if hm else 0,
+                    "crashLog": hm and bool(hm_crash_log(folder)),
                 }
             folder = partial_path(key, hm)
             return {
@@ -144,6 +145,7 @@ class LaunchController(QObject):
                 "partial": folder is not None,
                 "library": str(folder.parent) if folder is not None else "",
                 "built": 0,
+                "crashLog": False,
             }
 
         return {"tb": edition(False), "hm": edition(True)}

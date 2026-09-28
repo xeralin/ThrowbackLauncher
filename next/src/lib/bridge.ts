@@ -52,6 +52,7 @@ type InfoObject = {
   snapshot(callback: (info: InfoSnapshot) => void): void;
   open_library(path: string): void;
   open_season(key: string, hm: boolean): void;
+  copy_crash_log(key: string, callback: (error: string) => void): void;
   refresh_disk_usage(): void;
   disk_usage_changed: QtSignal;
 };
@@ -61,6 +62,7 @@ type InstallInfo = {
   partial: boolean;
   library: string;
   built: number;
+  crashLog: boolean;
 };
 
 export type SeasonInstalls = {

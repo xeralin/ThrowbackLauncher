@@ -1,11 +1,12 @@
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QMimeData, QObject, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices, QGuiApplication
 
 from core import log, settings
 from core.constants import GIB
+from core.heatedmetal import hm_crash_log
 from core.manifest import installed_path, local_downloads
 from core.shears import folder_size
 
@@ -58,3 +59,14 @@ class InfoController(QObject):
             return
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(target))):
             log.fail("Folder open failed", target)
+
+    @Slot(str, result=str)
+    def copy_crash_log(self, key: str) -> str:
+        target = installed_path(key, True)
+        files = hm_crash_log(target) if target is not None else []
+        if not files:
+            return "Crash log not found"
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(path)) for path in files])
+        QGuiApplication.clipboard().setMimeData(mime)
+        return ""

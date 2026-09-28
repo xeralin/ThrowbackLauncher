@@ -11,6 +11,7 @@ import {
 import { BackHeading } from "@/components/BackHeading";
 import { Button, iconButton } from "@/components/Button";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { CopyButton } from "@/components/CopyButton";
 import { Modal, modalTitle } from "@/components/Modal";
 import { ExternalLink } from "@/components/ExternalLink";
 import {
@@ -142,6 +143,14 @@ const EDITION_TABS: TabItem<"tb" | "hm">[] = [
   },
 ];
 
+const NO_INSTALL: SeasonInstalls["tb"] = {
+  installed: false,
+  partial: false,
+  library: "",
+  built: 0,
+  crashLog: false,
+};
+
 export function SeasonDetail({
   season,
   hm,
@@ -165,8 +174,8 @@ export function SeasonDetail({
   });
   const [tab, setTab] = useState<TabId>("manage");
   const [installs, setInstalls] = useState<SeasonInstalls>({
-    tb: { installed: false, partial: false, library: "", built: 0 },
-    hm: { installed: false, partial: false, library: "", built: 0 },
+    tb: NO_INSTALL,
+    hm: NO_INSTALL,
   });
   const [shearsScan, setShearsScan] = useState<ShearsScan | null>(null);
   const [homeSeasons] = useHomeSeasons();
@@ -263,7 +272,7 @@ export function SeasonDetail({
 
   useEffect(() => {
     if (lc.ready) refresh();
-  }, [lc.ready, refresh]);
+  }, [lc.ready, refresh, playingSeason]);
 
   useEffect(() => {
     if (!settings) return;
@@ -586,6 +595,34 @@ export function SeasonDetail({
               </span>
               {!transferring && editionInstall.installed && (
                 <span className={`${iconBox} bg-surface`}>
+                  {hmActive && (
+                    <CopyButton
+                      label="Copy crash log"
+                      copiedLabel="Crash log copied"
+                      disabled={!installs.hm.crashLog}
+                      onCopy={(copied) =>
+                        onBridgeReady((bridge) =>
+                          bridge.info.copy_crash_log(season.key, (error) => {
+                            if (!error) copied();
+                            else {
+                              showToast(error);
+                              refresh();
+                            }
+                          }),
+                        )
+                      }
+                    />
+                  )}
+                  {platform === "linux" && (
+                    <button
+                      type="button"
+                      aria-label="Proton"
+                      onClick={() => setModal({ kind: "proton" })}
+                      className={iconButton}
+                    >
+                      <StrokeIcon d="m4 17 6-6-6-6M12 19h8" />
+                    </button>
+                  )}
                   <button
                     type="button"
                     aria-label="Open folder"
@@ -598,16 +635,6 @@ export function SeasonDetail({
                   >
                     <FolderIcon />
                   </button>
-                  {platform === "linux" && (
-                    <button
-                      type="button"
-                      aria-label="Proton"
-                      onClick={() => setModal({ kind: "proton" })}
-                      className={iconButton}
-                    >
-                      <StrokeIcon d="m4 17 6-6-6-6M12 19h8" />
-                    </button>
-                  )}
                   <button
                     type="button"
                     aria-label="Uninstall"

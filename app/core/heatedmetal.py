@@ -180,6 +180,18 @@ def hm_build_time(target_dir: Path) -> int:
     return int.from_bytes(header[pe + 8 : pe + 12], "little")
 
 
+def hm_crash_log(target_dir: Path) -> list[Path]:
+    logs = [
+        path
+        for path in (target_dir / _HM_DIR / "CrashLogs").glob("*")
+        if path.suffix in (".dmp", ".txt")
+    ]
+    if not logs:
+        return []
+    newest = max(logs, key=lambda path: path.stat().st_mtime).stem
+    return sorted(path for path in logs if path.stem == newest)
+
+
 def hm_version_file(target_dir: Path) -> Path:
     return target_dir / _HM_DIR / ".version"
 
