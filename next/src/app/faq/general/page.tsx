@@ -65,8 +65,8 @@ const faqs: FaqItem[] = [
           , an open-source tool.
         </p>
         <Note className="my-3">
-          Your password is never stored — the Launcher keeps only an encrypted
-          access token, just like the Steam client.
+          Your password is never stored — the Launcher keeps only an access
+          token, just like the Steam client.
         </Note>
       </>
     ),
@@ -77,8 +77,8 @@ const faqs: FaqItem[] = [
     a: (
       <>
         <p>
-          Open the <Link href="/settings">Settings</Link> in the Launcher and
-          edit the <strong>Username</strong> field (max 16 characters).
+          Open the <Link href="/settings">Settings</Link> and edit the{" "}
+          <strong>Username</strong> field (max 16 characters).
         </p>
         <Note className="my-3">
           Set your username before launching the game so it applies in-game.
@@ -121,8 +121,8 @@ const faqs: FaqItem[] = [
       <p>
         Yes. Open the <Link href="/settings">Settings</Link>, press{" "}
         <strong>Add library</strong> to add a folder, and use the bookmark icon
-        to make it the default. When more than one library exists, the Launcher
-        asks which one to use before each download.
+        to make it the default. Otherwise, the Launcher asks which library to
+        use before each download.
       </p>
     ),
   },

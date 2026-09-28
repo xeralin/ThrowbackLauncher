@@ -19,8 +19,7 @@ export const FAQ_PAGES = {
   },
   multiplayer: {
     title: "Multiplayer",
-    description:
-      "How to set up and play with others using Radmin VPN or ZeroTier.",
+    description: "How to set up and play with others using Radmin VPN.",
     tag: "Support & Troubleshooting",
     corner: "MP",
   },

@@ -41,14 +41,13 @@ const faqs: FaqItem[] = [
     a: (
       <p>
         No. Heated Metal changes the game itself, so everyone in a match needs
-        the same Heated Metal build. Your regular Throwback install stays
-        untouched.
+        the same Heated Metal build. Your Throwback install stays untouched.
       </p>
     ),
   },
   {
     id: "keep-both",
-    q: "Can I keep the normal season and Heated Metal at the same time?",
+    q: "Can I keep Throwback and Heated Metal installed at the same time?",
     a: (
       <p>
         Yes, but each install takes the full size of the season. If you only
@@ -91,7 +90,6 @@ export default function HeatedMetal() {
           <OnWindows>
             <li>The latest Visual C++ Redistributables</li>
           </OnWindows>
-          <li>Medium or above in-game textures on Y5S3 Shadow Legacy</li>
           <li>
             External overlays disabled, as they can stop the UI from rendering
           </li>
@@ -127,8 +125,8 @@ export default function HeatedMetal() {
               <code>~/.local/share/ThrowbackLauncher/bin/proton</code>
             </li>
             <li>
-              Restart the Launcher, then pick it under <strong>Proton</strong>{" "}
-              in the <strong>Manage</strong> tab of the season
+              Pick it under <strong>Proton</strong> in the{" "}
+              <strong>Manage</strong> tab of the season
             </li>
           </ol>
         </OnLinux>

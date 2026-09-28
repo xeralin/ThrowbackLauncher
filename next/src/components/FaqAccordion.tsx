@@ -7,8 +7,7 @@ import { usePlatformView } from "@/lib/platform-view";
 
 export type FaqItem = {
   id: string;
-  q: string;
-  display?: ReactNode;
+  q: ReactNode;
   a: ReactNode;
   platform?: "windows" | "linux";
 };
@@ -54,7 +53,7 @@ function Item({ item }: { item: FaqItem }) {
         aria-controls={answerId}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="question-title">{item.display ?? item.q}</span>
+        <span className="question-title">{item.q}</span>
         <StrokeIcon d={CHEVRON_DOWN} className="question-chevron" />
       </button>
       <div id={answerId} className="answer" inert={!open}>

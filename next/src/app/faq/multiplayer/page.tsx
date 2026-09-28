@@ -28,14 +28,14 @@ const faqs: FaqItem[] = [
     a: (
       <ol>
         <li>
-          <strong>Check your game version</strong> — Both players must be on the
+          <strong>Check your game version</strong> — All players must be on the
           same build, which installing the same season through the Launcher
           guarantees, and which <strong>Show Metrics</strong> in the game
           settings confirms
         </li>
         <li>
-          <strong>Check your VPN network</strong> — Make sure both players are
-          connected to the same network and no other VPN is running
+          <strong>Check your Radmin VPN network</strong> — Make sure all players
+          are connected to the same network and no other VPN is running
         </li>
         <li>
           <strong>Check your firewall</strong> — Make sure the old R6S build is
@@ -43,7 +43,7 @@ const faqs: FaqItem[] = [
           <OnWindows> for both private and public networks</OnWindows>
         </li>
         <li>
-          <strong>Restart</strong> — Try restarting both the game and your VPN
+          <strong>Restart</strong> — Try restarting both the game and Radmin VPN
         </li>
       </ol>
     ),
@@ -84,55 +84,11 @@ export default function Multiplayer() {
         </ol>
       </Prose>
 
-      <SectionTitle>ZeroTier Setup</SectionTitle>
-      <Prose>
-        <ol>
-          <OnWindows>
-            <li>
-              Download and run the{" "}
-              <ExternalLink href="https://zerotier.com/download/">
-                ZeroTier MSI installer
-              </ExternalLink>
-            </li>
-          </OnWindows>
-          <OnLinux>
-            <li>
-              Install ZeroTier with{" "}
-              <code>curl -s https://install.zerotier.com | sudo bash</code>
-            </li>
-          </OnLinux>
-          <li>
-            Create a network at{" "}
-            <ExternalLink href="https://central.zerotier.com">
-              central.zerotier.com
-            </ExternalLink>{" "}
-            or use the network ID of your friends
-          </li>
-          <OnWindows>
-            <li>
-              Use the ZeroTier tray icon, choose <strong>Join Network</strong>{" "}
-              and enter the network ID
-            </li>
-          </OnWindows>
-          <OnLinux>
-            <li>
-              Join it with <code>sudo zerotier-cli join [network id]</code>
-            </li>
-          </OnLinux>
-          <li>
-            The network owner authorizes each new member under{" "}
-            <strong>Members</strong> in ZeroTier Central
-          </li>
-        </ol>
-      </Prose>
-
       <SectionTitle>How to Play</SectionTitle>
       <Prose>
         <ol>
           <li>Make sure all players are connected to the same network</li>
-          <li>
-            Launch the game and create a <strong>Local Custom Game</strong>
-          </li>
+          <li>Launch the game and create a local custom game</li>
           <li>
             Other players can join by selecting <strong>Join Local</strong> from
             the main menu
