@@ -18,12 +18,10 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
 };
 
-use crate::badges::Badges;
-use crate::onboarding::Onboarding;
-use crate::ownership::{unlock, Ownership};
 use crate::shadow::shadow_regions_for_build;
 use crate::tables::*;
 use crate::tree::*;
+use crate::unlock::{unlock, Badges, Onboarding, Ownership};
 
 fn find_process(names: &[&'static str]) -> Option<(u32, &'static str)> {
     let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
@@ -202,7 +200,7 @@ impl Engine {
             let toread = remain.min(CHUNK + OVERLAP);
             let got = self.read_mem(self.base + off as u64, &mut buf[..toread as usize]);
             if got > 0 {
-                if let Some(m) = crate::buildscan::scan_build(&buf[..got]) {
+                if let Some(m) = crate::build_scan::scan_build(&buf[..got]) {
                     return Some(m);
                 }
             }

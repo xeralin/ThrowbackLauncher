@@ -13,8 +13,8 @@ use windows_sys::Win32::System::Threading::{
     CreateRemoteThread, GetExitCodeThread, WaitForSingleObject, LPTHREAD_START_ROUTINE,
 };
 
+use crate::runtime::Engine;
 use crate::tables::*;
-use crate::win::Engine;
 
 static SHADOW_DLL: &[u8] = include_bytes!("../shadow/Shadow.dll");
 
@@ -162,7 +162,7 @@ impl Engine {
         }
         let mut buf = bytes.to_vec();
         let mod_hi = self.base + self.modsize as u64;
-        crate::scanrip::rebase(&mut buf, addr, self.base, mod_hi, self.shadow_delta);
+        crate::rebase::rebase(&mut buf, addr, self.base, mod_hi, self.shadow_delta);
         self.write_mem((addr as i64 + self.shadow_delta) as u64, &buf);
     }
 
@@ -225,7 +225,7 @@ impl Engine {
                     buf[o..o + r.patch.len()].copy_from_slice(r.patch);
                 }
             }
-            crate::scanrip::rebase(&mut buf, win_base, self.base, mod_hi, reserved_delta);
+            crate::rebase::rebase(&mut buf, win_base, self.base, mod_hi, reserved_delta);
             let copy_base = (win_base as i64 + reserved_delta) as u64;
             let committed_copy = unsafe {
                 VirtualAllocEx(

@@ -39,15 +39,11 @@ pub struct TreeParams {
     pub remove: &'static [usize],
 }
 
-include!("patches_data.rs");
-include!("build_season.rs");
+include!("patches.rs");
+include!("seasons.rs");
 include!("feature_chains.rs");
 include!("idle.rs");
-include!("season_names.rs");
 include!("tree_params.rs");
-include!("map_names.rs");
-include!("gametype_names.rs");
+include!("names.rs");
 include!("shadow_regions.rs");
-include!("ownership.rs");
-include!("onboarding.rs");
-include!("badges.rs");
+include!("unlock.rs");

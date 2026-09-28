@@ -1,28 +1,22 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
-pub mod buildscan;
-pub mod scanrip;
+pub mod build_scan;
+pub mod rebase;
 pub mod tables;
 pub mod tree;
 
 #[cfg(windows)]
-pub mod badges;
-
-#[cfg(windows)]
-pub mod onboarding;
-
-#[cfg(windows)]
-pub mod ownership;
+pub mod runtime;
 
 #[cfg(windows)]
 pub mod shadow;
 
 #[cfg(windows)]
-pub mod win;
+pub mod unlock;
 
 #[cfg(windows)]
 fn main() {
-    std::process::exit(win::main_entry());
+    std::process::exit(runtime::main_entry());
 }
 
 #[cfg(not(windows))]
