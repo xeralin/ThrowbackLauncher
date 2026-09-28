@@ -32,5 +32,5 @@ python -m venv .venv && .venv/bin/pip install -r app/requirements.txt
 <p>
   <a href="https://github.com/xeralin/ThrowbackLauncher/releases/latest"><img alt="latest release" src="https://img.shields.io/github/v/release/xeralin/ThrowbackLauncher?style=flat&color=c0152a" /></a>
   <a href="https://github.com/xeralin/ThrowbackLauncher/releases"><img alt="downloads" src="https://img.shields.io/github/downloads/xeralin/ThrowbackLauncher/total?style=flat&color=c0152a" /></a>
-  <a href="https://discord.gg/r6s-operation-throwback-2-0-1092820800203141130"><img alt="discord" src="https://img.shields.io/discord/1092820800203141130?style=flat&label=discord&color=e8e0d5" /></a>
+  <a href="https://discord.gg/r6s-operation-throwback-1092820800203141130"><img alt="discord" src="https://img.shields.io/discord/1092820800203141130?style=flat&label=discord&color=e8e0d5" /></a>
 </p>

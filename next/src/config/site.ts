@@ -1,4 +1,4 @@
-const discordInvite = "r6s-operation-throwback-2-0-1092820800203141130";
+const discordInvite = "r6s-operation-throwback-1092820800203141130";
 
 export const site = {
   name: "Launcher",
