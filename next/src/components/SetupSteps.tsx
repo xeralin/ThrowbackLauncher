@@ -36,7 +36,7 @@ export function ExclusionStepList({ paths }: { paths: string[] }) {
         <ol className={stepList}>
           <li>
             Search for <strong>Virus & threat protection</strong> in the Windows
-            start menu
+            Start menu
           </li>
           <li>
             Click <strong>Manage settings</strong> under{" "}
@@ -79,8 +79,8 @@ export function ProtonSteps() {
           <code>~/.local/share/ThrowbackLauncher/bin/proton</code>
         </li>
         <li>
-          Restart the Launcher, then pick it under <strong>Proton</strong> in
-          the <strong>Manage</strong> tab
+          Pick it under <strong>Proton</strong> in the <strong>Manage</strong>{" "}
+          tab
         </li>
       </ol>
     </div>

@@ -83,7 +83,7 @@ SWITCH_WIDTH = 34
 SWITCH_HEIGHT = 18
 COPIED_MS = 1400
 EXCLUSION_STEPS = (
-    "Search for <b>Virus &amp; threat protection</b> in the Windows start menu",
+    "Search for <b>Virus &amp; threat protection</b> in the Windows Start menu",
     "Click <b>Manage settings</b> under <i>Virus &amp; threat protection settings</i>",
     "Scroll down to <i>Exclusions</i> and click <b>Add or remove exclusions</b>",
     "Click <b>Add an exclusion</b> &gt; <b>Folder</b> and paste the path below",
