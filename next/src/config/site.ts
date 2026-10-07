@@ -3,11 +3,8 @@ const discordInvite = "r6s-operation-throwback-1092820800203141130";
 export const site = {
   name: "Launcher",
   heroImage: "/media/throwback.webp",
-  themeColor: "#c0152a",
   discordInvite,
   discordUrl: `https://discord.gg/${discordInvite}`,
-  indevReleasesUrl:
-    "https://discord.com/channels/1321476389815324733/1498791837346037861",
   helpChannelUrl:
     "https://discord.com/channels/1092820800203141130/1106957787516379267",
   heatedMetalDiscordUrl: "https://discord.gg/7mR9VxBxWd",
@@ -17,4 +14,5 @@ export const site = {
   latestReleaseUrl:
     "https://github.com/xeralin/ThrowbackLauncher/releases/latest",
   radminVpnUrl: "https://radmin-vpn.com/",
+  vcRedistUrl: "https://aka.ms/vc14/vc_redist.x64.exe",
 } as const;

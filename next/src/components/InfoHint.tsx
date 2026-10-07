@@ -1,42 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { StrokeIcon } from "@/components/icons";
+import { INFO, StrokeIcon } from "@/components/icons";
+import { usePopoverDismiss } from "@/lib/popover";
 
 const OPEN_DELAY = 300;
 const CLOSE_DELAY = 100;
-
-let openHints = 0;
-
-export function hasOpenInfoHint(): boolean {
-  return openHints > 0;
-}
 
 export function InfoHint({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    openHints += 1;
-    function onDown(event: MouseEvent) {
-      if (ref.current && !ref.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-
-    return () => {
-      openHints -= 1;
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  usePopoverDismiss(open, setOpen, ref);
 
   useEffect(
     () => () => {
@@ -73,11 +49,7 @@ export function InfoHint({ text }: { text: string }) {
         onClick={show}
         className="flex shrink-0 text-text-muted transition-colors hover:text-text"
       >
-        <StrokeIcon className="size-3.5">
-          <circle cx="12" cy="12" r="10" />
-          <line x1="12" x2="12" y1="16" y2="12" />
-          <line x1="12" x2="12.01" y1="8" y2="8" />
-        </StrokeIcon>
+        <StrokeIcon d={INFO} className="size-3.5" />
       </button>
       <span
         aria-hidden={!open}

@@ -42,7 +42,7 @@ function Group<T extends string>({
     }
     remeasure();
     window.addEventListener("resize", remeasure);
-    document.fonts?.ready.then(remeasure);
+    document.fonts.ready.then(remeasure);
     return () => window.removeEventListener("resize", remeasure);
   }, [active, tabs, compact]);
 
@@ -150,8 +150,7 @@ export function Tabs<T extends string>({
     if (!wrap || !group) return;
     if (compact)
       compactTrailing.current = trailingRef.current?.offsetWidth ?? 0;
-    function measure() {
-      if (!wrap || !group) return;
+    const measure = () => {
       const live = trailingRef.current?.offsetWidth ?? 0;
       if (!compact)
         expanded.current = { group: group.offsetWidth, trailing: live };
@@ -162,7 +161,7 @@ export function Tabs<T extends string>({
         ? parseFloat(getComputedStyle(wrap).columnGap) + trailing
         : 0;
       setCompact(expanded.current.group + rest > wrap.clientWidth);
-    }
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(wrap);

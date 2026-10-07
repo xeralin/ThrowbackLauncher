@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { ExclusionStepList } from "@/components/SetupSteps";
-import { onBridgeEvent } from "@/lib/bridge";
+import { onBridgeEvent, usePlatform } from "@/lib/bridge";
 
 export function LiberatorMissingModal({
   folder,
@@ -15,6 +15,7 @@ export function LiberatorMissingModal({
   onClose: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const platform = usePlatform();
 
   useEffect(
     () =>
@@ -33,17 +34,22 @@ export function LiberatorMissingModal({
     <ConfirmModal
       title="Liberator is missing"
       confirmLabel="Download"
-      busyLabel="Downloading"
       busy={busy}
       onConfirm={confirm}
       onCancel={onClose}
     >
-      <div className="flex flex-col gap-3">
+      {platform === "windows" ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-body text-text-muted">
+            Windows Security may have removed <code>Liberator.exe</code>.
+          </p>
+          <ExclusionStepList paths={[folder]} />
+        </div>
+      ) : (
         <p className="text-body text-text-muted">
-          Windows Security may have removed <code>Liberator.exe</code>.
+          <code>Liberator.exe</code> was not found.
         </p>
-        <ExclusionStepList paths={[folder]} />
-      </div>
+      )}
     </ConfirmModal>
   );
 }

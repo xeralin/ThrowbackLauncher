@@ -26,14 +26,12 @@ export const navSections: NavSection[] = [
   },
 ];
 
-type Crumb = { label: string; href: string };
-
 const PATH_LABELS: Record<string, string> = Object.fromEntries([
   ...navSections.flatMap((section) =>
     section.items.map((item) => [item.href, item.label]),
   ),
   ...Object.entries(FAQ_PAGES).map(([slug, page]) => [
-    slug === "index" ? "/faq" : `/faq/${slug}`,
+    `/faq/${slug}`,
     page.title,
   ]),
 ]);
@@ -44,21 +42,18 @@ export function normalizePath(path: string): string {
 }
 
 export function isActivePath(href: string, pathname: string): boolean {
-  const target = normalizePath(href);
-  const current = normalizePath(pathname);
-  if (target === "/") return current === "/";
-  return current === target || current.startsWith(`${target}/`);
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function breadcrumbFor(path: string): Crumb[] {
-  const normalized = normalizePath(path);
-  const crumbs: Crumb[] = [{ label: site.name, href: "/" }];
-  if (normalized === "/") {
+export function breadcrumbFor(path: string): NavItem[] {
+  const crumbs: NavItem[] = [{ label: site.name, href: "/" }];
+  if (path === "/") {
     crumbs.push({ label: PATH_LABELS["/"], href: "/" });
     return crumbs;
   }
   let href = "";
-  for (const segment of normalized.split("/").filter(Boolean)) {
+  for (const segment of path.split("/").filter(Boolean)) {
     href += `/${segment}`;
     crumbs.push({ label: PATH_LABELS[href] ?? segment, href });
   }

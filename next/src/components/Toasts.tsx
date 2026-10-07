@@ -12,7 +12,6 @@ type Entry = {
 
 let nextId = 1;
 
-const MAX_VISIBLE = 3;
 const VISIBLE_MS = 4000;
 const LEAVE_MS = 200;
 
@@ -49,7 +48,7 @@ export function Toasts() {
         apply((prev) => prev.filter((toast) => toast.key !== detail.key));
       }
       const active = list.filter((toast) => !toast.leaving);
-      if (active.length >= MAX_VISIBLE) dismiss(active[0].id);
+      if (active.length >= 3) dismiss(active[0].id);
       apply((prev) => [
         ...prev,
         {

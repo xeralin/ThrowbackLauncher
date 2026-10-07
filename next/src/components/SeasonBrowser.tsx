@@ -13,7 +13,6 @@ import {
 import { createPortal, flushSync } from "react-dom";
 import { usePathname } from "next/navigation";
 import { Button, iconButton } from "@/components/Button";
-import { Note } from "@/components/Note";
 import { SeasonDetail } from "@/components/SeasonDetail";
 import { CardKeyArt, SeasonKeyArt } from "@/components/SeasonKeyArt";
 import { StrokeIcon } from "@/components/icons";
@@ -23,6 +22,7 @@ import {
   heading,
   pageTitle,
   panel,
+  stepBox,
 } from "@/components/ui";
 import {
   editionActive,
@@ -146,6 +146,15 @@ function historySeason(
     list.find((s) => s.key === entry.tbSeason && s.hm === !!entry.tbHm) ??
     list.find((s) => s.key === entry.tbSeason)
   );
+}
+
+function back() {
+  window.history.back();
+}
+
+function resetToList() {
+  const depth = (window.history.state as HistoryEntry | null)?.tbDepth ?? 0;
+  if (depth > 0) window.history.go(-depth);
 }
 
 type CardAction = {
@@ -315,7 +324,7 @@ const DashCard = memo(function DashCard({
       }}
       onDrop={(event) => event.preventDefault()}
       onDragEnd={(event) => onDragEnd(event.dataTransfer.dropEffect === "none")}
-      className={`group relative h-full ${panel} transition-[border-color,box-shadow,opacity] duration-200 ${
+      className={`relative h-full ${panel} transition-[border-color,box-shadow,opacity] duration-200 ${
         editing
           ? "cursor-grab active:cursor-grabbing"
           : "cursor-pointer overflow-hidden card-glow-hover card-line-hover"
@@ -323,7 +332,7 @@ const DashCard = memo(function DashCard({
         dragging ? "opacity-40" : ""
       } ${COL_SPANS[spanW] ?? ""} ${ROW_SPANS[spanH] ?? ""}`}
     >
-      <div className="absolute inset-0 overflow-hidden rounded-[7px] will-change-transform">
+      <div className="absolute inset-0 overflow-hidden rounded-[7px]">
         <CardKeyArt season={season} sizes={cardSizes(spanW, spanH)} />
       </div>
       {!editing && (
@@ -397,18 +406,6 @@ const DashCard = memo(function DashCard({
   );
 });
 
-function ArrangeIcon({ active }: { active: boolean }) {
-  return (
-    <StrokeIcon className="size-4">
-      <path d="M13 21h8" />
-      <path
-        fill={active ? "currentColor" : "none"}
-        d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"
-      />
-    </StrokeIcon>
-  );
-}
-
 const SEARCH_MAX_LENGTH = 25;
 
 export function SeasonBrowser({
@@ -419,7 +416,7 @@ export function SeasonBrowser({
   searchable = false,
 }: {
   seasons: Season[] | null;
-  emptyMessage: ReactNode;
+  emptyMessage?: ReactNode;
   layout?: "banner" | "dashboard";
   onReturn?: () => void;
   searchable?: boolean;
@@ -524,11 +521,6 @@ export function SeasonBrowser({
     setSelected((prev) => (prev ? { ...prev, hm } : prev));
   }, []);
 
-  const resetToList = useCallback(() => {
-    const depth = (window.history.state as HistoryEntry | null)?.tbDepth ?? 0;
-    if (depth > 0) window.history.go(-depth);
-  }, []);
-
   const closeDetail = useCallback(() => {
     const closing = selected?.season.id;
     flushSync(() => {
@@ -545,10 +537,6 @@ export function SeasonBrowser({
     onReturn?.();
   }, [selected, onReturn]);
 
-  const back = useCallback(() => {
-    window.history.back();
-  }, []);
-
   const { setDetail } = useDetail();
   useEffect(() => {
     setDetail(
@@ -561,7 +549,7 @@ export function SeasonBrowser({
         : null,
     );
     return () => setDetail(null);
-  }, [selected, setDetail, resetToList]);
+  }, [selected, setDetail]);
 
   useLayoutEffect(() => {
     if (!editing) {
@@ -635,7 +623,7 @@ export function SeasonBrowser({
     }
     window.addEventListener("throwback:back", onBack);
     return () => window.removeEventListener("throwback:back", onBack);
-  }, [selected, back, query]);
+  }, [selected, query]);
 
   useEffect(() => {
     if (!seasons) return;
@@ -664,59 +652,52 @@ export function SeasonBrowser({
     return () => window.removeEventListener("throwback:open-season", onOpen);
   }, [seasons, selected, open, setEdition]);
 
-  const cardAction = useCallback(
-    (season: Season): CardAction | null => {
-      const activeEdition = editionActive(dl, season.key, season.hm);
-      if (season.partial) {
-        if (dl.running && activeEdition) {
-          return dl.state === "downloading"
-            ? { kind: "pause", label: "Pause", primary: false }
-            : null;
-        }
-        if (activeEdition && dl.state === "paused") {
-          return { kind: "continue", label: "Continue", primary: false };
-        }
-        if (editionQueued(dl, season.key, season.hm)) {
-          return {
-            kind: "dequeue",
-            label: "Remove from queue",
-            primary: false,
-          };
-        }
-        return { kind: "verify", label: "Verify", primary: false };
-      }
+  function cardAction(season: Season): CardAction | null {
+    const activeEdition = editionActive(dl, season.key, season.hm);
+    if (season.partial) {
       if (dl.running && activeEdition) {
         return dl.state === "downloading"
-          ? { kind: "cancel", label: "Cancel", primary: false }
+          ? { kind: "pause", label: "Pause", primary: false }
           : null;
       }
-      if (
-        editionRunning(lc, season.key, season.hm) ||
-        editionLaunching(lc, season.key, season.hm)
-      ) {
-        return { kind: "stop", label: "Stop", primary: true };
+      if (activeEdition && dl.state === "paused") {
+        return { kind: "continue", label: "Continue", primary: false };
       }
-      if (updateBusy) return null;
-      return {
-        kind: "play",
-        label: "Play",
-        primary: true,
-        disabled: dl.running && dl.activeKey === season.key,
-      };
-    },
-    [dl, lc, updateBusy],
-  );
+      if (editionQueued(dl, season.key, season.hm)) {
+        return {
+          kind: "dequeue",
+          label: "Remove from queue",
+          primary: false,
+        };
+      }
+      return { kind: "verify", label: "Verify", primary: false };
+    }
+    if (dl.running && activeEdition) {
+      return dl.state === "downloading"
+        ? { kind: "cancel", label: "Cancel", primary: false }
+        : null;
+    }
+    if (
+      editionRunning(lc, season.key, season.hm) ||
+      editionLaunching(lc, season.key, season.hm)
+    ) {
+      return { kind: "stop", label: "Stop", primary: true };
+    }
+    return {
+      kind: "play",
+      label: "Play",
+      primary: true,
+      disabled: updateBusy || (dl.running && dl.activeKey === season.key),
+    };
+  }
 
-  const cardTone = useCallback(
-    (season: Season): "transfer" | "muted" | undefined => {
-      const activeEdition = editionActive(dl, season.key, season.hm);
-      if (dl.verifying && activeEdition) return "transfer";
-      if (!season.partial) return undefined;
-      if (dl.running && activeEdition) return "transfer";
-      return "muted";
-    },
-    [dl],
-  );
+  function cardTone(season: Season): "transfer" | "muted" | undefined {
+    const activeEdition = editionActive(dl, season.key, season.hm);
+    if (dl.verifying && activeEdition) return "transfer";
+    if (!season.partial) return undefined;
+    if (dl.running && activeEdition) return "transfer";
+    return "muted";
+  }
 
   const registerCard = useCallback((id: string, el: HTMLElement | null) => {
     if (el) cardRefs.current.set(id, el);
@@ -784,7 +765,6 @@ export function SeasonBrowser({
     dragId,
     draftOrder,
     effectiveOrder,
-    savedOrder,
     settings,
     cardAction,
     dl,
@@ -795,7 +775,6 @@ export function SeasonBrowser({
       dragId,
       draftOrder,
       effectiveOrder,
-      savedOrder,
       settings,
       cardAction,
       dl,
@@ -845,8 +824,8 @@ export function SeasonBrowser({
   }, []);
 
   const persistOrder = useCallback((order: string[]) => {
-    const { savedOrder, settings } = latest.current;
-    const saved = savedOrder ?? [];
+    const { settings } = latest.current;
+    const saved = settings?.home_order ?? [];
     const displayed = new Set(order);
     const queue = [...order];
     const merged = saved.map((id) =>
@@ -913,9 +892,12 @@ export function SeasonBrowser({
     listContent = emptyMessage;
   } else if (visible.length === 0) {
     listContent = (
-      <Note className="max-w-[640px]">
-        No seasons match <span className="font-semibold">{query.trim()}</span>.
-      </Note>
+      <p
+        className={`w-fit max-w-[640px] ${stepBox} text-[0.78rem] leading-[1.45] text-text-muted`}
+      >
+        No results for{" "}
+        <strong className="font-semibold text-text">{query.trim()}</strong>.
+      </p>
     );
   } else if (layout === "dashboard") {
     listContent = (
@@ -945,8 +927,8 @@ export function SeasonBrowser({
             <DashCard
               key={season.id}
               season={season}
-              actionLabel={action ? action.label : null}
-              actionPrimary={action !== null && action.primary}
+              actionLabel={action?.label ?? null}
+              actionPrimary={action?.primary ?? false}
               actionDisabled={action?.disabled ?? false}
               tone={cardTone(season)}
               editing={editing}
@@ -1035,7 +1017,13 @@ export function SeasonBrowser({
                     editing ? "text-action" : "text-text-muted hover:text-text"
                   }`}
                 >
-                  <ArrangeIcon active={editing} />
+                  <StrokeIcon className="size-4">
+                    <path d="M13 21h8" />
+                    <path
+                      fill={editing ? "currentColor" : "none"}
+                      d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"
+                    />
+                  </StrokeIcon>
                 </button>
               </div>,
               topbarSlot,

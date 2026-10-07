@@ -8,7 +8,6 @@ import { Note } from "@/components/Note";
 export function ConfirmModal({
   title,
   confirmLabel,
-  busyLabel,
   busy = false,
   confirmOnEnter = true,
   note,
@@ -18,7 +17,6 @@ export function ConfirmModal({
 }: {
   title: string;
   confirmLabel: string;
-  busyLabel?: string;
   busy?: boolean;
   confirmOnEnter?: boolean;
   note?: ReactNode;
@@ -37,8 +35,8 @@ export function ConfirmModal({
           <Button variant="secondary" disabled={busy} onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="primary" disabled={busy} onClick={onConfirm}>
-            {busy && busyLabel ? busyLabel : confirmLabel}
+          <Button variant="primary" pulse={busy} onClick={onConfirm}>
+            {confirmLabel}
           </Button>
         </>
       }

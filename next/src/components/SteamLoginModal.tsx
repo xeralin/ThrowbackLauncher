@@ -8,24 +8,12 @@ import { StrokeIcon } from "@/components/icons";
 import { inputClasses, link } from "@/components/ui";
 import { useDownloader } from "@/lib/bridge";
 
-function EyeIcon({ open }: { open: boolean }) {
-  return (
-    <StrokeIcon className="size-4">
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-      <circle cx="12" cy="12" r="3" />
-      {!open && <line x1="4" y1="20" x2="20" y2="4" />}
-    </StrokeIcon>
-  );
-}
-
 function PasswordInput({
   value,
-  placeholder,
   autoFocus = false,
   onChange,
 }: {
   value: string;
-  placeholder?: string;
   autoFocus?: boolean;
   onChange: (value: string) => void;
 }) {
@@ -36,7 +24,7 @@ function PasswordInput({
       <input
         type={show ? "text" : "password"}
         value={value}
-        placeholder={placeholder}
+        placeholder="Password"
         autoFocus={autoFocus}
         onChange={(event) => onChange(event.target.value)}
         className={`w-full ${inputClasses} pr-10`}
@@ -47,7 +35,11 @@ function PasswordInput({
         onClick={() => setShow((value) => !value)}
         className="absolute inset-y-0 right-0 flex items-center px-3 text-text-muted transition-colors hover:text-text"
       >
-        <EyeIcon open={show} />
+        <StrokeIcon className="size-4">
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+          <circle cx="12" cy="12" r="3" />
+          {!show && <line x1="4" y1="20" x2="20" y2="4" />}
+        </StrokeIcon>
       </button>
     </div>
   );
@@ -105,7 +97,7 @@ export function SteamLoginModal() {
         <>
           {loginKind === "account" && (
             <Link
-              href="/faq/general#steam-login"
+              href="/faq/getting-started#steam-login"
               className={`mr-auto self-center text-ui ${link}`}
             >
               Why does the Launcher need my Steam login?
@@ -140,11 +132,7 @@ export function SteamLoginModal() {
             onChange={(event) => setLoginAccount(event.target.value)}
             className={`mb-2 w-full ${inputClasses}`}
           />
-          <PasswordInput
-            value={loginText}
-            placeholder="Password"
-            onChange={setLoginText}
-          />
+          <PasswordInput value={loginText} onChange={setLoginText} />
         </>
       ) : isGuard ? (
         <input
@@ -156,12 +144,7 @@ export function SteamLoginModal() {
           className={`w-full ${inputClasses}`}
         />
       ) : (
-        <PasswordInput
-          value={loginText}
-          autoFocus
-          placeholder="Password"
-          onChange={setLoginText}
-        />
+        <PasswordInput value={loginText} autoFocus onChange={setLoginText} />
       )}
     </Modal>
   );

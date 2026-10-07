@@ -72,7 +72,7 @@ export function RvpnCard() {
       >
         select it
       </button>
-      {"."}
+      .
     </Note>
   );
 

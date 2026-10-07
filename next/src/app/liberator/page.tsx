@@ -10,8 +10,14 @@ import {
 import { Button } from "@/components/Button";
 import { InfoHint } from "@/components/InfoHint";
 import { LiberatorMissingModal } from "@/components/LiberatorMissingModal";
-import { CHEVRON_RIGHT, StrokeIcon } from "@/components/icons";
-import { heading, panel } from "@/components/ui";
+import { LiberatorStatus } from "@/components/LiberatorStatus";
+import {
+  CHEVRON_RIGHT,
+  INFO,
+  StrokeIcon,
+  UnlockIcon,
+} from "@/components/icons";
+import { panel } from "@/components/ui";
 import {
   SupportedSeasons,
   type SupportView,
@@ -28,17 +34,13 @@ import {
 
 type SessionMods = Partial<Record<keyof LiberatorCapabilities, boolean>>;
 
-const session = {
-  mods: {} as SessionMods,
-  path: [] as number[],
-};
+let session: { mods: SessionMods; path: number[] } = { mods: {}, path: [] };
 
 let sessionStarted = false;
 const sessionListeners = new Set<() => void>();
 
 function setSession(mods: SessionMods, path: number[]) {
-  session.mods = mods;
-  session.path = path;
+  session = { mods, path };
   for (const listener of sessionListeners) listener();
 }
 
@@ -207,15 +209,10 @@ export default function LiberatorPage() {
   const settings = useSettings();
   const lib = useLiberator();
 
-  const mods = useSyncExternalStore(
+  const { mods, path: columnPath } = useSyncExternalStore(
     subscribeSession,
-    () => session.mods,
-    () => session.mods,
-  );
-  const columnPath = useSyncExternalStore(
-    subscribeSession,
-    () => session.path,
-    () => session.path,
+    () => session,
+    () => session,
   );
   const [lastPicked, setLastPicked] = useState("");
   const [tab, setTab] = useState<TabId>("full");
@@ -298,22 +295,12 @@ export default function LiberatorPage() {
       {
         id: "full",
         label: "Support",
-        icon: (
-          <StrokeIcon
-            d="M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0zM12 16v-4M12 8h.01"
-            className="size-3.5"
-          />
-        ),
+        icon: <StrokeIcon d={INFO} className="size-3.5" />,
       },
       {
         id: "unlock",
         label: "Unlock All",
-        icon: (
-          <StrokeIcon
-            d="M5 10h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2zM7 10V7a5 5 0 0 1 9.33-2.5"
-            className="size-3.5"
-          />
-        ),
+        icon: <UnlockIcon className="size-3.5" />,
       },
     ],
     [controlsEnabled],
@@ -353,18 +340,8 @@ export default function LiberatorPage() {
         active={tab}
         onSelect={setTab}
         trailing={
-          <span className={`flex items-center gap-2.5 ${heading}`}>
-            <span>
-              {!enabled ? (
-                <span className="text-text-muted">Disabled</span>
-              ) : !lib.available ? (
-                <span className="text-text-muted">Liberator is missing</span>
-              ) : lib.attached ? (
-                lib.status
-              ) : (
-                "Waiting for R6S to launch"
-              )}
-            </span>
+          <span className="flex items-center gap-2.5">
+            <LiberatorStatus lib={lib} enabled={enabled} />
             <Switch
               label="Liberator"
               checked={enabled}
@@ -415,7 +392,7 @@ export default function LiberatorPage() {
           </div>
         )}
 
-        {tab === "playlist" && controlsEnabled && lib.tree && (
+        {tab === "playlist" && lib.tree && (
           <div className={`h-full overflow-hidden ${panel}`}>
             <PlaylistColumns
               roots={lib.tree}

@@ -39,7 +39,6 @@ export function UninstallModal({
     <ConfirmModal
       title={`Uninstall ${hm ? "Heated Metal" : season.name}`}
       confirmLabel="Uninstall"
-      busyLabel="Removing"
       confirmOnEnter={false}
       busy={busy}
       onConfirm={confirm}

@@ -1,21 +1,46 @@
 import Image from "next/image";
-import { Note } from "@/components/Note";
 import { keyArtFade } from "@/components/SeasonKeyArt";
 import { BuildChips } from "@/components/SeasonTable";
 import { renderInline } from "@/components/Markdown";
-import { eventsForBuild } from "@/config/liberator-builds";
-import { panel } from "@/components/ui";
+import { panel, stepBox } from "@/components/ui";
 import type {
   SeasonInfoEntry,
   InfoOperator,
   InfoMap,
 } from "@/config/season-info";
 
+const infoTable = "prose overflow-hidden rounded-lg border border-border";
+
+const infoCell =
+  "align-top font-body text-text-muted [&_code]:text-[0.68rem] [&_code]:whitespace-nowrap";
+
+function InfoList({ title, rows }: { title: string; rows: string[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className={infoTable}>
+      <table className="w-full">
+        <thead>
+          <tr>
+            <th>{title}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row}>
+              <td className={infoCell}>{renderInline(row)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function assetSlug(name: string): string {
   return name
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/ø/g, "o")
     .replace(/ /g, "-");
 }
@@ -73,11 +98,10 @@ export function SeasonInfo({
   build: string;
   sizeGb: number;
 }) {
-  const note = entry.note ? (
-    <Note className="max-w-[720px]">{entry.note}</Note>
-  ) : null;
-
+  const events = entry.events ?? [];
   const hasCards = entry.operators.length > 0 || entry.maps.length > 0;
+  const requirements =
+    entry.requirements?.filter((row): row is string => row !== false) ?? [];
 
   const cards = hasCards && (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))] gap-3">
@@ -91,7 +115,7 @@ export function SeasonInfo({
   );
 
   const released = (
-    <div className="prose overflow-hidden rounded-lg border border-border">
+    <div className={infoTable}>
       <table className="info-table w-full">
         <thead>
           <tr>
@@ -113,51 +137,32 @@ export function SeasonInfo({
     </div>
   );
 
-  const events = eventsForBuild(build);
-
-  const rows = Math.max(entry.highlights.length, events.length);
-
-  const highlights = rows > 0 && (
-    <div className="prose overflow-hidden rounded-lg border border-border">
-      <table className="w-full">
-        <thead>
-          <tr>
-            <th>Highlights</th>
-            {events.length > 0 && (
-              <th className="w-px whitespace-nowrap">Events</th>
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {Array.from({ length: rows }, (_, index) => (
-            <tr key={index}>
-              <td className="align-top font-body text-text-muted [&_code]:text-[0.68rem]">
-                {entry.highlights[index]
-                  ? renderInline(entry.highlights[index])
-                  : null}
-              </td>
-              {events.length > 0 && (
-                <td className="w-px whitespace-nowrap align-top">
-                  {events[index] ?? null}
-                </td>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-
   return (
     <div className="grid items-start gap-4 content:grid-cols-[minmax(0,1fr)_260px]">
-      <div className="flex min-w-0 flex-col gap-3 self-stretch">
-        {cards}
-        {entry.setup}
-        {note}
-      </div>
+      <div className="flex min-w-0 flex-col gap-3 self-stretch">{cards}</div>
       <div className="flex flex-col gap-3">
         {released}
-        {highlights}
+        <InfoList title="Highlights" rows={entry.highlights} />
+        {events.length > 0 && (
+          <div className={`flex self-end divide-x divide-border ${panel}`}>
+            {events.map((name) => (
+              <span
+                key={name}
+                className="whitespace-nowrap px-[0.6rem] py-[0.3rem] font-display text-[0.85rem] font-bold leading-tight text-text"
+              >
+                {name}
+              </span>
+            ))}
+          </div>
+        )}
+        {entry.slowClose && (
+          <p
+            className={`${stepBox} text-[0.78rem] leading-[1.45] text-text-muted`}
+          >
+            Closing this season from the in-game menu can take up to 10 seconds.
+          </p>
+        )}
+        <InfoList title="Requirements" rows={requirements} />
       </div>
     </div>
   );

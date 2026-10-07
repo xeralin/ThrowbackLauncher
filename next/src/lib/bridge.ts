@@ -44,12 +44,8 @@ type LibraryObject = {
   home(callback: (seasons: Season[]) => void): void;
 };
 
-type InfoSnapshot = {
-  warning: string | null;
-};
-
 type InfoObject = {
-  snapshot(callback: (info: InfoSnapshot) => void): void;
+  warning: string;
   open_library(path: string): void;
   open_season(key: string, hm: boolean): void;
   copy_crash_log(key: string, callback: (error: string) => void): void;
@@ -60,7 +56,6 @@ type InfoObject = {
 type InstallInfo = {
   installed: boolean;
   partial: boolean;
-  library: string;
   built: number;
   crashLog: boolean;
 };
@@ -68,6 +63,7 @@ type InstallInfo = {
 export type SeasonInstalls = {
   tb: InstallInfo;
   hm: InstallInfo;
+  prefix: boolean;
 };
 
 type LaunchObject = {
@@ -82,7 +78,7 @@ type LaunchObject = {
   launch(key: string, hm: boolean): void;
   stop(key: string): void;
   running(callback: (refs: EditionRef[]) => void): void;
-  launching(callback: (ref: Partial<EditionRef>) => void): void;
+  launching(callback: (ref: EditionRef | null) => void): void;
 };
 
 export type ShearsKind = "videos" | "events" | "textures";
@@ -159,13 +155,12 @@ type UninstallObject = {
   run(key: string, hm: boolean): void;
 };
 
-export type LibraryEntry = {
+type LibraryEntry = {
   path: string;
   display: string;
   default: boolean;
   fixed: boolean;
   exists: boolean;
-  seasons: number;
 };
 
 export type ProtonOption = { internal: string; display: string };
@@ -214,12 +209,12 @@ export type SettingsObject = {
   set_bar_stripe(value: string): void;
   set_bar_nyan(value: boolean): void;
   set_accent(value: string): void;
-  reset_accent(): void;
   add_library(): void;
   remove_library(path: string): void;
   set_default_library(path: string): void;
   logout(): void;
   clear_cache(): void;
+  remove_prefix(key: string): void;
   username_changed: QtSignal;
   steam_account_changed: QtSignal;
   max_downloads_changed: QtSignal;
@@ -241,6 +236,7 @@ export type SettingsObject = {
   settings_error: QtSignal;
   logged_out: QtSignal;
   cache_cleared: QtSignal;
+  prefix_removed: QtSignal;
   libraries_changed: QtSignal;
 };
 
@@ -275,7 +271,6 @@ export function determinatePercent(
 }
 
 type DownloaderObject = {
-  start(key: string, enableHm: boolean, library: string): void;
   enqueue(key: string, enableHm: boolean, library: string): void;
   dequeue(key: string, hm: boolean): void;
   reorder_queue(refs: EditionRef[]): void;
@@ -284,6 +279,8 @@ type DownloaderObject = {
   delete_partial(key: string, hm: boolean): void;
   switch_to_hm(key: string): void;
   hm_archive_cached(callback: (cached: boolean) => void): void;
+  pick_hm_archive(): void;
+  restore_hm(key: string): void;
   remove_hm(key: string): void;
   import_hm(key: string): void;
   cancel(): void;
@@ -310,10 +307,10 @@ export type LiberatorCapabilities = {
   fullFeature: boolean;
 };
 
-type LiberatorState = {
+export type LiberatorState = {
   attached: boolean;
   applied: boolean;
-  status: string;
+  unsupported: boolean;
   available: boolean;
   capabilities: Partial<LiberatorCapabilities>;
 };
@@ -359,7 +356,7 @@ type UpdateObject = {
   snapshot(callback: (snapshot: UpdateSnapshot) => void): void;
   take_startup_outcome(): void;
   installed(callback: (components: InstalledComponent[]) => void): void;
-  check(force?: boolean): void;
+  check(force: boolean): void;
   apply(name: string): void;
 };
 
@@ -380,21 +377,18 @@ type RvpnObject = {
   uninstall(): void;
 };
 
-export type CheatEngineSeason = {
-  key: string;
-  label: string;
-  hasCe: boolean;
+export type CheatEngineStatus = {
+  enabled: boolean;
   present: boolean;
+  busy: boolean;
 };
-
-type CheatEngineResult = { ok: boolean; message: string };
 
 type CheatEngineObject = {
   pick_installer(callback: (path: string) => void): void;
-  seasons(callback: (seasons: CheatEngineSeason[]) => void): void;
+  status(key: string, callback: (status: CheatEngineStatus) => void): void;
   install(key: string): void;
-  add(key: string, callback: (result: CheatEngineResult) => void): void;
-  remove(key: string, callback: (result: CheatEngineResult) => void): void;
+  add(key: string, callback: (error: string) => void): void;
+  remove(key: string, callback: (error: string) => void): void;
 };
 
 type Bridge = {
@@ -492,8 +486,7 @@ function subscribeHome(listener: () => void): () => void {
       bridge.settings.libraries_changed.connect(refreshHome),
     );
     onBridgeEvent("downloader", (event) => {
-      if (event === "state" || event === "done" || event === "partial_deleted")
-        refreshHome();
+      if (event === "state" || event === "partial_deleted") refreshHome();
     });
     onBridgeEvent("uninstall", refreshHome);
   }
@@ -510,22 +503,6 @@ export function useHomeSeasons(): [Season[] | null, () => void] {
   return [seasons, refreshHome];
 }
 
-export function useInfo(): InfoSnapshot | null {
-  const [info, setInfo] = useState<InfoSnapshot | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    onBridgeReady((bridge) =>
-      bridge.info.snapshot((snapshot) => {
-        if (!cancelled) setInfo(snapshot);
-      }),
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return info;
-}
-
 export function useDiskUsage(): number | null {
   const [gb, setGb] = useState<number | null>(null);
   useEffect(() => {
@@ -535,11 +512,10 @@ export function useDiskUsage(): number | null {
       onBridgeReady((bridge) => bridge.info.refresh_disk_usage());
     onBridgeReady((bridge) => {
       if (cancelled) return;
-      const onDiskUsage = (value: number) => setGb(value);
-      bridge.info.disk_usage_changed.connect(onDiskUsage);
+      bridge.info.disk_usage_changed.connect(setGb);
       bridge.settings.libraries_changed.connect(refresh);
       disconnect = () => {
-        bridge.info.disk_usage_changed.disconnect(onDiskUsage);
+        bridge.info.disk_usage_changed.disconnect(setGb);
         bridge.settings.libraries_changed.disconnect(refresh);
       };
       bridge.info.refresh_disk_usage();
@@ -547,7 +523,7 @@ export function useDiskUsage(): number | null {
     const offDownloader = onBridgeEvent("downloader", (event) => {
       if (event === "done" || event === "partial_deleted") refresh();
     });
-    const offUninstall = onBridgeEvent("uninstall", () => refresh());
+    const offUninstall = onBridgeEvent("uninstall", refresh);
     return () => {
       cancelled = true;
       disconnect?.();
@@ -624,12 +600,12 @@ export function useLibraries(): [LibraryEntry[] | null, () => void] {
   return [libraries, refresh];
 }
 
-function useBridgeHandle<K extends keyof Bridge & string>(
+function useBridgeHandle<K extends keyof Bridge>(
   name: K,
   hooks: {
     init?: (obj: Bridge[K], alive: () => boolean) => void;
-    onEvent?: (event: string, args: unknown[], alive: () => boolean) => void;
-  } = {},
+    onEvent: (event: string, args: unknown[], alive: () => boolean) => void;
+  },
 ): [RefObject<Bridge[K] | null>, boolean] {
   const [ready, setReady] = useState(false);
   const objRef = useRef<Bridge[K] | null>(null);
@@ -651,7 +627,7 @@ function useBridgeHandle<K extends keyof Bridge & string>(
     });
 
     const offEvent = onBridgeEvent(name, (event, args) => {
-      hooksRef.current.onEvent?.(event, args, alive);
+      hooksRef.current.onEvent(event, args, alive);
     });
     return () => {
       mounted = false;
@@ -667,18 +643,12 @@ type DownloaderEvents = {
   onLogHistory?: (key: string, history: string) => void;
   onLogin?: (kind: string) => void;
   onDiskSpace?: (shortfall: number) => void;
-  onDone?: (key: string, outcome: string) => void;
-  onPartialDeleted?: (
-    key: string,
-    hm: boolean,
-    ok: boolean,
-    message: string,
-  ) => void;
+  onDone?: (key: string) => void;
+  onPartialDeleted?: (key: string) => void;
 };
 
 type DownloaderActions = {
   ready: boolean;
-  start: (key: string, enableHm: boolean, library: string) => void;
   enqueue: (key: string, enableHm: boolean, library: string) => void;
   dequeue: (key: string, hm: boolean) => void;
   reorderQueue: (refs: EditionRef[]) => void;
@@ -687,6 +657,8 @@ type DownloaderActions = {
   deletePartial: (key: string, hm: boolean) => void;
   switchToHm: (key: string) => void;
   hmArchiveCached: (callback: (cached: boolean) => void) => void;
+  pickHmArchive: () => void;
+  restoreHm: (key: string) => void;
   removeHm: (key: string) => void;
   importHm: (key: string) => void;
   cancel: () => void;
@@ -773,15 +745,10 @@ export function useDownloader(events?: DownloaderEvents): Downloader {
           events?.onDiskSpace?.(args[0] as number);
           break;
         case "done":
-          events?.onDone?.(args[0] as string, args[1] as string);
+          events?.onDone?.(value as string);
           break;
         case "partial_deleted":
-          events?.onPartialDeleted?.(
-            args[0] as string,
-            args[1] as boolean,
-            args[2] as boolean,
-            args[3] as string,
-          );
+          events?.onPartialDeleted?.(value as string);
           break;
       }
     },
@@ -789,8 +756,6 @@ export function useDownloader(events?: DownloaderEvents): Downloader {
 
   const actions = useMemo<Omit<DownloaderActions, "ready">>(
     () => ({
-      start: (key, enableHm, library) =>
-        objRef.current?.start(key, enableHm, library),
       enqueue: (key, enableHm, library) =>
         objRef.current?.enqueue(key, enableHm, library),
       dequeue: (key, hm) => objRef.current?.dequeue(key, hm),
@@ -801,6 +766,8 @@ export function useDownloader(events?: DownloaderEvents): Downloader {
       switchToHm: (key) => objRef.current?.switch_to_hm(key),
       hmArchiveCached: (callback) =>
         objRef.current?.hm_archive_cached(callback),
+      pickHmArchive: () => objRef.current?.pick_hm_archive(),
+      restoreHm: (key) => objRef.current?.restore_hm(key),
       removeHm: (key) => objRef.current?.remove_hm(key),
       importHm: (key) => objRef.current?.import_hm(key),
       cancel: () => objRef.current?.cancel(),
@@ -827,7 +794,7 @@ export function useDownloader(events?: DownloaderEvents): Downloader {
 const LIBERATOR_DEFAULT: LiberatorState = {
   attached: false,
   applied: false,
-  status: "",
+  unsupported: false,
   available: true,
   capabilities: {},
 };
@@ -898,12 +865,6 @@ type Launch = {
   stop: (key: string) => void;
 };
 
-function launchingRef(value: Partial<EditionRef>): EditionRef | null {
-  return typeof value.key === "string"
-    ? { key: value.key, hm: !!value.hm }
-    : null;
-}
-
 export function useLaunch(): Launch {
   const [running, setRunning] = useState<EditionRef[]>([]);
   const [launching, setLaunching] = useState<EditionRef | null>(null);
@@ -913,31 +874,25 @@ export function useLaunch(): Launch {
         if (alive()) setRunning(refs);
       });
       obj.launching((ref) => {
-        if (alive()) setLaunching(launchingRef(ref));
+        if (alive()) setLaunching(ref);
       });
     },
     onEvent: (event, args) => {
       if (event === "running") setRunning(args[0] as EditionRef[]);
       else if (event === "launching")
-        setLaunching(launchingRef(args[0] as Partial<EditionRef>));
+        setLaunching(args[0] as EditionRef | null);
     },
   });
 
-  const actions = useMemo(
+  const actions = useMemo<Omit<Launch, "ready" | "running" | "launching">>(
     () => ({
-      installs: ((key, callback) =>
-        objRef.current?.installs(key, callback)) as Launch["installs"],
-      gameArgs: ((key, hm, callback) =>
-        objRef.current?.game_args(key, hm, callback)) as Launch["gameArgs"],
-      setGameArgs: ((key, hm, value, callback) =>
-        objRef.current?.set_game_args(
-          key,
-          hm,
-          value,
-          callback,
-        )) as Launch["setGameArgs"],
-      launch: (key: string, hm: boolean) => objRef.current?.launch(key, hm),
-      stop: (key: string) => objRef.current?.stop(key),
+      installs: (key, callback) => objRef.current?.installs(key, callback),
+      gameArgs: (key, hm, callback) =>
+        objRef.current?.game_args(key, hm, callback),
+      setGameArgs: (key, hm, value, callback) =>
+        objRef.current?.set_game_args(key, hm, value, callback),
+      launch: (key, hm) => objRef.current?.launch(key, hm),
+      stop: (key) => objRef.current?.stop(key),
     }),
     [objRef],
   );
@@ -960,11 +915,8 @@ export function editionQueued(
   dl: DownloaderState,
   key: string,
   hm: boolean,
-  { verify = false } = {},
 ): boolean {
-  return dl.queue.some(
-    (entry) => entry.key === key && entry.hm === hm && entry.verify === verify,
-  );
+  return dl.queue.some((entry) => entry.key === key && entry.hm === hm);
 }
 
 export function editionRunning(lc: Launch, key: string, hm: boolean): boolean {
@@ -977,14 +929,6 @@ export function editionLaunching(
   hm: boolean,
 ): boolean {
   return lc.launching?.key === key && lc.launching.hm === hm;
-}
-
-export function seasonRunning(lc: Launch, key: string): boolean {
-  return lc.running.some((ref) => ref.key === key);
-}
-
-export function seasonLaunching(lc: Launch, key: string): boolean {
-  return lc.launching?.key === key;
 }
 
 type Shears = {
@@ -1064,7 +1008,7 @@ export function useUninstall(events?: UninstallEvents): Uninstall {
 
 type Update = UpdateSnapshot & {
   ready: boolean;
-  check: (force?: boolean) => void;
+  check: (force: boolean) => void;
   apply: (name: string) => void;
   installed: (callback: (components: InstalledComponent[]) => void) => void;
 };
@@ -1103,7 +1047,7 @@ export function useUpdate(): Update {
 
   const actions = useMemo(
     () => ({
-      check: (force = false) => objRef.current?.check(force),
+      check: (force: boolean) => objRef.current?.check(force),
       apply: (name: string) => objRef.current?.apply(name),
       installed: (callback: (components: InstalledComponent[]) => void) =>
         objRef.current?.installed(callback),
@@ -1124,7 +1068,7 @@ export function useUpdateBusy(): boolean {
       obj.snapshot((snapshot) => {
         if (alive()) setBusy(snapshot.busy);
       }),
-    onEvent: (event, args, alive) => {
+    onEvent: (event, _args, alive) => {
       if (event === "changed")
         objRef.current?.snapshot((snapshot) => {
           if (alive()) setBusy(snapshot.busy);
@@ -1154,14 +1098,13 @@ export function useRvpn(): Rvpn {
   const [snap, setSnap] = useState<RvpnSnapshot>(RVPN_DEFAULT);
   const [hydrated, setHydrated] = useState(false);
   const gotEvent = useRef(false);
-  const [objRef, ready] = useBridgeHandle("rvpn", {
+  const [objRef] = useBridgeHandle("rvpn", {
     init: (obj, alive) => {
       obj?.snapshot((snapshot) => {
         if (!alive()) return;
         if (!gotEvent.current) setSnap(snapshot);
         setHydrated(true);
       });
-      obj?.take_startup_error();
     },
     onEvent: (event, args) => {
       if (event === "state") {
@@ -1174,32 +1117,31 @@ export function useRvpn(): Rvpn {
   return useMemo(
     () => ({
       ...snap,
-      ready: ready && hydrated,
+      ready: hydrated,
       selectInstaller: () => objRef.current?.select_installer(),
       run: () => objRef.current?.run(),
       stop: () => objRef.current?.stop(),
       uninstall: () => objRef.current?.uninstall(),
     }),
-    [snap, ready, hydrated, objRef],
+    [snap, hydrated, objRef],
   );
 }
 
-type CheatEngineEvents = { onDone?: (ok: boolean, message: string) => void };
+type CheatEngineEvents = { onDone?: () => void };
 
 type CheatEngine = {
   ready: boolean;
   pickInstaller: (callback: (path: string) => void) => void;
-  seasons: (callback: (seasons: CheatEngineSeason[]) => void) => void;
+  status: (key: string, callback: (status: CheatEngineStatus) => void) => void;
   install: (key: string) => void;
-  add: (key: string, callback: (result: CheatEngineResult) => void) => void;
-  remove: (key: string, callback: (result: CheatEngineResult) => void) => void;
+  add: (key: string, callback: (error: string) => void) => void;
+  remove: (key: string, callback: (error: string) => void) => void;
 };
 
 export function useCheatEngine(events?: CheatEngineEvents): CheatEngine {
   const [objRef, ready] = useBridgeHandle("cheatengine", {
-    onEvent: (event, args) => {
-      if (event === "done")
-        events?.onDone?.(args[0] as boolean, args[1] as string);
+    onEvent: (event) => {
+      if (event === "done") events?.onDone?.();
     },
   });
 
@@ -1207,7 +1149,7 @@ export function useCheatEngine(events?: CheatEngineEvents): CheatEngine {
     () => ({
       ready,
       pickInstaller: (callback) => objRef.current?.pick_installer(callback),
-      seasons: (callback) => objRef.current?.seasons(callback),
+      status: (key, callback) => objRef.current?.status(key, callback),
       install: (key) => objRef.current?.install(key),
       add: (key, callback) => objRef.current?.add(key, callback),
       remove: (key, callback) => objRef.current?.remove(key, callback),

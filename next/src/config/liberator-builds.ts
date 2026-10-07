@@ -103,11 +103,6 @@ export const UNLOCK_ALL_SEASONS: SeasonRow[] = [
   { season: "Y10S2", operation: "Daybreak", build: "91107972" },
 ];
 
-export function eventsForBuild(build: string): string[] {
-  const row = FULL_SUPPORT_EVENTS.find((entry) => entry.build === build);
-  return row?.event ? row.event.split(" / ") : [];
-}
-
 export function yearPairs(rows: SeasonRow[]): SeasonRow[][] {
   const groups = new Map<number, SeasonRow[]>();
   for (const row of rows) {

@@ -142,6 +142,6 @@ export function parseReleaseNotes(
     .use(repository ? [[resolveUrls, repository]] : [])
     .use(() => linkImages);
   const text = body.slice(0, 16_000);
-  const notes = limitNotes(processor.runSync(processor.parse(text)) as Root);
+  const notes = limitNotes(processor.runSync(processor.parse(text)));
   return text.length < body.length ? { ...notes, truncated: true } : notes;
 }

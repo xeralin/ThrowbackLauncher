@@ -1,49 +1,27 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { buttonVariants } from "@/components/Button";
 import { CHEVRON_DOWN, StrokeIcon } from "@/components/icons";
-
-let openMenus = 0;
-
-export function hasOpenRendererMenu(): boolean {
-  return openMenus > 0;
-}
+import { usePopoverDismiss } from "@/lib/popover";
 
 export function RendererMenu({
   options,
   active,
-  disabled = false,
+  disabled,
   onSelect,
   children,
 }: {
   options: { arg: string; label: string }[];
   active: string;
-  disabled?: boolean;
+  disabled: boolean;
   onSelect: (arg: string) => void;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    openMenus += 1;
-    function onDown(event: MouseEvent) {
-      if (ref.current && !ref.current.contains(event.target as Node))
-        setOpen(false);
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      openMenus -= 1;
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  usePopoverDismiss(open, setOpen, ref);
 
   return (
     <span ref={ref} className="relative inline-flex items-center gap-1">

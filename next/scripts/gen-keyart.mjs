@@ -7,7 +7,6 @@ import WIDTHS from "../src/config/keyart-widths.json" with { type: "json" };
 const SRC = "assets/keyart";
 const OUT = "public/keyart";
 const FULL = WIDTHS[WIDTHS.length - 1];
-const QUALITY = 90;
 
 const outDir = (width) => (width === FULL ? OUT : join(OUT, String(width)));
 
@@ -28,19 +27,16 @@ const files = (await readdir(SRC)).filter((f) =>
 );
 
 const names = new Set(files.map((file) => parse(file).name));
-let removed = 0;
 await Promise.all(
   WIDTHS.map(async (width) => {
     for (const entry of await readdir(outDir(width), { withFileTypes: true })) {
       if (!entry.isFile() || !entry.name.endsWith(".webp")) continue;
       if (names.has(parse(entry.name).name)) continue;
       await rm(join(outDir(width), entry.name));
-      removed += 1;
     }
   }),
 );
 
-let written = 0;
 await Promise.all(
   files.map(async (file) => {
     const src = join(SRC, file);
@@ -60,18 +56,14 @@ await Promise.all(
     ).filter(Boolean);
     if (stale.length === 0) return;
     const image = sharp(src);
-    const meta = await image.metadata();
     await Promise.all(
-      stale.map(async ({ width, out }) => {
-        const variant = image.clone();
-        if (meta.width && meta.width > width) variant.resize({ width });
-        await variant.webp({ quality: QUALITY, effort: 6 }).toFile(out);
-        written += 1;
-      }),
+      stale.map(({ width, out }) =>
+        image
+          .clone()
+          .resize({ width, withoutEnlargement: true })
+          .webp({ quality: 90, effort: 6 })
+          .toFile(out),
+      ),
     );
   }),
-);
-
-console.log(
-  `keyart: ${written} generated, ${files.length * WIDTHS.length - written} cached, ${removed} removed`,
 );

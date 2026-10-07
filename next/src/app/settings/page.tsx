@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button, iconButton } from "@/components/Button";
-import { ConfirmModal } from "@/components/ConfirmModal";
 import { Modal } from "@/components/Modal";
 import { Note } from "@/components/Note";
 import { ListRow, PickerRow, card, heading } from "@/components/ui";
@@ -35,15 +34,14 @@ import {
   useLibraries,
   usePlatform,
   useSettings,
-  type LibraryEntry,
   type ProtonOption,
 } from "@/lib/bridge";
 
-type TabId = "downloads" | "extra";
+type TabId = "general" | "appearance";
 
 const TABS: TabItem<TabId>[] = [
-  { id: "downloads", label: "Downloads" },
-  { id: "extra", label: "Extra" },
+  { id: "general", label: "General" },
+  { id: "appearance", label: "Appearance" },
 ];
 
 export default function SettingsPage() {
@@ -51,12 +49,11 @@ export default function SettingsPage() {
   const diskUsageGb = useDiskUsage();
   const [libraries] = useLibraries();
   const downloading = useDownloader().running;
-  const [removeTarget, setRemoveTarget] = useState<LibraryEntry | null>(null);
   const [usernameSaved, setUsernameSaved] = useState(0);
   const [usernameRevert, setUsernameRevert] = useState(0);
   const [protons, setProtons] = useState<ProtonOption[] | null>(null);
   const [protonOpen, setProtonOpen] = useState(false);
-  const [tab, setTab] = useState<TabId>("downloads");
+  const [tab, setTab] = useState<TabId>("general");
   const platform = usePlatform();
 
   useEffect(() => {
@@ -88,7 +85,7 @@ export default function SettingsPage() {
           aria-labelledby={`tab-${tab}`}
           className="mt-4"
         >
-          {tab === "downloads" && (
+          {tab === "general" && (
             <div className="grid max-w-[1160px] grid-cols-2 gap-4 max-settings:grid-cols-1">
               <div className="flex flex-col gap-4">
                 <div className={card}>
@@ -96,7 +93,6 @@ export default function SettingsPage() {
                     <div className="relative w-[230px] min-w-0">
                       <TextSetting
                         value={settings.username}
-                        className="w-full pr-8"
                         maxLength={settings.username_rules.maxLength}
                         sanitize={(draft) =>
                           draft.replace(
@@ -148,6 +144,18 @@ export default function SettingsPage() {
                       onChange={(value) => settings.set_discord_rpc(value)}
                     />
                   </Row>
+                  {settings.tray_available && (
+                    <Row
+                      label="Close to tray"
+                      hint="Keep the Launcher running in the tray when the window is closed."
+                    >
+                      <Switch
+                        label="Close to tray"
+                        checked={settings.close_to_tray}
+                        onChange={(value) => settings.set_close_to_tray(value)}
+                      />
+                    </Row>
+                  )}
                 </div>
                 {platform === "linux" && <RvpnCard />}
               </div>
@@ -254,9 +262,7 @@ export default function SettingsPage() {
                               type="button"
                               aria-label={`Remove ${library.display}`}
                               onClick={() =>
-                                library.seasons > 0
-                                  ? setRemoveTarget(library)
-                                  : settings.remove_library(library.path)
+                                settings.remove_library(library.path)
                               }
                               className={iconButton}
                             >
@@ -272,11 +278,11 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {tab === "extra" && (
+          {tab === "appearance" && (
             <div className="grid max-w-[1160px] grid-cols-2 items-start gap-4 max-settings:grid-cols-1">
               <div className="flex flex-col gap-4">
                 <div className={card}>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-[1fr_auto] gap-4">
                     <span className={`flex h-8 items-center ${heading}`}>
                       Progress bar
                     </span>
@@ -319,18 +325,6 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <div className={card}>
-                  {settings.tray_available && (
-                    <Row
-                      label="Close to tray"
-                      hint="Keep the Launcher running in the tray when the window is closed."
-                    >
-                      <Switch
-                        label="Close to tray"
-                        checked={settings.close_to_tray}
-                        onChange={(value) => settings.set_close_to_tray(value)}
-                      />
-                    </Row>
-                  )}
                   <Row label="Reduce motion">
                     <Switch
                       label="Reduce motion"
@@ -338,36 +332,6 @@ export default function SettingsPage() {
                       onChange={(value) => settings.set_reduce_motion(value)}
                     />
                   </Row>
-                </div>
-              </div>
-              <div className="flex flex-col gap-4">
-                <div className={card}>
-                  <div className="grid grid-cols-2 gap-4">
-                    <span className={`flex h-8 items-center ${heading}`}>
-                      Accent
-                    </span>
-                    <span className="row-span-2 min-w-0">
-                      <AccentPicker
-                        value={settings.accent || DEFAULT_ACCENT}
-                        onCommit={(hex) => settings.set_accent(hex)}
-                      />
-                    </span>
-                    <span className="flex h-8 items-center gap-2">
-                      <HexSetting
-                        label="Accent hex code"
-                        value={settings.accent || DEFAULT_ACCENT}
-                        onCommit={(hex) => settings.set_accent(hex)}
-                      />
-                      <Button
-                        variant="secondary"
-                        onClick={() => settings.reset_accent()}
-                      >
-                        Reset
-                      </Button>
-                    </span>
-                  </div>
-                </div>
-                <div className={card}>
                   <Row label="Scale">
                     <LevelStepper
                       label="Scale"
@@ -379,26 +343,37 @@ export default function SettingsPage() {
                   </Row>
                 </div>
               </div>
+              <div className="flex flex-col gap-4">
+                <div className={card}>
+                  <div className="grid grid-cols-[auto_1fr] gap-4">
+                    <span className={`flex h-8 items-center ${heading}`}>
+                      Accent
+                    </span>
+                    <span className="row-span-2 min-w-0">
+                      <AccentPicker
+                        value={settings.accent}
+                        onCommit={(hex) => settings.set_accent(hex)}
+                      />
+                    </span>
+                    <span className="flex h-8 items-center gap-2">
+                      <HexSetting
+                        label="Accent hex code"
+                        value={settings.accent}
+                        onCommit={(hex) => settings.set_accent(hex)}
+                      />
+                      <Button
+                        variant="secondary"
+                        onClick={() => settings.set_accent(DEFAULT_ACCENT)}
+                      >
+                        Reset
+                      </Button>
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>
-      )}
-
-      {removeTarget && (
-        <ConfirmModal
-          title="Remove library"
-          confirmLabel="Remove"
-          note="No files will be deleted."
-          onConfirm={() => {
-            settings?.remove_library(removeTarget.path);
-            setRemoveTarget(null);
-          }}
-          onCancel={() => setRemoveTarget(null)}
-        >
-          <p className="text-body text-text-muted">
-            Seasons in this library will no longer appear.
-          </p>
-        </ConfirmModal>
       )}
 
       {protonOpen && settings && protons && (

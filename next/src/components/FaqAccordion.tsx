@@ -1,26 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { StrokeIcon, CHEVRON_DOWN } from "@/components/icons";
-import type { ReactNode } from "react";
+import type { ThrowbackOS } from "@/lib/bridge";
 import { usePlatformView } from "@/lib/platform-view";
 
 export type FaqItem = {
   id: string;
   q: ReactNode;
   a: ReactNode;
-  platform?: "windows" | "linux";
+  platform?: ThrowbackOS;
 };
 
 function Item({ item }: { item: FaqItem }) {
   const [open, setOpen] = useState(false);
   const [pulse, setPulse] = useState(false);
   const answerId = `faq-${item.id}-answer`;
-  const anchor = item.id;
 
   useEffect(() => {
     function openFromHash() {
-      if (window.location.hash.slice(1) !== anchor) return;
+      if (window.location.hash.slice(1) !== item.id) return;
       window.history.replaceState(
         window.history.state,
         "",
@@ -29,17 +28,17 @@ function Item({ item }: { item: FaqItem }) {
       setOpen(true);
       setPulse(true);
       requestAnimationFrame(() =>
-        document.getElementById(anchor)?.scrollIntoView({ block: "start" }),
+        document.getElementById(item.id)?.scrollIntoView({ block: "start" }),
       );
     }
     openFromHash();
     window.addEventListener("hashchange", openFromHash);
     return () => window.removeEventListener("hashchange", openFromHash);
-  }, [anchor]);
+  }, [item.id]);
 
   return (
     <div
-      id={anchor}
+      id={item.id}
       data-reveal
       onAnimationEnd={(event) => {
         if (event.animationName === "hashPulse") setPulse(false);

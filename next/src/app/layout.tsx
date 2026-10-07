@@ -10,24 +10,18 @@ const display = Rajdhani({
   variable: "--font-rajdhani",
   subsets: ["latin"],
   weight: ["600", "700"],
-  display: "swap",
-  adjustFontFallback: false,
 });
 
 const mono = Share_Tech_Mono({
   variable: "--font-share-tech-mono",
   subsets: ["latin"],
   weight: ["400"],
-  display: "swap",
-  adjustFontFallback: false,
 });
 
 const body = Barlow({
   variable: "--font-barlow",
   subsets: ["latin"],
   weight: ["400", "500", "600"],
-  display: "swap",
-  adjustFontFallback: false,
 });
 
 export const metadata: Metadata = {

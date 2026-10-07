@@ -8,7 +8,7 @@ export const OPENABLE = /^https?:\/\//i;
 const plain = unified().use(remarkParse).use(remarkRehype).freeze();
 
 export function parseInline(text: string): ElementContent[] {
-  const root = plain.runSync(plain.parse(text)) as Root;
+  const root = plain.runSync(plain.parse(text));
   const first = root.children.find((node) => node.type === "element");
   return first?.tagName === "p" ? first.children : [];
 }

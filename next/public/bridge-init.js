@@ -8,15 +8,10 @@
       setTimeout(init, tries < 200 ? 50 : 1000);
       return;
     }
-    const script = document.createElement("script");
-    script.src = "/qwebchannel.js";
-    script.onload = () => {
-      new QWebChannel(window.qt.webChannelTransport, (channel) => {
-        window.throwback = channel.objects;
-        window.dispatchEvent(new Event("throwback:ready"));
-      });
-    };
-    document.head.appendChild(script);
+    new QWebChannel(window.qt.webChannelTransport, (channel) => {
+      window.throwback = channel.objects;
+      window.dispatchEvent(new Event("throwback:ready"));
+    });
   };
 
   init();

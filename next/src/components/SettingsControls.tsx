@@ -86,7 +86,6 @@ export function ColorBar({
     const step = rovingStep(event, true);
     if (!step) return;
     const index = colors.indexOf(selected);
-    if (index === -1) return;
     event.preventDefault();
     const next = colors[(index + step + colors.length) % colors.length];
     onSelect(next);
@@ -147,7 +146,10 @@ export function AccentPicker({
   const [mine, setMine] = useState(value);
   if (seen !== value) {
     setSeen(value);
-    if (value !== mine) setDraft(accentParts(value));
+    if (value !== mine) {
+      setMine(value);
+      setDraft(accentParts(value));
+    }
   }
 
   const preview = (next: { hue: number; level: number }) => {
@@ -156,7 +158,10 @@ export function AccentPicker({
   };
   const commit = () => {
     const current = accentParts(value);
-    if (draft.hue === current.hue && draft.level === current.level) return;
+    if (draft.hue === current.hue && draft.level === current.level) {
+      applyAccent(value);
+      return;
+    }
     const hex = accentHex(draft.hue, draft.level);
     setMine(hex);
     onCommit(hex);
@@ -245,7 +250,7 @@ export function LevelStepper({
         onClick={(event) => step(-1, event.detail === 0)}
         className={stepperButton}
       >
-        <StepIcon right={false} />
+        <StrokeIcon d={CHEVRON_LEFT} />
       </button>
       <span className="w-[5ch] text-center font-mono text-ui text-text">
         {value}
@@ -255,18 +260,14 @@ export function LevelStepper({
         ref={increase}
         type="button"
         aria-label={`Increase ${label}`}
-        disabled={index < 0 || index >= levels.length - 1}
+        disabled={index >= levels.length - 1}
         onClick={(event) => step(1, event.detail === 0)}
         className={stepperButton}
       >
-        <StepIcon right={true} />
+        <StrokeIcon d={CHEVRON_RIGHT} />
       </button>
     </div>
   );
-}
-
-function StepIcon({ right }: { right: boolean }) {
-  return <StrokeIcon d={right ? CHEVRON_RIGHT : CHEVRON_LEFT} />;
 }
 
 export function Stepper({
@@ -321,7 +322,7 @@ export function Stepper({
         onClick={(event) => step(-1, event.detail === 0)}
         className={stepperButton}
       >
-        <StepIcon right={false} />
+        <StrokeIcon d={CHEVRON_LEFT} />
       </button>
       <input
         ref={inputRef}
@@ -349,7 +350,7 @@ export function Stepper({
         onClick={(event) => step(1, event.detail === 0)}
         className={stepperButton}
       >
-        <StepIcon right={true} />
+        <StrokeIcon d={CHEVRON_RIGHT} />
       </button>
     </div>
   );
@@ -358,14 +359,12 @@ export function Stepper({
 export function TextSetting({
   value,
   onCommit,
-  className,
   maxLength,
   placeholder,
   sanitize,
 }: {
   value: string;
   onCommit: (value: string) => void;
-  className: string;
   maxLength?: number;
   placeholder?: string;
   sanitize?: (value: string) => string;
@@ -383,7 +382,7 @@ export function TextSetting({
       }
       onBlur={guard(() => onCommit(draft))}
       onKeyDown={onKeyDown}
-      className={`${className} ${inputClasses}`}
+      className={`w-full pr-8 ${inputClasses}`}
     />
   );
 }
@@ -423,7 +422,7 @@ export function HexSetting({
       }
       onBlur={guard(commit)}
       onKeyDown={onKeyDown}
-      className={`w-21 shrink-0 ${inputClasses}`}
+      className={`w-[calc(7ch+0.8rem+2px)] shrink-0 ${inputClasses}`}
     />
   );
 }

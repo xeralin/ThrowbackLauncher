@@ -2,6 +2,7 @@
 
 import { CopyPathRow } from "@/components/CopyPathRow";
 import { ExternalLink } from "@/components/ExternalLink";
+import { PROTON, StrokeIcon } from "@/components/icons";
 import { stepBox, stepList } from "@/components/ui";
 import { site } from "@/config/site";
 import { useLibraries, useSettings } from "@/lib/bridge";
@@ -16,9 +17,7 @@ export function ExclusionSteps({ library }: { library?: string }) {
   const shown =
     library === undefined
       ? custom
-      : custom.filter((entry) =>
-          library ? entry.path === library : entry.default,
-        );
+      : custom.filter((entry) => entry.path === library);
 
   return (
     <div className="max-w-[720px]">
@@ -31,7 +30,7 @@ export function ExclusionSteps({ library }: { library?: string }) {
 
 export function ExclusionStepList({ paths }: { paths: string[] }) {
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex w-fit max-w-full flex-col gap-3">
       <div className={`prose ${stepBox}`}>
         <ol className={stepList}>
           <li>
@@ -63,14 +62,17 @@ export function ExclusionStepList({ paths }: { paths: string[] }) {
 
 export function ProtonSteps() {
   return (
-    <div className={`prose max-w-[720px] ${stepBox}`}>
+    <div className={`prose w-fit max-w-[720px] ${stepBox}`}>
       <p className="mb-[0.3rem] text-[0.78rem] leading-[1.45]">
-        <strong>Y9S2 New Blood</strong> only runs on a specific Proton build.
+        <strong>Y9S2 Heated Metal</strong> only runs on a specific Proton build.
       </p>
       <ol className={stepList}>
         <li>
           Download the Proton build from{" "}
-          <ExternalLink href={site.indevReleasesUrl}>
+          <ExternalLink
+            href={site.heatedMetalDiscordUrl}
+            className="whitespace-nowrap"
+          >
             <code>#indev-releases</code>
           </ExternalLink>
         </li>
@@ -79,8 +81,15 @@ export function ProtonSteps() {
           <code>~/.local/share/ThrowbackLauncher/bin/proton</code>
         </li>
         <li>
-          Pick it under <strong>Proton</strong> in the <strong>Manage</strong>{" "}
-          tab
+          Pick it under{" "}
+          <strong>
+            <StrokeIcon
+              d={PROTON}
+              className="inline size-[1.15em] align-[-0.2em]"
+            />{" "}
+            Proton
+          </strong>{" "}
+          in the <strong>Manage</strong> tab
         </li>
       </ol>
     </div>

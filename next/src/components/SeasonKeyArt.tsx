@@ -7,22 +7,22 @@ export const keyArtFade =
 export function SeasonKeyArt({
   keyArt,
   sizes,
-  priority = false,
+  preload,
   imgClassName = "",
 }: {
   keyArt: string | null;
   sizes: string;
-  priority?: boolean;
+  preload?: boolean;
   imgClassName?: string;
 }) {
   return (
-    <div className="absolute inset-0 bg-gradient-to-br from-keyart-fallback to-bg">
+    <div className="absolute inset-0 bg-gradient-to-br from-[#1a0d12] to-bg">
       {keyArt && (
         <Image
           src={keyArt}
           alt=""
           fill
-          priority={priority}
+          preload={preload}
           sizes={sizes}
           className={`object-cover object-center ${imgClassName}`}
         />
@@ -34,17 +34,17 @@ export function SeasonKeyArt({
 export function CardKeyArt({
   season,
   sizes,
-  priority = false,
+  preload,
 }: {
   season: Season;
   sizes: string;
-  priority?: boolean;
+  preload?: boolean;
 }) {
   return season.hm ? (
-    <SeasonKeyArt keyArt="/keyart/hm.webp" sizes={sizes} priority={priority} />
+    <SeasonKeyArt keyArt="/keyart/hm.webp" sizes={sizes} preload={preload} />
   ) : (
     <>
-      <SeasonKeyArt keyArt={season.keyArt} sizes={sizes} priority={priority} />
+      <SeasonKeyArt keyArt={season.keyArt} sizes={sizes} preload={preload} />
       <div className={keyArtFade} />
     </>
   );

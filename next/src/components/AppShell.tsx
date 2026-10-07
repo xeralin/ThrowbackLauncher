@@ -2,21 +2,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { DiskSpaceModal } from "./DiskSpaceModal";
-import { Sidebar } from "./Sidebar";
-import { SteamLoginModal } from "./SteamLoginModal";
-import { Toasts } from "./Toasts";
-import { Topbar } from "./Topbar";
-import { ScrollReveal } from "./ScrollReveal";
+import { DiskSpaceModal } from "@/components/DiskSpaceModal";
+import { HmFilesMissingModal } from "@/components/HmFilesMissingModal";
+import { Sidebar } from "@/components/Sidebar";
+import { SteamLoginModal } from "@/components/SteamLoginModal";
+import { Toasts } from "@/components/Toasts";
+import { Topbar } from "@/components/Topbar";
+import { ScrollReveal } from "@/components/ScrollReveal";
 import { applyAccent } from "@/config/accents";
 import { breadcrumbFor, normalizePath } from "@/config/nav";
-import { onBridgeEvent, useInfo, useSettings } from "@/lib/bridge";
+import { onBridgeEvent, onBridgeReady, useSettings } from "@/lib/bridge";
 import { DetailContext, type DetailCrumb } from "@/lib/detail";
 import { resetPlatformView } from "@/lib/platform-view";
+import { hasOpenPopover } from "@/lib/popover";
 import { RATE_LIMIT_TOAST, showToast } from "@/lib/toast";
 import { hasOpenModal } from "@/components/Modal";
-import { hasOpenInfoHint } from "@/components/InfoHint";
-import { hasOpenRendererMenu } from "@/components/RendererMenu";
 import { useNyan } from "@/components/NyanCat";
 
 const ERROR_TARGETS: [string, string | undefined][] = [
@@ -25,6 +25,7 @@ const ERROR_TARGETS: [string, string | undefined][] = [
   ["launch", undefined],
   ["liberator", "liberator"],
   ["update", undefined],
+  ["cheatengine", undefined],
 ];
 
 function BridgeToasts({
@@ -32,11 +33,11 @@ function BridgeToasts({
 }: {
   settings: ReturnType<typeof useSettings>;
 }) {
-  const info = useInfo();
-
   useEffect(() => {
-    if (info?.warning) showToast(info.warning);
-  }, [info?.warning]);
+    onBridgeReady((bridge) => {
+      if (bridge.info.warning) showToast(bridge.info.warning);
+    });
+  }, []);
 
   useEffect(() => {
     if (!settings) return;
@@ -68,7 +69,7 @@ function BridgeToasts({
           else if (outcome === "no_space")
             showToast(`${code} download failed, ran out of disk space`);
         } else if (event === "partial_deleted") {
-          if (!args[2]) showToast(args[3] as string);
+          if (!args[1]) showToast(args[2] as string);
         } else if (event === "rate_limited") {
           showToast(args[0] as string, { key: RATE_LIMIT_TOAST });
         } else if (event === "warning") {
@@ -84,6 +85,7 @@ function BridgeToasts({
         if (event === "error") showToast(args[0] as string, { key });
       }),
     );
+    onBridgeReady((bridge) => bridge.rvpn?.take_startup_error());
     return () => offs.forEach((off) => off());
   }, []);
 
@@ -134,7 +136,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [nyan]);
 
   useEffect(() => {
-    if (!normalizePath(pathname).startsWith("/faq")) resetPlatformView();
+    if (!pathname.startsWith("/faq")) resetPlatformView();
   }, [pathname]);
 
   useEffect(() => {
@@ -164,7 +166,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         target instanceof HTMLTextAreaElement
       )
         return;
-      if (hasOpenModal() || hasOpenInfoHint() || hasOpenRendererMenu()) return;
+      if (hasOpenModal() || hasOpenPopover()) return;
       if (open) {
         setOpen(false);
         return;
@@ -254,6 +256,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <BridgeToasts settings={settings} />
       <SteamLoginModal />
       <DiskSpaceModal />
+      <HmFilesMissingModal />
       <ScrollReveal />
     </DetailContext>
   );

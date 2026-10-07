@@ -3,7 +3,6 @@
 @theme {
   --color-brand: #c0152a;
   --color-bg: #0d0d0f;
-  --color-keyart-fallback: #1a0d12;
   --color-surface: #13131a;
   --color-surface-2: #1a1a24;
   --color-border: #2a2a38;
@@ -109,7 +108,6 @@
   --animate-toast-fade: fadeIn 0.2s var(--ease-out-cubic);
   --animate-toast-fade-out: fadeOut 0.2s var(--ease-out-cubic) both;
   --animate-hero-glow: heroGlow 5s ease-in-out infinite;
-  --animate-flicker: flicker 7s infinite;
   --animate-scan-move: scanMove 8s linear infinite;
   --animate-blink: blink 1s step-end infinite;
   --animate-wiggle: wiggle 0.35s ease-in-out infinite;
@@ -178,31 +176,6 @@
     }
     50% {
       opacity: 0.55;
-    }
-  }
-  @keyframes flicker {
-    0%,
-    93%,
-    100% {
-      opacity: 1;
-    }
-    94% {
-      opacity: 0.3;
-    }
-    95% {
-      opacity: 1;
-    }
-    96% {
-      opacity: 0.1;
-    }
-    97% {
-      opacity: 0.9;
-    }
-    98% {
-      opacity: 0.4;
-    }
-    99% {
-      opacity: 1;
     }
   }
   @keyframes scanMove {
@@ -290,7 +263,6 @@
     background-color: var(--color-bg);
     color: var(--color-text);
     font-family: var(--font-body);
-    font-weight: 400;
     line-height: normal;
     user-select: none;
   }
@@ -329,16 +301,14 @@
   }
 }
 
-@media (scripting: enabled) {
-  [data-reveal]:not([data-inview]) {
-    opacity: 0;
-  }
-  [data-reveal][data-inview] {
-    animation: var(--animate-fade-in);
-  }
-  [data-reveal][data-inview="instant"] {
-    animation: none;
-  }
+[data-reveal]:not([data-inview]) {
+  opacity: 0;
+}
+[data-reveal][data-inview] {
+  animation: var(--animate-fade-in);
+}
+[data-reveal][data-inview="instant"] {
+  animation: none;
 }
 
 :root:active-view-transition-type(cards) {
@@ -363,7 +333,9 @@
 }
 
 [data-reduce-motion]
-  *:not(.scroll-fade):not(.transfer-fill):not(.animate-save-check),
+  *:not(.scroll-fade):not(.truncate-fade):not(.transfer-fill):not(
+    .animate-save-check
+  ),
 [data-reduce-motion] *::before,
 [data-reduce-motion] *:not(.transfer-fill)::after,
 :root[data-reduce-motion]::view-transition-group(*),
@@ -395,10 +367,6 @@
   animation: nyanWave 0.18s linear infinite;
 }
 
-[data-nyan] .transfer-fill[data-paused] {
-  filter: grayscale(1);
-}
-
 [data-nyan] .transfer-fill[data-paused]::after {
   animation-play-state: paused;
 }
@@ -412,7 +380,6 @@
 }
 
 .nyan-cat img {
-  display: block;
   width: 100%;
   height: 100%;
   image-rendering: pixelated;
@@ -510,15 +477,28 @@
   initial-value: 0px;
 }
 
-@keyframes scroll-fade-top {
+@keyframes scrollFadeTop {
   to {
     --scroll-fade-top: var(--fade-edge);
   }
 }
 
-@keyframes scroll-fade-bottom {
+@keyframes scrollFadeBottom {
   from {
     --scroll-fade-bottom: var(--fade-edge);
+  }
+}
+
+@property --truncate-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes truncateFade {
+  from,
+  to {
+    --truncate-fade: var(--fade-edge);
   }
 }
 
@@ -527,9 +507,11 @@
   white-space: nowrap;
   mask-image: linear-gradient(
     to right,
-    #000 calc(100% - var(--fade-edge)),
+    #000 calc(100% - var(--truncate-fade)),
     transparent
   );
+  animation: truncateFade linear both;
+  animation-timeline: scroll(self inline);
 }
 
 @utility cut-fade {
@@ -548,7 +530,7 @@
     #000 calc(100% - var(--scroll-fade-bottom)),
     transparent 100%
   );
-  animation-name: scroll-fade-top, scroll-fade-bottom;
+  animation-name: scrollFadeTop, scrollFadeBottom;
   animation-timing-function: linear;
   animation-fill-mode: both;
   animation-timeline: scroll(self block);
@@ -581,10 +563,6 @@
     background-size: var(--stripe-width) var(--stripe-width);
     animation: transferStripes 1.8s linear infinite;
   }
-  &[data-paused] {
-    --transfer-fill-color: var(--color-muted);
-    --transfer-stripe-color: color-mix(in srgb, var(--color-muted) 58%, white);
-  }
   &[data-paused]::after {
     animation-play-state: paused;
   }
@@ -613,8 +591,8 @@
     height: 16px;
     border-radius: 50%;
     background: var(--color-action);
-    border: 3px solid var(--color-text);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    border: 2px solid var(--color-text);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
     cursor: pointer;
   }
   .color-slider:focus-visible {
@@ -713,7 +691,6 @@
     border-radius: var(--radius-md);
     background: var(--color-surface-2);
     padding: 0.5rem 0.75rem;
-    font-family: var(--font-mono);
     font-size: 0.78rem;
     line-height: 1.45;
     color: var(--color-text);
@@ -726,7 +703,6 @@
     background: none;
     font-size: inherit;
     line-height: inherit;
-    white-space: pre;
   }
   .notes td code {
     @apply code-chip;
@@ -762,7 +738,6 @@
     margin-left: 1.25rem;
   }
   .notes kbd {
-    font-family: var(--font-mono);
     font-size: 0.85em;
     padding: 0.1em 0.3em;
     border: 1px solid var(--color-border);
@@ -805,7 +780,6 @@
   }
   .prose a {
     color: var(--color-link);
-    text-decoration: none;
   }
   .prose a:hover {
     text-decoration: underline;

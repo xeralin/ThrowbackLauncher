@@ -1,5 +1,3 @@
-import { site } from "@/config/site";
-
 export const BAR_PRESETS = [
   { fill: "#c388e3", stripe: "#dcbaef" },
   { fill: "#6aa5fc", stripe: "#a8cbfe" },
@@ -8,18 +6,15 @@ export const BAR_PRESETS = [
   { fill: "#e57db1", stripe: "#f2b4d0" },
 ];
 
-export const DEFAULT_ACCENT = site.themeColor;
+export const DEFAULT_ACCENT = "#c0152a";
 
 const ACCENT_L_BASE = 0.4;
 const ACCENT_CHROMA_FLOOR = 0.25;
-const ACCENT_L_PEAK_MIN = 0.517;
 
 export const ACCENT_STEP = 0.01;
 
-const ACCENT_LEVELS = Math.round(1 / ACCENT_STEP);
-
 function gamma(v: number): number {
-  return v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+  return v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055;
 }
 
 function linear(v: number): number {
@@ -58,7 +53,7 @@ function vividLightness(hue: number): number {
   const key = Math.round(hue);
   const known = vividCache.get(key);
   if (known !== undefined) return known;
-  let low = ACCENT_L_PEAK_MIN;
+  let low = 0.517;
   let high = 0.99;
   for (let step = 0; step < 20; step += 1) {
     const third = (high - low) / 3;
@@ -115,7 +110,7 @@ export function accentParts(hex: string): { hue: number; level: number } {
   const radians = (hue * Math.PI) / 180;
   let best = 0;
   let closest = Infinity;
-  for (let step = 0; step <= ACCENT_LEVELS; step += 1) {
+  for (let step = 0; step <= Math.round(1 / ACCENT_STEP); step += 1) {
     const level = step * ACCENT_STEP;
     const light = lightnessFor(hue, level);
     const chroma = chromaFor(light, hue, level);
@@ -149,7 +144,7 @@ export function applyAccent(hex: string): void {
   const value = hex || DEFAULT_ACCENT;
   root.style.setProperty("--color-action", value);
   root.style.setProperty("--color-action-text", contrastText(value));
-  root.dataset.accent = hex ? "custom" : "default";
+  root.dataset.accent = value === DEFAULT_ACCENT ? "default" : "custom";
 }
 
 export const ACCENT_HUE_MAX = 359;

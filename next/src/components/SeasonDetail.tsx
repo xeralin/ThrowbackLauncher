@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -9,26 +10,27 @@ import {
   useState,
 } from "react";
 import { BackHeading } from "@/components/BackHeading";
+import { CheatEngineSetting } from "@/components/CheatEngineSetting";
 import { Button, iconButton } from "@/components/Button";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { CopyButton } from "@/components/CopyButton";
 import { Modal, modalTitle } from "@/components/Modal";
-import { ExternalLink } from "@/components/ExternalLink";
+import { SelectHmModal } from "@/components/SelectHmModal";
 import {
   DefaultLibraryIcon,
   FolderIcon,
   MarkIcon,
+  PROTON,
   RemoveIcon,
   StrokeIcon,
 } from "@/components/icons";
-import { type LogLine } from "@/components/LogBox";
+import type { LogLine } from "@/components/LogBox";
 import { SeasonInfo } from "@/components/SeasonInfo";
-import { PickerRow, iconBox, link } from "@/components/ui";
+import { ListRow, PickerRow, iconBox } from "@/components/ui";
 import { SaveCheck, TextSetting } from "@/components/SettingsControls";
 import { CardKeyArt } from "@/components/SeasonKeyArt";
 import { ShearsModal } from "@/components/ShearsModal";
 import { RendererMenu } from "@/components/RendererMenu";
-import { ExclusionSteps, ProtonSteps } from "@/components/SetupSteps";
 import { OptionGroup, Tabs, type TabItem } from "@/components/Tabs";
 import { TransferBar, TransferPanel } from "@/components/TransferPanel";
 import { UninstallModal } from "@/components/UninstallModal";
@@ -38,8 +40,6 @@ import {
   editionQueued,
   editionRunning,
   onBridgeReady,
-  seasonLaunching,
-  seasonRunning,
   seasonTitle,
   shearsActions,
   useDownloader,
@@ -50,48 +50,20 @@ import {
   useSettings,
   useShears,
   useUpdateBusy,
+  type CheatEngineStatus,
   type SeasonInstalls,
-  type LibraryEntry,
   type GameArgs,
   type ProtonOption,
   type Season,
   type ShearsKind,
   type ShearsScan,
 } from "@/lib/bridge";
-import { HM_INFO, SEASON_INFO } from "@/config/season-info";
+import { hmInfo, SEASON_INFO } from "@/config/season-info";
 import { site } from "@/config/site";
 import { operatorsLocked } from "@/lib/seasons";
 import { showToast } from "@/lib/toast";
 
 const LOG_CAP = 1000;
-
-function LibraryPicker({
-  libraries,
-  selected,
-  onSelect,
-}: {
-  libraries: LibraryEntry[];
-  selected: string;
-  onSelect: (path: string) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      {libraries.map((library) => (
-        <PickerRow
-          key={library.path}
-          label={library.display}
-          title={library.path}
-          selected={library.path === selected}
-          disabled={!library.exists}
-          strike={!library.exists}
-          onSelect={() => onSelect(library.path)}
-        >
-          {library.default && <DefaultLibraryIcon />}
-        </PickerRow>
-      ))}
-    </div>
-  );
-}
 
 const RENDERERS = {
   vulkan: [
@@ -111,10 +83,15 @@ const RENDERER_ARGS = Object.values(RENDERERS)
 
 type TabId = "manage" | "info";
 
+const TABS: TabItem<TabId>[] = [
+  { id: "manage", label: "Manage" },
+  { id: "info", label: "Info" },
+];
+
 type SeasonModal =
   | { kind: "shears" }
   | { kind: "uninstall"; hm: boolean }
-  | { kind: "hmArchive" }
+  | { kind: "selectHm"; then: () => void }
   | { kind: "download" }
   | { kind: "lockedOperators" }
   | { kind: "removeDownload"; hm: boolean }
@@ -146,7 +123,6 @@ const EDITION_TABS: TabItem<"tb" | "hm">[] = [
 const NO_INSTALL: SeasonInstalls["tb"] = {
   installed: false,
   partial: false,
-  library: "",
   built: 0,
   crashLog: false,
 };
@@ -168,6 +144,7 @@ export function SeasonDetail({
   const [dlLibrary, setDlLibrary] = useState("");
   const [argsSaved, setArgsSaved] = useState(0);
   const [protons, setProtons] = useState<ProtonOption[] | null>(null);
+  const [ceStatus, setCeStatus] = useState<CheatEngineStatus | null>(null);
   const [gameArgs, setGameArgs] = useState<GameArgs>({
     args: "",
     renderer: "",
@@ -176,6 +153,7 @@ export function SeasonDetail({
   const [installs, setInstalls] = useState<SeasonInstalls>({
     tb: NO_INSTALL,
     hm: NO_INSTALL,
+    prefix: false,
   });
   const [shearsScan, setShearsScan] = useState<ShearsScan | null>(null);
   const [homeSeasons] = useHomeSeasons();
@@ -190,6 +168,7 @@ export function SeasonDetail({
   const libs = useMemo(() => libraryEntries ?? [], [libraryEntries]);
   const multiLib = libs.length > 1;
   const hmActive = hm && season.hmAvailable;
+  const cheatEngine = !hmActive && installs.tb.installed;
   const shearsCuts = useMemo(() => shearsActions(shearsScan), [shearsScan]);
 
   const { installs: fetchInstalls, gameArgs: fetchGameArgs } = lc;
@@ -236,12 +215,9 @@ export function SeasonDetail({
   const downloading = dl.running;
   const playingEdition = editionRunning(lc, season.key, hmActive);
   const launchingEdition = editionLaunching(lc, season.key, hmActive);
-  const playingSeason =
-    seasonRunning(lc, season.key) || seasonLaunching(lc, season.key);
+  const runningSeason = lc.running.some((ref) => ref.key === season.key);
+  const playingSeason = runningSeason || lc.launching?.key === season.key;
   const queuedEdition = editionQueued(dl, season.key, hmActive);
-  const verifyQueuedEdition = editionQueued(dl, season.key, hmActive, {
-    verify: true,
-  });
   const editionInstall = hmActive ? installs.hm : installs.tb;
   const activeEdition = editionActive(dl, season.key, hmActive);
   const downloadingEdition = activeEdition && dl.running;
@@ -254,6 +230,7 @@ export function SeasonDetail({
     modal.kind !== "download" &&
     modal.kind !== "removeDownload" &&
     modal.kind !== "lockedOperators" &&
+    modal.kind !== "selectHm" &&
     modal.kind !== "proton"
   )
     setModal(null);
@@ -271,8 +248,11 @@ export function SeasonDetail({
   }, [dl, season.key]);
 
   useEffect(() => {
-    if (lc.ready) refresh();
-  }, [lc.ready, refresh, playingSeason]);
+    if (!lc.ready) return;
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [lc.ready, refresh, playingSeason, runningSeason, downloadingEdition]);
 
   useEffect(() => {
     if (!settings) return;
@@ -317,9 +297,12 @@ export function SeasonDetail({
   }
 
   useEffect(() => {
-    if (modal?.kind === "proton" && settings)
-      settings.proton_options(setProtons);
-  }, [modal, settings]);
+    if (platform !== "linux" || !settings) return;
+    const load = () => settings.proton_options(setProtons);
+    load();
+    window.addEventListener("focus", load);
+    return () => window.removeEventListener("focus", load);
+  }, [platform, settings]);
 
   useEffect(() => {
     if (!settings) return;
@@ -328,15 +311,36 @@ export function SeasonDetail({
     return () => settings.launch_args_changed.disconnect(onSaved);
   }, [settings]);
 
-  function startDownload(library = "") {
-    setModal(null);
-    const lib = editionInstall.partial ? "" : library;
-    if (downloading) {
-      dl.enqueue(season.key, hmActive, lib);
+  useEffect(() => {
+    if (!settings) return;
+    const onRemoved = () => {
+      fetchInstalls(season.key, setInstalls);
+      if (cheatEngine)
+        onBridgeReady((bridge) =>
+          bridge.cheatengine?.status(season.key, setCeStatus),
+        );
+    };
+    settings.prefix_removed.connect(onRemoved);
+    return () => settings.prefix_removed.disconnect(onRemoved);
+  }, [settings, fetchInstalls, cheatEngine, season.key]);
+
+  function ensureHm(then: () => void) {
+    if (!hmActive || !season.hmBeta) {
+      then();
       return;
     }
-    setLog([]);
-    dl.start(season.key, hmActive, lib);
+    dl.hmArchiveCached((cached) => {
+      if (cached) then();
+      else setModal({ kind: "selectHm", then });
+    });
+  }
+
+  function startDownload(library = "") {
+    setModal(null);
+    ensureHm(() => {
+      if (!downloading) setLog([]);
+      dl.enqueue(season.key, hmActive, editionInstall.partial ? "" : library);
+    });
   }
 
   function cut(kind: ShearsKind, level: number) {
@@ -352,6 +356,10 @@ export function SeasonDetail({
   }
 
   function openDownloadPrompt() {
+    if (editionInstall.partial) {
+      startDownload();
+      return;
+    }
     refreshLibraries();
     const library =
       (
@@ -396,7 +404,7 @@ export function SeasonDetail({
   }
 
   function verifyButton() {
-    return verifyQueuedEdition ? (
+    return queuedEdition ? (
       <Button
         variant="secondary"
         onClick={() => dl.dequeue(season.key, hmActive)}
@@ -407,10 +415,12 @@ export function SeasonDetail({
       <Button
         variant="secondary"
         disabled={playingSeason}
-        onClick={() => {
-          if (!downloading) setLog([]);
-          dl.verify(season.key, hmActive);
-        }}
+        onClick={() =>
+          ensureHm(() => {
+            if (!downloading) setLog([]);
+            dl.verify(season.key, hmActive);
+          })
+        }
       >
         {downloading ? "Queue verify" : "Verify"}
       </Button>
@@ -419,7 +429,7 @@ export function SeasonDetail({
 
   const cancelRun = verifyingEdition || editionInstall.installed;
   const transferActions = (
-    <>
+    <Fragment key="transfer">
       {editionState === "paused" ? (
         <Button variant="primary" onClick={() => dl.setPaused(false)}>
           Continue
@@ -441,19 +451,12 @@ export function SeasonDetail({
           Remove
         </Button>
       )}
-    </>
+    </Fragment>
   );
 
   const lockedOps = !hmActive && operatorsLocked(season.key);
 
   const info = SEASON_INFO[season.key];
-  const tabs: TabItem<TabId>[] = useMemo(
-    () => [
-      { id: "manage", label: "Manage" },
-      ...(hmActive || info ? [{ id: "info" as const, label: "Info" }] : []),
-    ],
-    [hmActive, info],
-  );
 
   return (
     <>
@@ -470,12 +473,12 @@ export function SeasonDetail({
           <CardKeyArt
             season={{ ...season, hm: hmActive }}
             sizes="100vw"
-            priority
+            preload
           />
         </div>
 
         <Tabs
-          tabs={tabs}
+          tabs={TABS}
           active={tab}
           onSelect={setTab}
           trailing={
@@ -504,7 +507,7 @@ export function SeasonDetail({
                 {transferring ? (
                   transferActions
                 ) : editionInstall.installed ? (
-                  <>
+                  <Fragment key="installed">
                     {playButtons()}
                     {verifyButton()}
                     {hmActive && season.hmBeta && (
@@ -529,7 +532,7 @@ export function SeasonDetail({
                         Shears
                       </Button>
                     )}
-                  </>
+                  </Fragment>
                 ) : queuedEdition ? (
                   <Button
                     variant="secondary"
@@ -538,13 +541,12 @@ export function SeasonDetail({
                     Remove from queue
                   </Button>
                 ) : (
-                  <>
+                  <Fragment key="partial">
                     <Button
                       variant="primary"
                       disabled={editionInstall.partial && playingSeason}
                       onClick={() => {
                         if (lockedOps) setModal({ kind: "lockedOperators" });
-                        else if (editionInstall.partial) startDownload();
                         else openDownloadPrompt();
                       }}
                     >
@@ -576,18 +578,13 @@ export function SeasonDetail({
                           disabled={playingSeason || downloading}
                           onClick={() => {
                             if (!hmActive) dl.removeHm(season.key);
-                            else if (!season.hmBeta) dl.switchToHm(season.key);
-                            else
-                              dl.hmArchiveCached((cached) => {
-                                if (cached) dl.switchToHm(season.key);
-                                else setModal({ kind: "hmArchive" });
-                              });
+                            else ensureHm(() => dl.switchToHm(season.key));
                           }}
                         >
                           {hmActive ? "Switch to HM" : "Switch to TB"}
                         </Button>
                       )}
-                  </>
+                  </Fragment>
                 )}
               </span>
               <span className="flex min-w-0 flex-1 items-center gap-3">
@@ -617,10 +614,18 @@ export function SeasonDetail({
                     <button
                       type="button"
                       aria-label="Proton"
-                      onClick={() => setModal({ kind: "proton" })}
+                      disabled={protons?.length === 0}
+                      onClick={() => {
+                        setCeStatus(null);
+                        onBridgeReady((bridge) =>
+                          bridge.cheatengine?.status(season.key, setCeStatus),
+                        );
+                        settings?.proton_options(setProtons);
+                        setModal({ kind: "proton" });
+                      }}
                       className={iconButton}
                     >
-                      <StrokeIcon d="m4 17 6-6-6-6M12 19h8" />
+                      <StrokeIcon d={PROTON} />
                     </button>
                   )}
                   <button
@@ -653,57 +658,45 @@ export function SeasonDetail({
 
           {tab === "info" ? (
             <div className="mt-4">
-              {hmActive ? (
-                <SeasonInfo
-                  entry={{
-                    ...HM_INFO,
-                    release:
-                      season.hmBeta && installs.hm.built
-                        ? new Date(installs.hm.built * 1000).toLocaleDateString(
-                            "en-US",
-                            {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                              timeZone: "UTC",
-                            },
-                          )
-                        : (info?.release ?? ""),
-                    setup:
-                      platform === "windows" ? (
-                        <ExclusionSteps library={installs.hm.library} />
-                      ) : season.key === "Y9S2_NewBlood" ? (
-                        <ProtonSteps />
-                      ) : undefined,
-                    note: season.hmBeta ? (
-                      <>
-                        The Heated Metal build comes from the{" "}
-                        <ExternalLink href={site.indevReleasesUrl}>
-                          <code>#indev-releases</code>
-                        </ExternalLink>{" "}
-                        channel on the Heated Metal Discord.
-                      </>
-                    ) : undefined,
-                  }}
-                  build={season.build}
-                  sizeGb={season.sizeGb}
-                />
-              ) : (
-                info && (
-                  <SeasonInfo
-                    entry={info}
-                    build={season.build}
-                    sizeGb={season.sizeGb}
-                  />
-                )
-              )}
+              <SeasonInfo
+                entry={
+                  hmActive
+                    ? {
+                        ...hmInfo(season.hmBeta),
+                        release:
+                          season.hmBeta && installs.hm.built
+                            ? new Date(
+                                installs.hm.built * 1000,
+                              ).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                                timeZone: "UTC",
+                              })
+                            : info.release,
+                        requirements: [
+                          platform === "windows" &&
+                            `Latest [Visual C++ Redistributable](${site.vcRedistUrl})`,
+                          platform !== "windows" &&
+                            season.key === "Y9S2_NewBlood" &&
+                            "**Proton-R6HM** selected under Proton",
+                          season.key === "Y5S3_ShadowLegacy" &&
+                            "Medium or above in-game textures",
+                          platform === "windows"
+                            ? "External overlays like **Overwolf** disabled"
+                            : "External overlays disabled",
+                          season.hmBeta &&
+                            `Latest \`Unstable.7z\` from [\`#indev-releases\`](${site.heatedMetalDiscordUrl})`,
+                        ],
+                      }
+                    : info
+                }
+                build={season.build}
+                sizeGb={season.sizeGb}
+              />
             </div>
           ) : (
-            <TransferPanel
-              lines={deferredLog}
-              active={transferring}
-              state={editionState}
-            />
+            <TransferPanel lines={deferredLog} state={editionState} />
           )}
         </div>
       </div>
@@ -739,11 +732,21 @@ export function SeasonDetail({
             </>
           }
         >
-          <LibraryPicker
-            libraries={libs}
-            selected={dlLibrary}
-            onSelect={setDlLibrary}
-          />
+          <div className="flex flex-col gap-2">
+            {libs.map((library) => (
+              <PickerRow
+                key={library.path}
+                label={library.display}
+                title={library.path}
+                selected={library.path === dlLibrary}
+                disabled={!library.exists}
+                strike={!library.exists}
+                onSelect={() => setDlLibrary(library.path)}
+              >
+                {library.default && <DefaultLibraryIcon />}
+              </PickerRow>
+            ))}
+          </div>
         </Modal>
       )}
 
@@ -752,11 +755,7 @@ export function SeasonDetail({
           title="Operators are locked"
           confirmLabel={editionInstall.partial ? "Verify" : "Download"}
           note="There is currently no fix."
-          onConfirm={() => {
-            setModal(null);
-            if (editionInstall.partial) startDownload();
-            else openDownloadPrompt();
-          }}
+          onConfirm={openDownloadPrompt}
           onCancel={() => setModal(null)}
         >
           <p className="text-body text-text-muted">
@@ -771,9 +770,8 @@ export function SeasonDetail({
           confirmLabel="Remove"
           confirmOnEnter={false}
           onConfirm={() => {
-            const hm = modal.hm;
             setModal(null);
-            dl.deletePartial(season.key, hm);
+            dl.deletePartial(season.key, modal.hm);
           }}
           onCancel={() => setModal(null)}
         >
@@ -783,74 +781,88 @@ export function SeasonDetail({
         </ConfirmModal>
       )}
 
-      {modal?.kind === "hmArchive" && (
-        <ConfirmModal
-          title="Switch to Heated Metal"
-          confirmLabel="Choose archive"
-          onConfirm={() => {
+      {modal?.kind === "selectHm" && (
+        <SelectHmModal
+          onSelect={dl.pickHmArchive}
+          onSelected={() => {
             setModal(null);
-            dl.switchToHm(season.key);
+            modal.then();
           }}
-          onCancel={() => setModal(null)}
-        >
-          <p className="text-body text-text-muted">
-            Download the <code>.7z</code> archive from{" "}
-            <ExternalLink
-              href={site.indevReleasesUrl}
-              className={`${link} [&>code]:text-inherit`}
-            >
-              <code>#indev-releases</code>
-            </ExternalLink>{" "}
-            and choose it here.
-          </p>
-        </ConfirmModal>
+          onClose={() => setModal(null)}
+        />
       )}
 
-      {modal?.kind === "proton" && settings && protons && (
-        <Modal
-          title="Proton"
-          onClose={() => setModal(null)}
-          footer={
-            <div className="flex w-full flex-col gap-3">
-              <h2 className={modalTitle}>Launch options</h2>
-              <div className="relative">
-                <TextSetting
-                  value={storedArgs}
-                  placeholder="%command%"
-                  className="w-full pr-8"
-                  onCommit={(draft) => {
-                    if (draft.trim() !== storedArgs)
-                      settings.set_launch_args(season.key, draft.trim());
-                  }}
-                />
-                <SaveCheck confirm={argsSaved} />
+      {modal?.kind === "proton" &&
+        settings &&
+        protons &&
+        (!cheatEngine || ceStatus) && (
+          <Modal
+            title="Proton"
+            onClose={() => setModal(null)}
+            aside={
+              <div className="flex flex-col gap-3">
+                <h2 className={modalTitle}>Launch options</h2>
+                <div className="flex flex-col gap-2">
+                  <div className="relative">
+                    <TextSetting
+                      value={storedArgs}
+                      placeholder="%command%"
+                      onCommit={(draft) => {
+                        if (draft.trim() !== storedArgs)
+                          settings.set_launch_args(season.key, draft.trim());
+                      }}
+                    />
+                    <SaveCheck confirm={argsSaved} />
+                  </div>
+                  {cheatEngine && ceStatus && (
+                    <CheatEngineSetting
+                      seasonKey={season.key}
+                      status={ceStatus}
+                      onStatus={setCeStatus}
+                    />
+                  )}
+                  {installs.prefix && (
+                    <ListRow label="Prefix">
+                      <span className="-mr-1 flex shrink-0 items-center">
+                        <button
+                          type="button"
+                          aria-label="Remove prefix"
+                          disabled={playingSeason || ceStatus?.busy}
+                          onClick={() => settings.remove_prefix(season.key)}
+                          className={iconButton}
+                        >
+                          <RemoveIcon />
+                        </button>
+                      </span>
+                    </ListRow>
+                  )}
+                </div>
               </div>
+            }
+          >
+            <div className="flex flex-col gap-2">
+              {protons.map((proton) => {
+                const isDefault = proton.internal === settings.proton;
+                return (
+                  <PickerRow
+                    key={proton.internal}
+                    label={proton.display}
+                    selected={proton.internal === activeProton}
+                    onSelect={() => {
+                      settings.set_season_proton(
+                        season.key,
+                        isDefault ? "" : proton.internal,
+                      );
+                      setModal(null);
+                    }}
+                  >
+                    {isDefault && <code className="chip">Default</code>}
+                  </PickerRow>
+                );
+              })}
             </div>
-          }
-        >
-          <div className="flex flex-col gap-2">
-            {protons.map((proton) => {
-              const isDefault = proton.internal === settings.proton;
-              return (
-                <PickerRow
-                  key={proton.internal}
-                  label={proton.display}
-                  selected={proton.internal === activeProton}
-                  onSelect={() => {
-                    settings.set_season_proton(
-                      season.key,
-                      isDefault ? "" : proton.internal,
-                    );
-                    setModal(null);
-                  }}
-                >
-                  {isDefault && <code className="chip">Default</code>}
-                </PickerRow>
-              );
-            })}
-          </div>
-        </Modal>
-      )}
+          </Modal>
+        )}
 
       {modal?.kind === "shears" && (
         <ShearsModal

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { LiberatorStatus } from "@/components/LiberatorStatus";
 import { CardKeyArt } from "@/components/SeasonKeyArt";
 import { StrokeIcon } from "@/components/icons";
 import { BlinkCursor, microLabel } from "@/components/ui";
@@ -11,11 +12,14 @@ import { site } from "@/config/site";
 import { fetchMemberCount } from "@/lib/discord";
 import {
   determinatePercent,
+  editionRunning,
   seasonTitle,
   useDownloader,
   useDownloadProgress,
   useLaunch,
+  useLiberator,
   useSeasons,
+  useSettings,
   useUpdate,
   type Season,
 } from "@/lib/bridge";
@@ -64,9 +68,7 @@ function ActivityCard({
         </button>
       )}
       <div
-        className={`pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-2 ${
-          action ? "pr-11" : "pr-2"
-        }`}
+        className={`pointer-events-none absolute inset-x-0 bottom-0 flex p-2 ${action ? "pr-11" : ""}`}
       >
         <span className="min-w-0 grow truncate-fade font-display text-[0.8rem] font-bold leading-none text-text">
           {seasonTitle(season)}
@@ -120,24 +122,6 @@ function DownloadCard({
   );
 }
 
-function RunningCard({
-  season,
-  onOpen,
-  onStop,
-}: {
-  season: Season;
-  onOpen: () => void;
-  onStop: () => void;
-}) {
-  return (
-    <ActivityCard
-      season={season}
-      onOpen={onOpen}
-      action={{ label: "Stop", icon: <CancelIcon />, onClick: onStop }}
-    />
-  );
-}
-
 export function Sidebar({
   open,
   onNavigate,
@@ -148,7 +132,6 @@ export function Sidebar({
   const pathname = normalizePath(usePathname());
   const router = useRouter();
   const [hoveredLink, setHoveredLink] = useState("");
-  const linkRef = useRef<HTMLDivElement>(null);
   const [members, setMembers] = useState<string | null>(null);
   const [membersShown, setMembersShown] = useState(false);
   const membersRequested = useRef(false);
@@ -163,7 +146,7 @@ export function Sidebar({
   }
 
   useEffect(() => {
-    function preview(target: EventTarget | null) {
+    function preview({ target }: Event) {
       const anchor =
         target instanceof Element ? target.closest("a[href]") : null;
       const href = anchor?.getAttribute("href") ?? "";
@@ -173,26 +156,17 @@ export function Sidebar({
           : "",
       );
     }
-    function onOver(event: MouseEvent) {
-      preview(event.target);
-    }
-    function onFocus(event: FocusEvent) {
-      preview(event.target);
-    }
-    document.addEventListener("mouseover", onOver);
-    document.addEventListener("focusin", onFocus);
+    document.addEventListener("mouseover", preview);
+    document.addEventListener("focusin", preview);
     return () => {
-      document.removeEventListener("mouseover", onOver);
-      document.removeEventListener("focusin", onFocus);
+      document.removeEventListener("mouseover", preview);
+      document.removeEventListener("focusin", preview);
     };
   }, []);
 
-  useEffect(() => {
-    const el = linkRef.current;
-    if (el)
-      el.classList.toggle("truncate-fade", el.scrollWidth > el.clientWidth);
-  }, [hoveredLink]);
   const update = useUpdate();
+  const liberator = useLiberator();
+  const settings = useSettings();
   const [dragId, setDragId] = useState<string | null>(null);
   const pendingQueueFocus = useRef<string | null>(null);
   const { detail } = useDetail();
@@ -202,7 +176,8 @@ export function Sidebar({
     const season = seasons?.find((entry) => entry.key === key);
     return season ? { ...season, hm } : undefined;
   };
-  const editionId = (season: Season) => `${season.key}:${season.hm}`;
+  const editionId = (season: Pick<Season, "key" | "hm">) =>
+    `${season.key}:${season.hm}`;
   const queuedSeasons = dl.queue.flatMap((entry) => {
     const season = findEdition(entry.key, entry.hm);
     return season ? [season] : [];
@@ -218,12 +193,7 @@ export function Sidebar({
       : undefined;
   const lc = useLaunch();
   const liveRefs = [...lc.running];
-  if (
-    lc.launching &&
-    !lc.running.some(
-      (ref) => ref.key === lc.launching?.key && ref.hm === lc.launching?.hm,
-    )
-  )
+  if (lc.launching && !editionRunning(lc, lc.launching.key, lc.launching.hm))
     liveRefs.push(lc.launching);
   const liveSeasons = liveRefs.flatMap((ref) => {
     const season = findEdition(ref.key, ref.hm);
@@ -243,10 +213,7 @@ export function Sidebar({
 
   function moveQueueEntry(from: number, to: number) {
     if (from < 0 || to < 0 || to >= dl.queue.length) return false;
-    const refs = dl.queue.map((entry) => ({
-      key: entry.key,
-      hm: entry.hm,
-    }));
+    const refs = [...dl.queue];
     const [moved] = refs.splice(from, 1);
     refs.splice(to, 0, moved);
     dl.reorderQueue(refs);
@@ -332,6 +299,14 @@ export function Sidebar({
                           {update.components.length}
                         </span>
                       )}
+                    {item.href === "/liberator" && (
+                      <LiberatorStatus
+                        lib={liberator}
+                        enabled={settings?.liberator_enabled ?? true}
+                        loadingOnly
+                        size="size-4"
+                      />
+                    )}
                   </Link>
                 );
               })}
@@ -356,13 +331,8 @@ export function Sidebar({
                 onDragOver={(event) => {
                   event.preventDefault();
                   if (!dragId || dragId === editionId(season)) return;
-                  const dragged = queuedSeasons.find(
-                    (entry) => editionId(entry) === dragId,
-                  );
-                  if (!dragged) return;
                   const from = dl.queue.findIndex(
-                    (entry) =>
-                      entry.key === dragged.key && entry.hm === dragged.hm,
+                    (entry) => editionId(entry) === dragId,
                   );
                   const to = dl.queue.findIndex(
                     (entry) =>
@@ -417,20 +387,21 @@ export function Sidebar({
           />
         )}
         {liveSeasons.map((season) => (
-          <RunningCard
+          <ActivityCard
             key={editionId(season)}
             season={season}
             onOpen={() => openSeason(season)}
-            onStop={() => lc.stop(season.key)}
+            action={{
+              label: "Stop",
+              icon: <CancelIcon />,
+              onClick: () => lc.stop(season.key),
+            }}
           />
         ))}
       </div>
 
       {hoveredLink && (
-        <div
-          ref={linkRef}
-          className="pointer-events-none fixed bottom-2 left-2 z-(--z-link-preview) max-w-[calc(100vw_-_1rem)] overflow-hidden whitespace-nowrap rounded-md border border-border bg-surface-2 px-[3px] pb-[2px] pt-[3px] font-mono text-[11px] leading-none text-text max-nav:hidden"
-        >
+        <div className="pointer-events-none fixed bottom-2 left-2 z-(--z-link-preview) max-w-[calc(100vw_-_1rem)] truncate-fade rounded-md border border-border bg-surface-2 px-[3px] pb-[2px] pt-[3px] font-mono text-[11px] leading-none text-text max-nav:hidden">
           {hoveredLink}
         </div>
       )}

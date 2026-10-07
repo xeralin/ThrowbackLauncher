@@ -4,7 +4,7 @@ import { InfoHint } from "@/components/InfoHint";
 export const panel = "rounded-lg border border-border bg-surface";
 
 export const iconBox =
-  "flex shrink-0 items-center rounded-lg border border-border p-[0.2rem] pr-[0.075rem]";
+  "flex h-8 shrink-0 items-center rounded-lg border border-border pl-[0.2rem] pr-[0.075rem]";
 
 export const card = `${panel} flex flex-col gap-4 p-4`;
 

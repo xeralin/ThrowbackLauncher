@@ -3,8 +3,8 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
-import { hasOpenInfoHint } from "@/components/InfoHint";
 import { panel } from "@/components/ui";
+import { hasOpenPopover } from "@/lib/popover";
 
 const stack: { id: symbol; el: HTMLElement | null }[] = [];
 
@@ -27,16 +27,20 @@ function setBackgroundInert(inert: boolean) {
 
 export const modalTitle = "font-display text-[1.2rem] font-bold text-text";
 
+const modalWidth = "w-[min(440px,calc(100vw-2rem))]";
+
 export function Modal({
   title,
   children,
   footer,
+  aside,
   onClose,
   onConfirm,
 }: {
   title: ReactNode;
   children?: ReactNode;
   footer?: ReactNode;
+  aside?: ReactNode;
   onClose?: () => void;
   onConfirm?: () => void;
 }) {
@@ -80,7 +84,7 @@ export function Modal({
     function onKey(event: KeyboardEvent) {
       if (stack.at(-1)?.id !== id.current) return;
       if (event.key === "Escape") {
-        if (!hasOpenInfoHint()) onClose?.();
+        if (!hasOpenPopover()) onClose?.();
         return;
       }
       if (event.key !== "Enter" || event.isComposing) return;
@@ -112,11 +116,11 @@ export function Modal({
       }}
       className="fixed inset-0 z-(--z-modal) flex items-center justify-center bg-black/60 animate-fade-in"
     >
-      <div className="animate-fade-up">
+      <div className="flex max-h-[calc(100dvh-3rem)] animate-fade-up flex-col gap-4">
         <div
           ref={panelRef}
           tabIndex={-1}
-          className={`flex max-h-[calc(100dvh-3rem)] w-[min(440px,calc(100vw-2rem))] flex-col ${panel} p-6 outline-none`}
+          className={`flex min-h-0 max-h-[calc(100dvh-3rem)] ${modalWidth} flex-col ${panel} p-6 outline-none`}
         >
           <h2 id={titleId} className={`mb-3 shrink-0 ${modalTitle}`}>
             {title}
@@ -132,6 +136,9 @@ export function Modal({
             </div>
           )}
         </div>
+        {aside && (
+          <div className={`${modalWidth} shrink-0 ${panel} p-6`}>{aside}</div>
+        )}
       </div>
     </div>,
     document.body,

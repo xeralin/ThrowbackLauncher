@@ -1,9 +1,7 @@
 import type { ComponentPropsWithRef, ReactNode } from "react";
 
-const buttonSkin =
-  "whitespace-nowrap rounded-md font-mono text-label indent-[0.08em] tracking-[0.08em] shadow-[0_2px_14px_transparent] transition duration-200";
-
-export const buttonBase = `inline-flex h-8 items-center px-[1.1rem] ${buttonSkin}`;
+export const buttonBase =
+  "inline-flex h-8 items-center px-[1.1rem] whitespace-nowrap rounded-md font-mono text-label indent-[0.08em] tracking-[0.08em] shadow-[0_2px_14px_transparent] transition duration-200";
 
 export const buttonVariants = {
   primary:
@@ -19,8 +17,6 @@ export const iconButton = `p-1 ${iconButtonSkin}`;
 
 export const stepperButton = `flex items-center self-stretch px-[2px] ${iconButtonSkin}`;
 
-const base = `${buttonBase} justify-center disabled:cursor-not-allowed disabled:opacity-40`;
-
 export function Button({
   variant,
   pulse = false,
@@ -35,7 +31,7 @@ export function Button({
   return (
     <button
       type="button"
-      className={`${base} ${buttonVariants[variant]} ${
+      className={`${buttonBase} justify-center disabled:cursor-not-allowed disabled:opacity-40 ${buttonVariants[variant]} ${
         pulse ? "animate-pulse pointer-events-none" : ""
       } ${className}`}
       {...props}
