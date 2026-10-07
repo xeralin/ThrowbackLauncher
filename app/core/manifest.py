@@ -28,9 +28,12 @@ def load_downloads() -> list[dict]:
         raise RuntimeError(log.fail("manifest.toml is malformed", e)) from e
 
     defaults = {key: value for key, value in data.items() if not isinstance(value, dict)}
-    return [
+    downloads = [
         {"key": key, **defaults, **block} for key, block in data.items() if isinstance(block, dict)
     ]
+    if not downloads:
+        raise RuntimeError(log.fail("manifest.toml has no entries", MANIFEST_FILE))
+    return downloads
 
 
 def is_season_folder(d: Path) -> bool:

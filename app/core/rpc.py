@@ -23,14 +23,6 @@ OP_PONG = 4
 IPC_TIMEOUT = 10
 _IPC_NAMES = tuple(f"discord-ipc-{i}" for i in range(10))
 
-TB_CLIENT_ID = "1544119665394192525"
-HM_CLIENT_ID = "1544119720662278215"
-FAQ_BUTTON = {
-    "label": "Download",
-    "url": f"https://{OWNER}.github.io/ThrowbackFAQ/getting-started/",
-}
-STATUS_DISPLAY_DETAILS = 2
-
 if IS_WINDOWS:
     import ctypes
     from ctypes import wintypes
@@ -321,9 +313,11 @@ class Presence:
 
 def build_activity(download: dict, is_hm: bool, start: int) -> tuple[str, dict]:
     activity = {
-        "status_display_type": STATUS_DISPLAY_DETAILS,
+        "status_display_type": 2,
         "details": download["label"],
         "timestamps": {"start": start},
-        "buttons": [FAQ_BUTTON],
+        "buttons": [
+            {"label": "Play", "url": f"https://{OWNER}.github.io/ThrowbackFAQ/getting-started/"}
+        ],
     }
-    return (HM_CLIENT_ID if is_hm else TB_CLIENT_ID), activity
+    return ("1544119720662278215" if is_hm else "1544119665394192525"), activity

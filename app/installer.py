@@ -71,14 +71,13 @@ CARD_WIDTH = 440
 CARD_PADDING = 24
 BUTTON_GAP = 8
 CLOSE_WIDTH = 84
-CONTINUE_WIDTH = 104
+PRIMARY_WIDTH = 104
 CONTROL_HEIGHT = 32
 MESSAGE_PADDING = 3
 CHIP_PADDING = 2
 FADE_EDGE = 28
 ERROR_TEXT_MAX = 160
 DOWNLOAD_PCT = 90
-INACTIVE_OPACITY = 0.4
 SWITCH_WIDTH = 34
 SWITCH_HEIGHT = 18
 COPIED_MS = 1400
@@ -88,14 +87,11 @@ EXCLUSION_STEPS = (
     "Scroll down to <i>Exclusions</i> and click <b>Add or remove exclusions</b>",
     "Click <b>Add an exclusion</b> &gt; <b>Folder</b> and paste the path below",
 )
-SUCCESS = "#6abf6a"
 
 TEXT = "#e8e0d5"
 MUTED = "#7a7890"
 ACCENT = DEFAULT_ACCENT
 ACCENT_HOVER = "#a01020"
-ACCENT_DIM = "#560913"
-CARD_BG = "#13131a"
 FIELD_BG = "#1a1a24"
 BORDER = "#2a2a38"
 
@@ -112,7 +108,7 @@ def _load_fonts() -> None:
 
 STYLE = f"""
 #card {{
-    background: {CARD_BG};
+    background: #13131a;
     border: 1px solid {BORDER};
     border-radius: 8px;
 }}
@@ -438,7 +434,6 @@ class Switch(QWidget):
         self.setFixedSize(SWITCH_WIDTH, SWITCH_HEIGHT)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._checked = checked
-        self._hover = False
         self._progress = 1.0 if checked else 0.0
         self._slide = QVariantAnimation(self)
         self._slide.setDuration(200)
@@ -453,11 +448,9 @@ class Switch(QWidget):
         self.update()
 
     def enterEvent(self, event) -> None:
-        self._hover = True
         self.update()
 
     def leaveEvent(self, event) -> None:
-        self._hover = False
         self.update()
 
     def mousePressEvent(self, event) -> None:
@@ -470,7 +463,7 @@ class Switch(QWidget):
         self._slide.start()
 
     def paintEvent(self, event) -> None:
-        hover = self._hover and self.isEnabled()
+        hover = self.underMouse() and self.isEnabled()
         track = _mix(
             QColor(BORDER if hover else FIELD_BG),
             QColor(ACCENT_HOVER if hover else ACCENT),
@@ -478,7 +471,7 @@ class Switch(QWidget):
         )
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setOpacity(1.0 if self.isEnabled() else INACTIVE_OPACITY)
+        painter.setOpacity(1.0 if self.isEnabled() else 0.4)
         painter.setPen(QPen(_mix(QColor(BORDER), QColor(ACCENT), self._progress), 1))
         painter.setBrush(track)
         painter.drawRoundedRect(QRectF(0.5, 0.5, SWITCH_WIDTH - 1, SWITCH_HEIGHT - 1), 6, 6)
@@ -509,7 +502,6 @@ class ProgressButton(QPushButton):
     def __init__(self, text: str) -> None:
         super().__init__(text)
         self._progress = 0
-        self._hover = False
         self._active = False
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setCursor(Qt.CursorShape.ForbiddenCursor)
@@ -520,7 +512,6 @@ class ProgressButton(QPushButton):
 
     def set_active(self, active: bool) -> None:
         self._active = active
-        self._hover = active and self.underMouse()
         self.setCursor(
             Qt.CursorShape.PointingHandCursor if active else Qt.CursorShape.ForbiddenCursor
         )
@@ -531,11 +522,9 @@ class ProgressButton(QPushButton):
             super().mousePressEvent(event)
 
     def enterEvent(self, event) -> None:
-        self._hover = True
         self.update()
 
     def leaveEvent(self, event) -> None:
-        self._hover = False
         self.update()
 
     def paintEvent(self, event) -> None:
@@ -545,16 +534,15 @@ class ProgressButton(QPushButton):
         path = QPainterPath()
         path.addRoundedRect(rect, 6, 6)
         if self._active:
-            painter.fillPath(path, QColor(ACCENT_HOVER if self._hover else ACCENT))
+            painter.fillPath(path, QColor(ACCENT_HOVER if self.underMouse() else ACCENT))
         else:
-            painter.fillPath(path, QColor(ACCENT_DIM))
+            painter.fillPath(path, QColor("#560913"))
             width = rect.width() * self._progress / 100
             if width > 0:
                 painter.setClipRect(QRectF(0, 0, width, rect.height()))
                 painter.fillPath(path, QColor(ACCENT))
                 painter.setClipping(False)
         painter.setPen(QColor("white"))
-        painter.setFont(self.font())
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text())
 
 
@@ -571,7 +559,6 @@ class InstallerWindow(QWidget):
 
         card = QFrame()
         card.setObjectName("card")
-        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         card.setFixedWidth(CARD_WIDTH)
         shell = QVBoxLayout(self)
         shell.setContentsMargins(0, 0, 0, 0)
@@ -596,7 +583,6 @@ class InstallerWindow(QWidget):
 
         path_box = QFrame()
         path_box.setObjectName("path")
-        path_box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         path_box.setFixedHeight(CONTROL_HEIGHT)
         self._path_text = FadeLabel(str(root))
         self._path_text.setObjectName("pathtext")
@@ -614,7 +600,6 @@ class InstallerWindow(QWidget):
 
         self._guide = QFrame()
         self._guide.setObjectName("guide")
-        self._guide.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         guide_text = QLabel(
             '<table cellspacing="0" cellpadding="0">'
             + "".join(
@@ -640,9 +625,8 @@ class InstallerWindow(QWidget):
         self._message = QFrame()
         self._message.setObjectName("message")
         self._message.setVisible(False)
-        self._message.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._message.setMaximumWidth(
-            CARD_WIDTH - 2 * (CARD_PADDING + 1) - CLOSE_WIDTH - CONTINUE_WIDTH - 2 * BUTTON_GAP
+            CARD_WIDTH - 2 * (CARD_PADDING + 1) - CLOSE_WIDTH - PRIMARY_WIDTH - 2 * BUTTON_GAP
         )
         self._message_text = FadeLabel()
         self._message_text.setObjectName("messagetext")
@@ -656,7 +640,7 @@ class InstallerWindow(QWidget):
         self._primary.clicked.connect(self._on_primary)
         self._primary.setFont(_button_font())
         self._primary.setFixedHeight(CONTROL_HEIGHT)
-        self._primary.setMinimumWidth(CONTINUE_WIDTH)
+        self._primary.setMinimumWidth(PRIMARY_WIDTH)
         self._close = QPushButton("Cancel")
         self._close.setObjectName("close")
         self._close.setFont(_button_font())
@@ -769,7 +753,7 @@ class InstallerWindow(QWidget):
     def _on_browse(self) -> None:
         if self._installer.isRunning() or self._installed:
             QApplication.clipboard().setText(str(self._root))
-            check = _check_icon(SUCCESS)
+            check = _check_icon("#6abf6a")
             self._browse.set_icons(check, check)
             QTimer.singleShot(
                 COPIED_MS,
@@ -777,7 +761,7 @@ class InstallerWindow(QWidget):
             )
             return
         picked = QFileDialog.getExistingDirectory(
-            self, "Choose install folder", str(self._root.parent)
+            self, "Select install folder", str(self._root.parent)
         )
         if not picked:
             return
@@ -805,8 +789,6 @@ class InstallerWindow(QWidget):
         if self._installer.isRunning():
             event.ignore()
             self._on_cancel()
-        else:
-            event.accept()
 
 
 def main() -> int:

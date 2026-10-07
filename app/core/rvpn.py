@@ -10,6 +10,7 @@ import subprocess
 import tarfile
 import threading
 import time
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 
@@ -20,8 +21,6 @@ from core.constants import (
     RVPN_MAC_FILE,
     RVPN_PREFIX,
     RVPN_STATE_DIR,
-    WINE_API_URL,
-    WINE_ASSET_SUFFIX,
     WINE_BIN,
     WINE_DIR,
 )
@@ -39,9 +38,6 @@ _REG_NAME = "rvpn.reg"
 _REG_FILE = RVPN_PREFIX / "drive_c" / _REG_NAME
 
 _BUNDLED_FONTS = ("OpenSans-Regular.ttf", "OpenSans-Bold.ttf")
-_FONTS_KEY = r"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Fonts"
-_FONT_SUB_KEY = r"HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes"
-_WINE_FONTS_KEY = r"HKCU\Software\Wine\Fonts\Replacements"
 
 _CMD_FILE = "/tmp/rvpn_netsh_cmd"
 _CMD_PROC = _CMD_FILE + ".proc"
@@ -73,7 +69,7 @@ def _single_root(tmp_dir: Path) -> Path:
     return tmp_dir
 
 
-def ensure_wine(reporter: Reporter, cancelled: Callable[[], bool] | None = None) -> None:
+def ensure_wine(reporter: Reporter, cancelled: Callable[[], bool]) -> None:
     if WINE_BIN.exists():
         return
 
@@ -82,7 +78,10 @@ def ensure_wine(reporter: Reporter, cancelled: Callable[[], bool] | None = None)
     archive = BIN_DIR / "_wine.tar.xz"
     tmp_dir = BIN_DIR / ".wine.tmp"
     try:
-        _, asset_url = github_asset(WINE_API_URL, WINE_ASSET_SUFFIX)
+        _, asset_url = github_asset(
+            "https://api.github.com/repos/Kron4ek/Wine-Builds/releases/latest",
+            "staging-amd64-wow64.tar.xz",
+        )
         shutil.rmtree(tmp_dir, ignore_errors=True)
         tmp_dir.mkdir(parents=True)
         fetch_to(asset_url, archive, cancelled=cancelled)
@@ -109,10 +108,9 @@ def _wine_env() -> dict[str, str]:
     env["WINEDEBUG"] = "-all"
     env["WINEDLLOVERRIDES"] = "winemenubuilder.exe=d"
     env["MALLOC_ARENA_MAX"] = "2"
-    if WINE_BIN.exists():
-        env["PATH"] = str(WINE_DIR / "bin") + os.pathsep + env.get("PATH", "")
-        env["WINELOADER"] = str(WINE_BIN)
-        env["WINESERVER"] = str(WINE_DIR / "bin" / "wineserver")
+    env["PATH"] = str(WINE_DIR / "bin") + os.pathsep + env.get("PATH", "")
+    env["WINELOADER"] = str(WINE_BIN)
+    env["WINESERVER"] = str(WINE_DIR / "bin" / "wineserver")
     return env
 
 
@@ -168,10 +166,7 @@ def _is_fifo(path: str) -> bool:
 
 
 def _privatize_desktop() -> None:
-    users = RVPN_PREFIX / "drive_c" / "users"
-    if not users.exists():
-        return
-    for desktop in users.glob("*/Desktop"):
+    for desktop in (RVPN_PREFIX / "drive_c" / "users").glob("*/Desktop"):
         if desktop.is_symlink():
             desktop.unlink()
             desktop.mkdir(exist_ok=True)
@@ -185,10 +180,9 @@ def _read_utf16(path: Path) -> str:
 
 
 def _extract_ip(text: str) -> str | None:
-    lines = text.strip().split("\n")
-    if not any("adapter ready" in line for line in lines):
+    if "adapter ready" not in text:
         return None
-    for line in reversed(lines):
+    for line in reversed(text.split("\n")):
         if "Registered as" in line or ("IP:" in line and "0.0.0.0" not in line):
             match = _VPN_IP_SCAN.search(line)
             if match:
@@ -208,25 +202,22 @@ def _reg_value(reg_type: str, data: str) -> str:
     if reg_type == "REG_DWORD":
         return f"dword:{int(data, 0):08x}"
     if reg_type == "REG_EXPAND_SZ":
-        raw = data.encode("utf-16-le") + b"\x00\x00"
-        return "hex(2):" + ",".join(f"{b:02x}" for b in raw)
+        return "hex(2):" + (data.encode("utf-16-le") + b"\x00\x00").hex(",")
     return '"' + data.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-_RegEntry = tuple[str, str | None, str | None, str | None]
+type _RegEntry = tuple[str, str | None, str | None, str | None]
 
 
 def _reg_file(entries: list[_RegEntry]) -> bytes:
     grouped: dict[str, list[str]] = {}
     for key, name, reg_type, data in entries:
-        grouped.setdefault(key, [])
+        values = grouped.setdefault(key, [])
         if name is not None:
-            grouped[key].append(f'"{name}"={_reg_value(reg_type, data)}')
+            values.append(f'"{name}"={_reg_value(reg_type, data)}')
     lines = ["Windows Registry Editor Version 5.00", ""]
-    for key in grouped:
-        lines.append(f"[{_reg_hive(key)}]")
-        lines.extend(grouped[key])
-        lines.append("")
+    for key, values in grouped.items():
+        lines += [f"[{_reg_hive(key)}]", *values, ""]
     return b"\xff\xfe" + "\r\n".join(lines).encode("utf-16-le")
 
 
@@ -298,12 +289,10 @@ class _Root:
         if proc is None:
             return
         if proc.stdin is not None:
-            try:
+            with contextlib.suppress(OSError, ValueError):
                 proc.stdin.write(b"__END__\n")
                 proc.stdin.flush()
                 proc.stdin.close()
-            except OSError, ValueError:
-                pass
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
@@ -331,7 +320,7 @@ class Session:
             if not self._preflight(reporter):
                 return
             _kill_helpers(self._env)
-            if not self._ensure_installed(installer, reporter):
+            if not self._ensure_installed(installer, reporter) or self._cancel.is_set():
                 return
             self._root.open()
             self._stage_artifacts(reporter)
@@ -420,18 +409,16 @@ class Session:
         except OSError as e:
             raise OSError(log.fail("Radmin VPN install failed", e)) from e
         while proc.poll() is None:
-            if self._cancel.is_set():
+            if self._cancel.wait(0.2):
                 _stop_proc(proc)
                 _wineserver_stop(self._env)
                 return False
-            time.sleep(0.2)
         for _ in range(30):
-            if self._cancel.is_set():
+            if self._cancel.wait(0.5):
                 return False
-            time.sleep(0.5)
             if is_installed():
                 break
-        if not is_installed():
+        else:
             reporter.fail(
                 log.fail("Radmin VPN install failed", f"installer exit={proc.returncode}")
             )
@@ -446,7 +433,6 @@ class Session:
         try:
             _privatize_desktop()
             _DRIVERS.mkdir(parents=True, exist_ok=True)
-            _RVPN_APP.mkdir(parents=True, exist_ok=True)
             _SYSWOW.mkdir(parents=True, exist_ok=True)
             _copy(RVPN_BIN_DIR / "rvpnnetmp.sys", _DRIVERS / "rvpnnetmp.sys")
             _copy(RVPN_BIN_DIR / "adapter_hook.dll", _RVPN_APP / "adapter_hook.dll")
@@ -466,15 +452,13 @@ class Session:
         with contextlib.suppress(OSError):
             mac = RVPN_MAC_FILE.read_text().strip()
         if not _MAC_RE.match(mac):
-            octets = bytes([0x02, *os.urandom(5)])
-            mac = ":".join(f"{b:02x}" for b in octets)
+            mac = bytes([0x02, *os.urandom(5)]).hex(":")
             try:
-                RVPN_STATE_DIR.mkdir(parents=True, exist_ok=True)
                 RVPN_MAC_FILE.write_text(mac)
             except OSError as e:
                 raise OSError(log.fail("Adapter MAC file write failed", e)) from e
         self._mac = mac
-        raw = bytes(int(p, 16) for p in mac.split(":"))
+        raw = bytes.fromhex(mac.replace(":", ""))
         _rm(_MAC_RAW)
         try:
             fd = os.open(_MAC_RAW, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -509,13 +493,12 @@ class Session:
         if error:
             return error
         for _ in range(600):
-            if self._cancel.is_set():
-                return None
             if not self._root.alive():
                 return "authorization was declined"
             if Path("/sys/class/net", _TAP).exists():
                 return None
-            time.sleep(0.1)
+            if self._cancel.wait(0.1):
+                return None
         return "could not create the network device"
 
     def _start_bridge(self, reporter: Reporter) -> bool:
@@ -547,24 +530,24 @@ class Session:
 
     def _configure_registry(self, reporter: Reporter) -> None:
         reporter.update("Configuring adapter")
-        guid = self._detect_guid()
+        digest = hashlib.md5((self._mac.replace(":", "") + "\n").encode()).digest()
+        guid = f"{{{uuid.UUID(bytes=digest)}}}"
         connection = (
             rf"HKLM\SYSTEM\CurrentControlSet\Control\Network\{_NET_CLASS}\{guid}\Connection"
         )
         app = r"HKLM\Software\Wow6432Node\Famatech\RadminVPN\1.0"
-        firewall = app + r"\Firewall"
-        registration = r"HKLM\SOFTWARE\Famatech\RadminVPN\1.0\Registration"
         image = r"C:\windows\system32\drivers\rvpnnetmp.sys"
         desktop = r"HKCU\Control Panel\Desktop"
+        nt = r"HKLM\Software\Microsoft\Windows NT\CurrentVersion"
         entries = [
             (_CLASS_KEY, "NetCfgInstanceId", "REG_SZ", guid),
             (_CLASS_KEY, "MatchingDeviceId", "REG_SZ", guid + r"\RvNetMP60"),
             (connection, "Name", "REG_SZ", "Radmin VPN"),
             (connection, "PnpInstanceID", "REG_SZ", r"ROOT\NET\0099"),
-            (firewall, "AdapterId", "REG_SZ", guid),
+            (app + r"\Firewall", "AdapterId", "REG_SZ", guid),
             (app, "PowerOn", "REG_DWORD", "1"),
             (app + r"\update", "Mode", "REG_DWORD", "3"),
-            (registration, None, None, None),
+            (r"HKLM\SOFTWARE\Famatech\RadminVPN\1.0\Registration", None, None, None),
             (_SERVICE_KEY, "DisplayName", "REG_SZ", "Radmin VPN TAP Bridge"),
             (_SERVICE_KEY, "ImagePath", "REG_EXPAND_SZ", image),
             (_SERVICE_KEY, "Start", "REG_DWORD", "2"),
@@ -579,23 +562,15 @@ class Session:
             (desktop, "FontSmoothing", "REG_SZ", "2"),
             (desktop, "FontSmoothingType", "REG_DWORD", "1"),
             (r"HKCU\Software\Famatech\Radmin VPN\ui\MainWindow", "IsHidden", "REG_SZ", "false"),
-        ]
-        entries += [
-            (_FONTS_KEY, f"{Path(name).stem} (TrueType)", "REG_SZ", name) for name in _BUNDLED_FONTS
-        ]
-        entries += [
-            (_FONT_SUB_KEY, "MS Shell Dlg 2", "REG_SZ", "Tahoma"),
-            (_WINE_FONTS_KEY, "MS Shell Dlg 2", "REG_SZ", "Tahoma"),
+            *(
+                (nt + r"\Fonts", f"{Path(name).stem} (TrueType)", "REG_SZ", name)
+                for name in _BUNDLED_FONTS
+            ),
+            (nt + r"\FontSubstitutes", "MS Shell Dlg 2", "REG_SZ", "Tahoma"),
+            (r"HKCU\Software\Wine\Fonts\Replacements", "MS Shell Dlg 2", "REG_SZ", "Tahoma"),
         ]
         self._reg_import(entries)
         _wineserver_stop(self._env)
-
-    def _detect_guid(self) -> str:
-        digest = hashlib.md5((self._mac.replace(":", "") + "\n").encode()).hexdigest()
-        return (
-            "{" + f"{digest[0:8]}-{digest[8:12]}-{digest[12:16]}"
-            f"-{digest[16:20]}-{digest[20:32]}" + "}"
-        )
 
     def _start_relay(self) -> None:
         _rm(_CMD_FILE)
@@ -603,23 +578,20 @@ class Session:
         threading.Thread(target=self._relay_loop, daemon=True).start()
 
     def _relay_loop(self) -> None:
-        processing = _CMD_PROC
         while not self._relay_stop.is_set():
-            try:
+            with contextlib.suppress(OSError):
                 if Path(_CMD_FILE).is_file():
-                    Path(_CMD_FILE).rename(processing)
-                    for line in Path(processing).read_text().splitlines():
-                        self._apply_netsh(line.strip())
-                    _rm(processing)
-            except OSError:
-                pass
+                    Path(_CMD_FILE).rename(_CMD_PROC)
+                    for line in Path(_CMD_PROC).read_text().splitlines():
+                        self._apply_netsh(line)
+                    _rm(_CMD_PROC)
             self._relay_stop.wait(0.1)
 
     def _apply_netsh(self, line: str) -> None:
         match = _NETSH_ADDR.search(line)
         if not match:
             return
-        ip, cidr = match.group(1), match.group(2)
+        ip, cidr = match.groups()
         if _VPN_IP.match(ip):
             error = self._root.run(f"ip addr add {ip}/{cidr} dev {_TAP}; ip link set {_TAP} up")
             if error:
@@ -645,23 +617,19 @@ class Session:
         except OSError as e:
             raise OSError(log.fail("Radmin VPN daemon failed to start", e)) from e
         for _ in range(_SERVICE_TIMEOUT_S * 5):
-            time.sleep(0.2)
-            if self._cancel.is_set():
+            if self._cancel.wait(0.2):
                 return False
             text = _read_utf16(_SERVICE_LOG)
-            if text:
-                match = _SERVICE_VER.search(text)
-                if match is not None and match.group(1).startswith("1.4"):
-                    reporter.fail(
-                        log.fail(
-                            "This Radmin VPN installer is outdated", f"daemon {match.group(1)}"
-                        )
-                    )
-                    return False
-                ip = _extract_ip(text)
-                if ip:
-                    self._vpn_ip = ip
-                    return True
+            match = _SERVICE_VER.search(text)
+            if match is not None and match.group(1).startswith("1.4"):
+                reporter.fail(
+                    log.fail("This Radmin VPN installer is outdated", f"daemon {match.group(1)}")
+                )
+                return False
+            ip = _extract_ip(text)
+            if ip:
+                self._vpn_ip = ip
+                return True
             if self._service_proc.poll() is not None:
                 reporter.fail(
                     log.fail("Radmin VPN daemon exited", f"exit={self._service_proc.returncode}")
@@ -687,14 +655,11 @@ class Session:
         return self._root.run(script)
 
     def _launch_gui(self) -> None:
-        env = dict(self._env)
-        env["LIBGL_ALWAYS_SOFTWARE"] = "1"
-        env["GALLIUM_DRIVER"] = "llvmpipe"
         try:
             self._gui_proc = subprocess.Popen(
                 ["wine", "RvRvpnGui.exe"],
                 cwd=str(_RVPN_APP),
-                env=env,
+                env=dict(self._env, LIBGL_ALWAYS_SOFTWARE="1", GALLIUM_DRIVER="llvmpipe"),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -704,10 +669,9 @@ class Session:
     def _wait_exit(self) -> None:
         proc = self._gui_proc
         while proc.poll() is None:
-            if self._cancel.is_set():
+            if self._cancel.wait(0.3):
                 _terminate(proc)
                 break
-            time.sleep(0.3)
 
     def _teardown(self) -> None:
         self._relay_stop.set()
@@ -715,7 +679,6 @@ class Session:
         _stop_proc(self._gui_proc)
         _stop_proc(self._service_proc)
         _stop_proc(self._bridge_proc)
-        self._gui_proc = self._service_proc = self._bridge_proc = None
         self._root.run(f"ip link delete {_TAP}")
         self._root.close()
         for path in _RUNTIME_FILES:

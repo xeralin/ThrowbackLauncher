@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtCore import QChildEvent, QEvent, QObject, QStandardPaths, Qt, QUrl
+from PySide6.QtCore import QChildEvent, QEvent, QFile, QIODevice, QObject, QStandardPaths, Qt, QUrl
 from PySide6.QtGui import QCloseEvent, QColor, QDesktopServices, QKeyEvent, QWheelEvent
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineScript, QWebEngineSettings
@@ -12,38 +12,33 @@ from core.constants import IS_WINDOWS
 
 
 def _platform_script() -> QWebEngineScript:
+    channel = QFile(":/qtwebchannel/qwebchannel.js")
+    channel.open(QIODevice.OpenModeFlag.ReadOnly)
     script = QWebEngineScript()
     script.setName("throwback-platform")
     script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
     script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
-    script.setRunsOnSubFrames(False)
-    script.setSourceCode(f'window.__throwbackOS = "{"windows" if IS_WINDOWS else "linux"}";')
+    script.setSourceCode(
+        bytes(channel.readAll()).decode()
+        + f'window.__throwbackOS = "{"windows" if IS_WINDOWS else "linux"}";'
+    )
     return script
 
 
-def _open_external(url: QUrl, origin: QUrl) -> bool:
-    internal = (url.scheme(), url.host(), url.port()) == (
-        origin.scheme(),
-        origin.host(),
-        origin.port(),
-    )
-    if url.scheme() in ("http", "https") and not internal:
-        if not QDesktopServices.openUrl(url):
-            log.fail("External URL open failed", url.toString())
-        return True
-    return False
+def _open_external(url: QUrl) -> bool:
+    if url.scheme() not in ("http", "https"):
+        return False
+    if not QDesktopServices.openUrl(url):
+        log.fail("External URL open failed", url.toString())
+    return True
 
 
 class _AppPage(QWebEnginePage):
-    def __init__(self, origin: QUrl, parent: QObject | None = None) -> None:
-        super().__init__(parent)
-        self._origin = origin
-
     def acceptNavigationRequest(
         self, url: QUrl, nav_type: QWebEnginePage.NavigationType, is_main_frame: bool
     ) -> bool:
         if nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked and _open_external(
-            url, self._origin
+            url
         ):
             return False
         return super().acceptNavigationRequest(url, nav_type, is_main_frame)
@@ -57,37 +52,31 @@ class BrowserView(QWebEngineView):
         super().__init__()
 
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-        self._origin = QUrl(url)
-        self.setPage(_AppPage(self._origin, self))
+        page = _AppPage(self)
+        self.setPage(page)
 
-        self.page().settings().setAttribute(
-            QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, True
-        )
-        self.page().settings().setAttribute(
-            QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, True
-        )
-        self.page().scripts().insert(_platform_script())
-        self.page().newWindowRequested.connect(self._open_external_window)
-        self.page().profile().downloadRequested.connect(self._accept_download)
+        settings = page.settings()
+        settings.setAttribute(QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, True)
+        page.scripts().insert(_platform_script())
+        page.newWindowRequested.connect(lambda request: _open_external(request.requestedUrl()))
+        page.profile().downloadRequested.connect(self._accept_download)
 
-        self._channel = QWebChannel(self.page())
+        channel = QWebChannel(page)
         for name, obj in objects.items():
             obj.setParent(self)
-            self._channel.registerObject(name, obj)
-        self.page().setWebChannel(self._channel)
-        self.page().setBackgroundColor(QColor("#0d0d0f"))
+            channel.registerObject(name, obj)
+        page.setWebChannel(channel)
+        page.setBackgroundColor(QColor("#0d0d0f"))
 
-        self.load(self._origin)
-
-    def _open_external_window(self, request) -> None:
-        _open_external(request.requestedUrl(), self._origin)
+        self.load(QUrl(url))
 
     def _accept_download(self, request) -> None:
         downloads = QStandardPaths.writableLocation(
             QStandardPaths.StandardLocation.DownloadLocation
         )
         picked, _ = QFileDialog.getSaveFileName(
-            None, "Save file", str(Path(downloads) / request.downloadFileName())
+            None, "", str(Path(downloads) / request.downloadFileName())
         )
         if not picked:
             request.cancel()

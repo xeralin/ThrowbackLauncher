@@ -3,31 +3,14 @@ import threading
 from PySide6.QtCore import QObject, Signal, Slot
 
 from core import log
-from core.constants import (
-    BUSY_MESSAGE,
-    EVENT_SEASONS,
-    NOT_INSTALLED,
-    SEASON_RUNNING,
-    TEXTURE_QUALITIES,
-)
+from core.constants import BUSY_MESSAGE, EVENT_SEASONS, NOT_INSTALLED, SEASON_RUNNING
 from core.manifest import installed_path
-from core.shears import KINDS, cut_download, scan_download
+from core.shears import cut_download, scan_download
 from core.steam import is_season_running
 
 
 def _fail(key: str, message: str) -> dict:
     return {"key": key, "ok": False, "message": message}
-
-
-def _serialize(scan: dict) -> dict:
-    return {
-        "videos": scan["videos"],
-        "events": scan["events"],
-        "tiers": [
-            {"level": level, "quality": TEXTURE_QUALITIES[level], "size": size}
-            for level, size in sorted(scan["tiers"].items())
-        ],
-    }
 
 
 class ShearsController(QObject):
@@ -62,7 +45,7 @@ class ShearsController(QObject):
                     {"key": key, "ok": True, "scan": {"videos": 0, "events": 0, "tiers": []}}
                 )
                 return
-            scan = _serialize(scan_download(path, EVENT_SEASONS.get(key)))
+            scan = scan_download(path, EVENT_SEASONS.get(key))
             self._scan_done_in.emit({"key": key, "ok": True, "scan": scan})
         except Exception as e:
             self._scan_done_in.emit(_fail(key, log.fail("Shears failed", e)))
@@ -71,7 +54,9 @@ class ShearsController(QObject):
     def cut(self, key: str, kind: str, level: int) -> None:
         if self._busy_key is not None:
             return
-        if kind not in KINDS or (kind == "events" and key not in EVENT_SEASONS):
+        if kind not in ("videos", "events", "textures") or (
+            kind == "events" and key not in EVENT_SEASONS
+        ):
             self.cut_done.emit(_fail(key, "Invalid target"))
             return
         if self._downloader.busy_with(key):
@@ -91,8 +76,6 @@ class ShearsController(QObject):
                 return
             pattern = EVENT_SEASONS.get(key)
             cut_download(path, kind, level, pattern)
-            self._cut_done_in.emit(
-                {"key": key, "ok": True, "scan": _serialize(scan_download(path, pattern))}
-            )
+            self._cut_done_in.emit({"key": key, "ok": True, "scan": scan_download(path, pattern)})
         except Exception as e:
             self._cut_done_in.emit(_fail(key, log.fail("Shears failed", e)))

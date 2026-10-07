@@ -10,14 +10,13 @@ from typing import NamedTuple
 from PySide6.QtCore import QObject, QProcess, QTimer, Signal, Slot
 
 from bridge.dialogs import pick_file
-from bridge.reporter import SignalReporter
 from bridge.slots import deferred_slot
 from core import log
 from core.constants import (
-    ALREADY_INSTALLED,
     BIN_DIR,
     BUSY_MESSAGE,
     CACHE_CLEARING,
+    DD_BIN,
     DOWNLOAD_RUNNING,
     FOLDER_NOT_FOUND,
     GIB,
@@ -34,7 +33,7 @@ from core.constants import (
 )
 from core.depot import depot_commands, ensure_depotdownloader
 from core.github import RateLimitError
-from core.heatedmetal import apply_hm, cache_hm_archive, remove_hm_files
+from core.heatedmetal import HmFilesRemovedError, apply_hm, cache_hm_archive, remove_hm_files
 from core.manifest import (
     edition_folder,
     effective_username,
@@ -81,11 +80,13 @@ def _apply_install(
     is_hm: bool,
     username: str,
     reporter: Reporter,
-    archive: Path | None = None,
+    archive: Path | None,
 ) -> bool:
     if is_hm:
         try:
             apply_hm(target, username, download, reporter=reporter, archive=archive)
+        except HmFilesRemovedError:
+            raise
         except OSError as e:
             reporter.fail(str(e))
             return False
@@ -111,15 +112,18 @@ class DownloadController(QObject):
     error = Signal(str)
     active_key_changed = Signal()
     active_hm_changed = Signal()
-    partial_deleted = Signal(str, bool, bool, str)
+    partial_deleted = Signal(str, bool, str)
     rate_limited = Signal(str)
     warning = Signal(str)
     queue_changed = Signal()
+    hm_archive_picked = Signal(bool)
+    hm_files_missing = Signal(str, str)
 
-    _prepare_done_in = Signal(int, str, str)
+    _prepare_done_in = Signal(int, str)
     _apply_done_in = Signal(int, bool)
     _deleted_in = Signal(str, bool, bool, str)
     _hm_cached_in = Signal(str, str)
+    _hm_removed_in = Signal(str, str)
     _renamed_in = Signal(str, str)
     _error_in = Signal(str)
     _rate_limited_in = Signal(str)
@@ -150,7 +154,6 @@ class DownloadController(QObject):
         self._verifying = False
         self._steam_account = ""
         self._target = default_library()
-        self._dd = ""
         self._deleting_key: str | None = None
         self._picking = False
         self._picked_archive: Path | None = None
@@ -178,11 +181,11 @@ class DownloadController(QObject):
                 self._state = "paused"
             else:
                 self._clear_paused_flag()
-        self.log_line.connect(lambda chunk: self._history.extend(chunk.split("\n")))
         self._prepare_done_in.connect(self._on_prepare_done_in)
         self._apply_done_in.connect(self._on_apply_done_in)
         self._deleted_in.connect(self._on_deleted_in)
         self._hm_cached_in.connect(self._on_hm_cached_in)
+        self._hm_removed_in.connect(self.hm_files_missing)
         self._error_in.connect(self.error)
         self._rate_limited_in.connect(self._on_rate_limited_in)
 
@@ -301,18 +304,17 @@ class DownloadController(QObject):
         return download
 
     @deferred_slot(str, bool, str)
-    def start(self, season_key: str, enable_hm: bool, library: str) -> None:
-        self._start(season_key, enable_hm, library)
-
-    @deferred_slot(str, bool, str)
     def enqueue(self, season_key: str, enable_hm: bool, library: str) -> None:
+        self._enqueue(season_key, enable_hm, library)
+
+    def _enqueue(self, season_key: str, enable_hm: bool, library: str) -> None:
         if not self.running:
             self._start(season_key, enable_hm, library)
             return
         if self._active_or_queued(season_key, enable_hm):
             return
         if installed_path(season_key, enable_hm) is not None:
-            self.error.emit(ALREADY_INSTALLED)
+            self._verify(season_key, enable_hm)
             return
         self._queue.append(QueueEntry(season_key, enable_hm, library, False))
         self._queue_updated()
@@ -330,9 +332,7 @@ class DownloadController(QObject):
     @Slot("QVariantList")
     def reorder_queue(self, entries: list) -> None:
         refs = [
-            (str(entry["key"]), bool(entry["hm"]))
-            for entry in list(entries)
-            if isinstance(entry, dict)
+            (str(entry["key"]), bool(entry["hm"])) for entry in entries if isinstance(entry, dict)
         ]
         by_ref = {(item.key, item.hm): item for item in self._queue}
         reordered = [by_ref.pop(ref) for ref in refs if ref in by_ref]
@@ -452,7 +452,10 @@ class DownloadController(QObject):
             if (
                 season_key == self._deleting_key
                 or self._peer_blocker(season_key) is not None
-                or (verify and is_season_running(season_key))
+                or (
+                    (verify or installed_path(season_key, enable_hm) is not None)
+                    and is_season_running(season_key)
+                )
             ):
                 return
             self._queue.pop(0)
@@ -477,7 +480,7 @@ class DownloadController(QObject):
                 return
         else:
             if installed_path(season_key, enable_hm) is not None:
-                self.error.emit(ALREADY_INSTALLED)
+                self._verify(season_key, enable_hm)
                 return
             if root not in libraries():
                 self.error.emit("Unknown library")
@@ -508,17 +511,17 @@ class DownloadController(QObject):
     @Slot(str, bool)
     def delete_partial(self, season_key: str, hm: bool) -> None:
         if self.running and (season_key, hm) == (self._active_key, self._active_hm):
-            self.partial_deleted.emit(season_key, hm, False, BUSY_MESSAGE)
+            self.partial_deleted.emit(season_key, False, BUSY_MESSAGE)
             return
         if self._deleting_key is not None:
-            self.partial_deleted.emit(season_key, hm, False, REMOVING_FILES)
+            self.partial_deleted.emit(season_key, False, REMOVING_FILES)
             return
         blocker = self._peer_blocker(season_key)
         if blocker is not None:
-            self.partial_deleted.emit(season_key, hm, False, blocker)
+            self.partial_deleted.emit(season_key, False, blocker)
             return
         if is_season_running(season_key):
-            self.partial_deleted.emit(season_key, hm, False, SEASON_RUNNING)
+            self.partial_deleted.emit(season_key, False, SEASON_RUNNING)
             return
         folder = edition_folder(season_key, hm)
         targets = [
@@ -530,7 +533,7 @@ class DownloadController(QObject):
             if (season_key, hm) == (self._active_key, self._active_hm):
                 self._on_deleted_in(season_key, hm, True, "")
             else:
-                self.partial_deleted.emit(season_key, hm, False, "Nothing to remove")
+                self.partial_deleted.emit(season_key, False, "Nothing to remove")
             return
         self._deleting_key = season_key
 
@@ -555,7 +558,7 @@ class DownloadController(QObject):
                 self._set_state("idle")
                 self._clear_paused_flag(save=False)
             self._queue_updated()
-        self.partial_deleted.emit(season_key, hm, ok, message)
+        self.partial_deleted.emit(season_key, ok, message)
         self._start_next()
 
     @deferred_slot(str, bool)
@@ -563,6 +566,9 @@ class DownloadController(QObject):
         self._verify(season_key, hm)
 
     def _verify(self, season_key: str, hm: bool) -> None:
+        if partial_path(season_key, hm) is not None:
+            self._enqueue(season_key, hm, "")
+            return
         if self.running:
             if self._active_or_queued(season_key, hm):
                 return
@@ -606,13 +612,15 @@ class DownloadController(QObject):
             self.queue_changed.emit()
         self._clear_paused_flag(save=False)
 
-    def _pick_hm_archive(self, resume: Callable[[], None]) -> None:
+    def _pick_hm_archive(self, resume: Callable[[], None] | None = None) -> None:
         self._picking = True
         try:
-            picked = pick_file("Choose the Heated Metal archive", ".7z archive (*.7z)")
+            picked = pick_file("Select Heated Metal", ".7z archive (*.7z)")
         finally:
             self._picking = False
         if not picked:
+            self.hm_archive_picked.emit(False)
+            self._start_next()
             return
         self._picking = True
         self._hm_resume = resume
@@ -620,8 +628,10 @@ class DownloadController(QObject):
         def work() -> None:
             try:
                 cached = cache_hm_archive(Path(picked))
+            except RateLimitError as e:
+                self._hm_cached_in.emit("", e.message())
             except OSError as e:
-                self._hm_cached_in.emit("", log.fail("Heated Metal archive copy failed", e))
+                self._hm_cached_in.emit("", str(e))
             else:
                 self._hm_cached_in.emit(str(cached), "")
 
@@ -634,11 +644,12 @@ class DownloadController(QObject):
         if err:
             self.error.emit(err)
         else:
-            self._picked_archive = Path(cached)
-            set_setting(self._settings, "hm_archive", self._picked_archive.name)
+            set_setting(self._settings, "hm_archive", Path(cached).name)
             save_settings(self._settings)
             if resume is not None:
+                self._picked_archive = Path(cached)
                 resume()
+        self.hm_archive_picked.emit(not err)
         self._start_next()
 
     def _cached_hm_archive(self) -> Path | None:
@@ -648,6 +659,11 @@ class DownloadController(QObject):
     @Slot(result=bool)
     def hm_archive_cached(self) -> bool:
         return self._cached_hm_archive() is not None
+
+    @deferred_slot()
+    def pick_hm_archive(self) -> None:
+        if not self._picking:
+            self._pick_hm_archive()
 
     def _ensure_hm_archive(self, download: dict, resume: Callable[[], None]) -> bool:
         if not download.get("hm_beta") or self._picked_archive is not None:
@@ -707,24 +723,24 @@ class DownloadController(QObject):
             if pre is not None:
                 pre()
         except OSError as e:
-            self._prepare_done_in.emit(generation, "", str(e))
+            self._prepare_done_in.emit(generation, str(e))
             return
         except Exception as e:
-            self._prepare_done_in.emit(generation, "", log.fail("Setup failed", e))
+            self._prepare_done_in.emit(generation, log.fail("Setup failed", e))
             return
         try:
-            dd = ensure_depotdownloader()
+            ensure_depotdownloader()
             if not enable_hm:
                 ensure_tl()
         except RateLimitError as e:
             self._rate_limited_in.emit(e.message())
-            self._prepare_done_in.emit(generation, "", str(e))
+            self._prepare_done_in.emit(generation, str(e))
         except OSError as e:
-            self._prepare_done_in.emit(generation, "", str(e))
+            self._prepare_done_in.emit(generation, str(e))
         else:
-            self._prepare_done_in.emit(generation, str(dd), "")
+            self._prepare_done_in.emit(generation, "")
 
-    def _on_prepare_done_in(self, generation: int, dd: str, err: str) -> None:
+    def _on_prepare_done_in(self, generation: int, err: str) -> None:
         if generation != self._generation:
             return
         if self._cancelled:
@@ -738,7 +754,6 @@ class DownloadController(QObject):
                 self.error.emit(err)
             self._end_run(1)
             return
-        self._dd = dd
         try:
             self._commands = depot_commands(
                 self._download,
@@ -772,7 +787,7 @@ class DownloadController(QObject):
         proc.finished.connect(self._on_process_done)
         proc.errorOccurred.connect(self._on_process_error)
         self._process = proc
-        proc.start(self._dd, cmd["args"])
+        proc.start(str(DD_BIN), cmd["args"])
 
     def _on_output(self) -> None:
         proc = self.sender()
@@ -791,6 +806,7 @@ class DownloadController(QObject):
             if "InvalidPassword" in line or "Access token was rejected" in line:
                 self._login_failed = True
         if lines:
+            self._history.extend(lines)
             self.log_line.emit("\n".join(lines))
         self._check_prompt(self._buffer)
 
@@ -915,14 +931,15 @@ class DownloadController(QObject):
         self._process = None
         proc.deleteLater()
         self.error.emit(
-            log.fail("DepotDownloader failed to start", f"{self._dd}: {proc.errorString()}")
+            log.fail("DepotDownloader failed to start", f"{DD_BIN}: {proc.errorString()}")
         )
         self._end_run(1)
 
-    def _start_apply(self) -> None:
+    def _start_apply(
+        self, pre: Callable[[], None] | None = None, fail_label: str = "Install failed"
+    ) -> None:
         self._set_step(0, 0)
         self._set_state("applying")
-        username = effective_username(self._settings)
         threading.Thread(
             target=self._apply,
             args=(
@@ -930,8 +947,10 @@ class DownloadController(QObject):
                 self._target,
                 self._download,
                 self._active_hm,
-                username,
+                effective_username(self._settings),
                 self._archive,
+                pre,
+                fail_label,
             ),
             daemon=True,
         ).start()
@@ -944,10 +963,10 @@ class DownloadController(QObject):
         is_hm: bool,
         username: str,
         archive: Path | None,
-        pre: Callable[[], None] | None = None,
-        fail_label: str = "Install failed",
+        pre: Callable[[], None] | None,
+        fail_label: str,
     ) -> None:
-        reporter = SignalReporter(fail_emit=self._error_in.emit)
+        reporter = Reporter(fail_emit=self._error_in.emit)
         try:
             if pre is not None:
                 pre()
@@ -959,6 +978,9 @@ class DownloadController(QObject):
                 reporter=reporter,
                 archive=archive,
             )
+        except HmFilesRemovedError:
+            self._hm_removed_in.emit(download["key"], str(target.parent))
+            ok = False
         except RateLimitError as e:
             self._rate_limited_in.emit(e.message())
             ok = False
@@ -1028,20 +1050,7 @@ class DownloadController(QObject):
             for name in reversed(TL_EXTRACT):
                 (target / name).unlink(missing_ok=True)
 
-        threading.Thread(
-            target=self._apply,
-            args=(
-                self._generation,
-                target,
-                download,
-                True,
-                effective_username(self._settings),
-                self._archive,
-                move_to_hm,
-                "Switch failed",
-            ),
-            daemon=True,
-        ).start()
+        self._start_apply(move_to_hm, "Switch failed")
 
     @Slot(str)
     def remove_hm(self, season_key: str) -> None:
@@ -1075,6 +1084,30 @@ class DownloadController(QObject):
 
         self._start_run(download, season_key, target, False, verify=True, pre=pre)
         self._switching = "tb"
+
+    @deferred_slot(str)
+    def restore_hm(self, season_key: str) -> None:
+        self._restore_hm(season_key)
+
+    def _restore_hm(self, season_key: str) -> None:
+        if self._blocked(season_key):
+            return
+        target = installed_path(season_key, True)
+        if target is None:
+            self.error.emit(NOT_INSTALLED_HM)
+            return
+        download = self._find_download(season_key)
+        if download is None or not download.get("hm"):
+            self.error.emit("Heated Metal is not available for this season")
+            return
+        if is_season_running(season_key):
+            self.error.emit(SEASON_RUNNING)
+            return
+        if not self._ensure_hm_archive(download, lambda: self._restore_hm(season_key)):
+            return
+        self._requeue_paused(season_key, True)
+        self._begin_run(download, season_key, target, True, True, "applying")
+        self._start_apply()
 
     @deferred_slot(str)
     def import_hm(self, season_key: str) -> None:
@@ -1155,11 +1188,8 @@ class DownloadController(QObject):
         }
 
     def _end_run(self, code: int) -> None:
-        self._login_pending = False
         self._login_kind = ""
         self._pending_password = ""
-        self._pending_request = None
-        self._buffer = ""
         done_key = self._active_key
         verifying = self._verifying
         self._set_verifying(False)

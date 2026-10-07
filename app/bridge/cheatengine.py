@@ -17,66 +17,53 @@ from core.throwbackloader import read_tl_autorun
 
 
 class CheatEngineController(QObject):
-    done = Signal(bool, str)
-    _done_in = Signal(bool, str)
+    done = Signal()
+    error = Signal(str)
+    _done_in = Signal(str)
 
-    def __init__(self, settings: dict, downloads: list[dict]) -> None:
+    def __init__(self, settings: dict) -> None:
         super().__init__()
         self._settings = settings
-        self._downloads = downloads
         self._installer: Path | None = None
         self._busy = False
         self._done_in.connect(self._on_done)
 
-    def _on_done(self, ok: bool, message: str) -> None:
+    def _on_done(self, message: str) -> None:
         self._busy = False
-        self.done.emit(ok, message)
+        if message:
+            self.error.emit(message)
+        self.done.emit()
 
     @Slot(result=str)
     def pick_installer(self) -> str:
-        picked = pick_file("Choose the Cheat Engine installer", EXE_FILTER)
+        picked = pick_file("Select Cheat Engine installer", EXE_FILTER)
         if picked:
             self._installer = Path(picked)
         return picked
 
-    @Slot(result="QVariantList")
-    def seasons(self) -> list:
-        result = []
-        for download in self._downloads:
-            key = download["key"]
-            folder = installed_path(key, False)
-            if folder is None:
-                continue
-            has_ce = any(CE_MARKER in t.lower() for t in read_tl_autorun(folder))
-            result.append(
-                {
-                    "key": key,
-                    "label": download["label"],
-                    "hasCe": has_ce,
-                    "present": is_cheat_engine_present(key),
-                }
-            )
-        return result
-
     @Slot(str, result="QVariantMap")
-    def add(self, key: str) -> dict:
+    def status(self, key: str) -> dict:
+        folder = installed_path(key, False)
+        enabled = folder is not None and any(
+            CE_MARKER in t.lower() for t in read_tl_autorun(folder)
+        )
+        return {"enabled": enabled, "present": is_cheat_engine_present(key), "busy": self._busy}
+
+    @Slot(str, result=str)
+    def add(self, key: str) -> str:
         try:
             add_cheat_engine(key)
         except OSError as e:
-            return {"ok": False, "message": str(e)}
-        except Exception as e:
-            return {"ok": False, "message": log.fail("Cheat Engine setup failed", e)}
-        return {"ok": True, "message": ""}
+            return str(e)
+        return ""
 
-    @Slot(str, result="QVariantMap")
-    def remove(self, key: str) -> dict:
+    @Slot(str, result=str)
+    def remove(self, key: str) -> str:
         try:
             remove_cheat_engine(key)
         except OSError as e:
-            return {"ok": False, "message": str(e)}
-        except Exception as e:
-            return {"ok": False, "message": log.fail("Cheat Engine removal failed", e)}
-        return {"ok": True, "message": ""}
+            return str(e)
+        return ""
 
     @Slot(str)
     def install(self, key: str) -> None:
@@ -89,8 +76,8 @@ class CheatEngineController(QObject):
         try:
             install_cheat_engine(key, installer, self._settings)
         except OSError as e:
-            self._done_in.emit(False, str(e))
+            self._done_in.emit(str(e))
         except Exception as e:
-            self._done_in.emit(False, log.fail("Cheat Engine setup failed", e))
+            self._done_in.emit(log.fail("Cheat Engine setup failed", e))
         else:
-            self._done_in.emit(True, "")
+            self._done_in.emit("")

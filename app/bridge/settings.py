@@ -15,7 +15,6 @@ from core.constants import (
     DD_BIN,
     DEFAULT_ACCENT,
     DEFAULT_DOWNLOADS_DIR,
-    DEFAULT_MAX_DOWNLOADS,
     DEFAULT_USERNAME,
     DOWNLOADS_MAX,
     DOWNLOADS_MIN,
@@ -24,7 +23,9 @@ from core.constants import (
     HEX_PATTERN,
     MAX_USERNAME_LENGTH,
     NAME_CHARS,
+    PREFIX_DIR,
     SCALE_LEVELS,
+    SEASON_RUNNING,
     SEVENZ_BIN,
     TL_DIR,
     TRANSFER_RUNNING,
@@ -37,7 +38,6 @@ from core.manifest import (
     installed_downloads,
     is_installed,
     is_season_folder,
-    local_downloads,
     write_download_username,
 )
 from core.settings import (
@@ -51,24 +51,13 @@ from core.settings import (
 from core.settings import (
     libraries as library_roots,
 )
-from core.steam import is_game_running, list_protons, resolve_proton
+from core.steam import is_game_running, list_protons, prefix_pids, resolve_proton
 from core.throwbackloader import apply_tl, tl_folder_version, tl_present, tl_version, write_launcher
-
-
-def _clear_download_cache() -> None:
-    DD_BIN.unlink(missing_ok=True)
-    SEVENZ_BIN.unlink(missing_ok=True)
-    ERRORS_FILE.unlink(missing_ok=True)
-    for archive in BIN_DIR.glob("*.7z"):
-        archive.unlink(missing_ok=True)
-    if TL_DIR.exists():
-        shutil.rmtree(TL_DIR)
-
 
 PREF_DEFAULTS: dict[str, object] = {
     "username": DEFAULT_USERNAME,
     "steam_account": "",
-    "max_downloads": DEFAULT_MAX_DOWNLOADS,
+    "max_downloads": 25,
     "discord_rpc": True,
     "close_to_tray": False,
     "reduce_motion": False,
@@ -104,9 +93,9 @@ class SettingsController(QObject):
     close_to_tray_changed = Signal()
     reduce_motion_changed = Signal()
     settings_error = Signal(str, str)
-    _library_tl_failed_in = Signal(str)
     logged_out = Signal(str)
     cache_cleared = Signal()
+    prefix_removed = Signal()
     libraries_changed = Signal()
     home_order_changed = Signal()
     home_sizes_changed = Signal()
@@ -120,7 +109,9 @@ class SettingsController(QObject):
     bar_nyan_changed = Signal()
     accent_changed = Signal()
 
+    _error_in = Signal(str, str)
     _cache_cleared_in = Signal(str)
+    _prefix_removed_in = Signal(str)
     _logged_out_in = Signal(str)
 
     def __init__(self, settings: dict, downloader: QObject, updater: QObject) -> None:
@@ -128,10 +119,13 @@ class SettingsController(QObject):
         self._settings = settings
         self._downloader = downloader
         self._updater = updater
-        self._library_tl_failed_in.connect(self._on_library_tl_failed)
+        self._error_in.connect(self.settings_error)
         self._clearing_cache = False
+        self._removing_prefix = False
         self._logging_out = False
+        self._default_proton = self.proton
         self._cache_cleared_in.connect(self._on_cache_cleared)
+        self._prefix_removed_in.connect(self._on_prefix_removed)
         self._logged_out_in.connect(self._on_logged_out)
 
     @Property(str, notify=username_changed)
@@ -260,7 +254,13 @@ class SettingsController(QObject):
 
     @Slot(result="QVariantList")
     def proton_options(self) -> list:
-        return [{"internal": p["internal"], "display": p["display"]} for p in list_protons()]
+        protons = list_protons()
+        default = resolve_proton(self._settings, protons)
+        internal = default["internal"] if default is not None else ""
+        if internal != self._default_proton:
+            self._default_proton = internal
+            self.proton_changed.emit()
+        return [{"internal": p["internal"], "display": p["display"]} for p in protons]
 
     @Slot(str)
     def set_proton(self, internal: str) -> None:
@@ -271,6 +271,7 @@ class SettingsController(QObject):
         if current is not None and internal == current["internal"]:
             return
         self._store("proton", internal)
+        self._default_proton = internal
         self.proton_changed.emit()
 
     @Property(str, notify=bar_fill_changed)
@@ -281,15 +282,9 @@ class SettingsController(QObject):
     def set_bar_fill(self, value: str) -> None:
         self._store_color("bar_fill", value, self.bar_fill_changed)
 
-    @Slot()
-    def reset_accent(self) -> None:
-        if not pop_settings(self._settings, "accent"):
-            return
-        self.accent_changed.emit()
-
     @Property(str, notify=accent_changed)
     def accent(self) -> str:
-        return self._color("accent")
+        return self._color("accent") or PREF_DEFAULTS["accent"]
 
     @Slot(str)
     def set_accent(self, value: str) -> None:
@@ -459,12 +454,7 @@ class SettingsController(QObject):
 
         def work() -> None:
             found, error = wipe_depot_token()
-            if error:
-                self._logged_out_in.emit(error)
-            elif found:
-                self._logged_out_in.emit("Logged out")
-            else:
-                self._logged_out_in.emit("No Steam token found")
+            self._logged_out_in.emit(error or ("Logged out" if found else "No Steam token found"))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -477,7 +467,6 @@ class SettingsController(QObject):
 
     @Slot(result="QVariantList")
     def libraries(self) -> list:
-        folders = local_downloads()
         return [
             {
                 "path": str(root),
@@ -485,7 +474,6 @@ class SettingsController(QObject):
                 "default": i == 0,
                 "fixed": root == DEFAULT_DOWNLOADS_DIR,
                 "exists": root.exists(),
-                "seasons": sum(1 for d in folders if d.parent == root),
             }
             for i, root in enumerate(library_roots())
         ]
@@ -502,7 +490,7 @@ class SettingsController(QObject):
             self.settings_error.emit("libraries", TRANSFER_RUNNING)
             return
         picked = QFileDialog.getExistingDirectory(
-            None, "Choose library folder", str(default_library())
+            None, "Select library folder", str(default_library())
         )
         if not picked:
             return
@@ -518,9 +506,6 @@ class SettingsController(QObject):
             return
         self._save_libraries([*roots, path])
         threading.Thread(target=self._align_library_tl, args=(path,), daemon=True).start()
-
-    def _on_library_tl_failed(self, message: str) -> None:
-        self.settings_error.emit("libraries", message)
 
     def _align_library_tl(self, root: Path) -> None:
         latest = tl_version()
@@ -540,7 +525,7 @@ class SettingsController(QObject):
                 apply_tl(folder, username)
                 write_launcher(folder)
             except OSError as e:
-                self._library_tl_failed_in.emit(log.fail("ThrowbackLoader setup failed", e))
+                self._error_in.emit("libraries", log.fail("ThrowbackLoader setup failed", e))
                 return
 
     @Slot(str)
@@ -586,7 +571,13 @@ class SettingsController(QObject):
         def work() -> None:
             message = ""
             try:
-                _clear_download_cache()
+                DD_BIN.unlink(missing_ok=True)
+                SEVENZ_BIN.unlink(missing_ok=True)
+                ERRORS_FILE.unlink(missing_ok=True)
+                for archive in BIN_DIR.glob("*.7z"):
+                    archive.unlink(missing_ok=True)
+                if TL_DIR.exists():
+                    shutil.rmtree(TL_DIR)
             except Exception as e:
                 message = log.fail("Cache clearing failed", e)
             self._cache_cleared_in.emit(message)
@@ -599,3 +590,31 @@ class SettingsController(QObject):
             self.settings_error.emit("cache", message)
             return
         self.cache_cleared.emit()
+
+    @Slot(str)
+    def remove_prefix(self, key: str) -> None:
+        if self._removing_prefix or not is_season_folder(Path(key)):
+            return
+        prefix = PREFIX_DIR / key
+        if prefix_pids(prefix):
+            self.settings_error.emit("prefix", SEASON_RUNNING)
+            return
+        self._removing_prefix = True
+
+        def work() -> None:
+            message = ""
+            try:
+                if prefix.exists():
+                    shutil.rmtree(prefix)
+            except OSError as e:
+                message = log.fail("Proton prefix removal failed", e)
+            self._prefix_removed_in.emit(message)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_prefix_removed(self, message: str) -> None:
+        self._removing_prefix = False
+        if message:
+            self.settings_error.emit("prefix", message)
+            return
+        self.prefix_removed.emit()

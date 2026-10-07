@@ -10,9 +10,8 @@ POLL_INTERVAL = 10
 MAX_RECONNECT_DELAY = 30
 
 
-class PresenceController(QObject):
+class PresenceController:
     def __init__(self, downloads: list[dict], watchdog: QObject) -> None:
-        super().__init__()
         self._downloads = downloads
         self._folder: str | None = None
         self._wake = threading.Event()
@@ -44,15 +43,6 @@ class PresenceController(QObject):
             self._folder = folder
             self._wake.set()
 
-    def _resolve(self, folder: str | None) -> tuple[str, dict] | None:
-        if folder is None:
-            return None
-        resolved = resolve_install(folder, self._downloads)
-        if resolved is None:
-            return None
-        download, is_hm = resolved
-        return build_activity(download, is_hm, int(time.time()))
-
     @staticmethod
     def _sleep(wake: threading.Event, timeout: float | None) -> None:
         wake.wait(timeout)
@@ -74,8 +64,10 @@ class PresenceController(QObject):
             while not stop.is_set():
                 if self._folder != folder:
                     folder = self._folder
-                    resolved = self._resolve(folder)
-                    new_id, activity = resolved if resolved is not None else ("", None)
+                    resolved = resolve_install(folder, self._downloads) if folder else None
+                    new_id, activity = (
+                        build_activity(*resolved, int(time.time())) if resolved else ("", None)
+                    )
                     if new_id != client_id or activity is None:
                         self._drop(presence)
                         presence = None

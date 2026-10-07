@@ -1,15 +1,24 @@
 import contextlib
 import os
 import sys
+import threading
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(APP_DIR))
 
 from core import log
-from core.constants import IS_WINDOWS
+from core.constants import (
+    DATA_ROOT,
+    DEFAULT_DOWNLOADS_DIR,
+    FROZEN,
+    ICON_FILE,
+    INSTANCE_KEY,
+    IS_WINDOWS,
+    NEXT_OUT_DIR,
+)
 from core.self_update import maybe_apply_pending, refresh_registry, run_relaunch
-from layout import RELAUNCH_ARG, UNINSTALL_ARG
+from layout import APP_NAME, DIR_NAME, RELAUNCH_ARG, UNINSTALL_ARG
 
 log.install_excepthook()
 
@@ -25,15 +34,12 @@ if UNINSTALL_ARG in sys.argv:
 if maybe_apply_pending():
     sys.exit(0)
 
-import threading
-
 from PySide6.QtCore import QLockFile, QObject, Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWebEngineCore import QWebEngineProfile
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
-from app_window import BrowserView
 from bridge.cheatengine import CheatEngineController
 from bridge.downloader import DownloadController
 from bridge.forward import EventForwarder
@@ -46,22 +52,14 @@ from bridge.settings import SettingsController
 from bridge.shears import ShearsController
 from bridge.uninstall import UninstallController
 from bridge.update import UpdateController
-from core.constants import (
-    DATA_ROOT,
-    DEFAULT_DOWNLOADS_DIR,
-    FROZEN,
-    ICON_FILE,
-    INSTANCE_KEY,
-    NEXT_OUT_DIR,
-)
 from core.manifest import load_downloads
 from core.migrate import migrate
 from core.settings import get_setting, load_settings, set_libraries
 from core.steam import prune_prefixes
-from layout import APP_NAME, DIR_NAME
 from presence import PresenceController
 from scheme import APP_ORIGIN, SCHEME, AppSchemeHandler, register_app_scheme
 from watchdog import Watchdog
+from window import BrowserView
 
 CA_BUNDLES = (
     "/etc/ssl/certs/ca-certificates.crt",
@@ -81,6 +79,8 @@ FORWARDS = {
         "rate_limited": "rate_limited",
         "warning": "warning",
         "log_history": "log_history",
+        "hm_archive_picked": "hm_archive_picked",
+        "hm_files_missing": "hm_files_missing",
     },
     "liberator": {
         "state_changed": "state",
@@ -89,11 +89,16 @@ FORWARDS = {
         "restore_done": "restored",
     },
     "rvpn": {"state_changed": "state", "error": "error"},
-    "launch": {"error": "error", "running_changed": "running", "launching_changed": "launching"},
+    "launch": {
+        "error": "error",
+        "running_changed": "running",
+        "launching_changed": "launching",
+        "hm_files_missing": "hm_files_missing",
+    },
     "update": {"changed": "changed", "progress": "progress", "done": "done", "error": "error"},
     "uninstall": {"done": "done"},
     "shears": {"scan_done": "scan", "cut_done": "cut"},
-    "cheatengine": {"done": "done"},
+    "cheatengine": {"done": "done", "error": "error"},
 }
 
 
@@ -184,9 +189,8 @@ def main() -> int:
     scheme_handler = AppSchemeHandler(NEXT_OUT_DIR, app)
     QWebEngineProfile.defaultProfile().installUrlSchemeHandler(SCHEME, scheme_handler)
 
-    library = LibraryController(downloads)
     bridges: dict[str, QObject] = {
-        "library": library,
+        "library": LibraryController(downloads),
         "info": InfoController(),
         "settings": settings_bridge,
         "downloader": downloader,
@@ -200,7 +204,7 @@ def main() -> int:
         rvpn = RvpnController()
         app.aboutToQuit.connect(rvpn.shutdown)
         bridges["rvpn"] = rvpn
-        bridges["cheatengine"] = CheatEngineController(settings, downloads)
+        bridges["cheatengine"] = CheatEngineController(settings)
     view = BrowserView(APP_ORIGIN + "/", bridges)
     view.setWindowTitle(APP_NAME)
 
@@ -223,8 +227,7 @@ def main() -> int:
         view.activateWindow()
 
     if IS_WINDOWS:
-        view.raise_()
-        view.activateWindow()
+        show_window()
 
     def activate_window() -> None:
         while (conn := instance_server.nextPendingConnection()) is not None:
@@ -266,7 +269,7 @@ def main() -> int:
         nonlocal tray
         if settings_bridge.close_to_tray and QSystemTrayIcon.isSystemTrayAvailable():
             if tray is None:
-                tray = QSystemTrayIcon(QIcon(str(ICON_FILE)), app)
+                tray = QSystemTrayIcon(app.windowIcon(), app)
                 tray.setToolTip(APP_NAME)
                 menu = QMenu(view)
                 menu.addAction("Open", show_window)

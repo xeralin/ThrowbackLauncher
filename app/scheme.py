@@ -45,9 +45,6 @@ class AppSchemeHandler(QWebEngineUrlSchemeHandler):
             return
         if target.is_dir():
             target = target / "index.html"
-        if not target.is_file():
-            job.fail(QWebEngineUrlRequestJob.Error.UrlNotFound)
-            return
         mime = _MIME_TYPES.get(target.suffix, "application/octet-stream")
         file = QFile(str(target), job)
         if not file.open(QIODevice.OpenModeFlag.ReadOnly):

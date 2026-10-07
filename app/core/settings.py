@@ -6,7 +6,7 @@ from pathlib import Path
 from core import log
 from core.constants import DEFAULT_DOWNLOADS_DIR, SETTINGS_FILE
 
-_BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
+_BARE_KEY = re.compile(r"[A-Za-z0-9_-]+")
 
 warning: str | None = None
 
@@ -55,7 +55,7 @@ def _fmt_value(value: object) -> str:
 
 
 def _fmt_key(key: str) -> str:
-    return key if _BARE_KEY.fullmatch(key) else _fmt_value(key)
+    return key if _BARE_KEY.fullmatch(key) else toml_str(key)
 
 
 def save_settings(settings: dict) -> None:

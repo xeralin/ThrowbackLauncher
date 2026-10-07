@@ -23,7 +23,7 @@ def _season_entry(download: dict, hm: bool) -> dict:
         "sizeGb": download["size_gb"],
         "build": download["build"],
         "hmAvailable": bool(download.get("hm")),
-        "hmBeta": bool(download.get("hm_beta", False)),
+        "hmBeta": bool(download.get("hm_beta")),
         "partial": False,
         "keyArt": _key_art_url(download["key"]),
     }

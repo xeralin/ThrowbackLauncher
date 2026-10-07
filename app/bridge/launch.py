@@ -10,17 +10,14 @@ from PySide6.QtCore import QObject, Signal, Slot
 from core import log
 from core.constants import (
     BUSY_MESSAGE,
-    DX11_EXE,
-    HM_LAUNCHER,
     IS_WINDOWS,
     NO_PROTON,
     NOT_INSTALLED,
     PREFIX_DIR,
     TL_LAUNCHER,
     UPDATE_RUNNING,
-    VULKAN_EXE,
 )
-from core.heatedmetal import hm_build_time, hm_crash_log
+from core.heatedmetal import hm_build_time, hm_crash_log, hm_files_present
 from core.manifest import (
     hm_folder_name,
     installed_path,
@@ -34,7 +31,6 @@ from core.steam import (
     proton_env,
     resolve_proton,
     running_game_folders,
-    running_game_pids,
     stop_game,
 )
 from core.throwbackloader import read_tl_args, write_tl_args
@@ -43,7 +39,8 @@ from core.throwbackloader import read_tl_args, write_tl_args
 class LaunchController(QObject):
     error = Signal(str)
     running_changed = Signal("QVariantList")
-    launching_changed = Signal("QVariantMap")
+    launching_changed = Signal(object)
+    hm_files_missing = Signal(str, str)
     _fail_in = Signal(str, int)
     _spawned_in = Signal(object, int)
 
@@ -108,9 +105,9 @@ class LaunchController(QObject):
         order = sorted(self._running_pairs, key=lambda pair: (self._order[pair[0]], pair[1]))
         return [{"key": key, "hm": hm} for key, hm in order]
 
-    def _launching_map(self) -> dict:
+    def _launching_map(self) -> dict | None:
         if self._launching is None:
-            return {}
+            return None
         key, hm = self._launching
         return {"key": key, "hm": hm}
 
@@ -123,8 +120,8 @@ class LaunchController(QObject):
     def running(self) -> list:
         return self._running_list()
 
-    @Slot(result="QVariantMap")
-    def launching(self) -> dict:
+    @Slot(result="QVariant")
+    def launching(self) -> dict | None:
         return self._launching_map()
 
     @Slot(str, result="QVariantMap")
@@ -135,20 +132,17 @@ class LaunchController(QObject):
                 return {
                     "installed": True,
                     "partial": False,
-                    "library": str(folder.parent),
                     "built": hm_build_time(folder) if hm else 0,
                     "crashLog": hm and bool(hm_crash_log(folder)),
                 }
-            folder = partial_path(key, hm)
             return {
                 "installed": False,
-                "partial": folder is not None,
-                "library": str(folder.parent) if folder is not None else "",
+                "partial": partial_path(key, hm) is not None,
                 "built": 0,
                 "crashLog": False,
             }
 
-        return {"tb": edition(False), "hm": edition(True)}
+        return {"tb": edition(False), "hm": edition(True), "prefix": (PREFIX_DIR / key).is_dir()}
 
     @Slot(str, bool, result="QVariantMap")
     def game_args(self, key: str, hm: bool) -> dict:
@@ -157,9 +151,9 @@ class LaunchController(QObject):
             return {"args": "", "renderer": ""}
         renderer = ""
         if not hm:
-            if (folder / VULKAN_EXE).exists():
+            if (folder / "RainbowSix_Vulkan.exe").exists():
                 renderer = "vulkan"
-            elif (folder / DX11_EXE).exists():
+            elif (folder / "RainbowSix_DX11.exe").exists():
                 renderer = "dx11"
         return {"args": read_tl_args(folder), "renderer": renderer}
 
@@ -171,7 +165,7 @@ class LaunchController(QObject):
         try:
             write_tl_args(folder, value.strip())
         except OSError as e:
-            return log.fail("Arguments save failed", e)
+            return log.fail("Config.toml edit failed", e)
         return ""
 
     @Slot(str, bool)
@@ -189,6 +183,9 @@ class LaunchController(QObject):
         if folder is None:
             self.error.emit(NOT_INSTALLED)
             return
+        if hm and not hm_files_present(folder):
+            self.hm_files_missing.emit(key, str(folder.parent))
+            return
         self._launch_proc = None
         self._launch_gen += 1
         self._set_launching((key, hm))
@@ -199,30 +196,21 @@ class LaunchController(QObject):
         if gen != self._launch_gen:
             return
         try:
-            stop_game(running_game_pids())
-            launcher = folder / (HM_LAUNCHER if hm else TL_LAUNCHER)
-            if IS_WINDOWS:
-                proc = subprocess.Popen(
-                    [str(launcher)],
-                    cwd=str(folder),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            else:
+            stop_game([pid for pids in running_game_folders().values() for pid in pids])
+            launcher = str(folder / ("RainbowSix.exe" if hm else TL_LAUNCHER))
+            argv, env = [launcher], None
+            if not IS_WINDOWS:
                 proton = resolve_proton(self._settings, key=key)
                 if proton is None:
                     self._fail_in.emit(NO_PROTON, gen)
                     return
                 argv, args_env = expand_launch_args(
-                    self._settings, key, [str(proton["binary"]), "run", str(launcher)]
+                    self._settings, key, [str(proton["binary"]), "run", launcher]
                 )
-                proc = subprocess.Popen(
-                    argv,
-                    cwd=str(folder),
-                    env={**proton_env(PREFIX_DIR / key), **args_env},
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+                env = {**proton_env(PREFIX_DIR / key), **args_env}
+            proc = subprocess.Popen(
+                argv, cwd=str(folder), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
         except Exception as e:
             self._fail_in.emit(log.fail("Launch failed", e), gen)
             return
@@ -261,15 +249,8 @@ class LaunchController(QObject):
         if launch_proc is not None and launch_proc.poll() is None:
             stop_game([launch_proc.pid])
         if IS_WINDOWS:
-            names = {key, hm_folder_name(key)}
-            pids = [
-                pid
-                for folder, folder_pids in running_game_folders().items()
-                if folder in names
-                for pid in folder_pids
-            ]
-            if pids:
-                stop_game(pids)
+            folders = running_game_folders()
+            stop_game([pid for name in (key, hm_folder_name(key)) for pid in folders.get(name, ())])
         else:
             self._clear_prefix(key)
         self._watchdog.poke()
@@ -284,6 +265,4 @@ class LaunchController(QObject):
         self._clear_prefix(key)
 
     def _clear_prefix(self, key: str) -> None:
-        pids = prefix_pids(PREFIX_DIR / key)
-        if pids:
-            stop_game(pids)
+        stop_game(prefix_pids(PREFIX_DIR / key))

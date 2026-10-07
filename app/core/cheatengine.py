@@ -3,17 +3,14 @@ import subprocess
 from pathlib import Path
 
 from core import log
-from core.constants import NO_PROTON, PREFIX_DIR
+from core.constants import NO_PROTON, NOT_INSTALLED, PREFIX_DIR
 from core.manifest import installed_path
 from core.steam import proton_env, resolve_proton
 from core.throwbackloader import read_tl_autorun, write_tl_autorun
 
 
-def _drive_c(key: str) -> Path:
-    return PREFIX_DIR / key / "pfx" / "drive_c"
-
-
-def _find_ce_exe(drive_c: Path) -> str | None:
+def _find_ce_exe(key: str) -> str | None:
+    drive_c = PREFIX_DIR / key / "pfx" / "drive_c"
     exes = [
         exe
         for base in ("Program Files", "Program Files (x86)")
@@ -28,7 +25,7 @@ def _find_ce_exe(drive_c: Path) -> str | None:
 def _season_folder(key: str) -> Path:
     path = installed_path(key, False)
     if path is None:
-        raise OSError("Season is not installed")
+        raise OSError(NOT_INSTALLED)
     return path
 
 
@@ -41,15 +38,13 @@ def _without_ce(autorun: list[str]) -> list[str]:
 
 def _add_to_autorun(folder: Path, exe: str) -> None:
     try:
-        autorun = _without_ce(read_tl_autorun(folder))
-        autorun.append(exe)
-        write_tl_autorun(folder, autorun)
+        write_tl_autorun(folder, [*_without_ce(read_tl_autorun(folder)), exe])
     except Exception as e:
         raise OSError(log.fail("Cheat Engine setup failed", e)) from e
 
 
 def is_cheat_engine_present(key: str) -> bool:
-    return _find_ce_exe(_drive_c(key)) is not None
+    return _find_ce_exe(key) is not None
 
 
 def remove_cheat_engine(key: str) -> None:
@@ -62,9 +57,9 @@ def remove_cheat_engine(key: str) -> None:
 
 def add_cheat_engine(key: str) -> None:
     folder = _season_folder(key)
-    exe = _find_ce_exe(_drive_c(key))
+    exe = _find_ce_exe(key)
     if exe is None:
-        raise OSError("Cheat Engine is not installed for this season")
+        raise OSError("Cheat Engine not found")
     _add_to_autorun(folder, exe)
 
 
@@ -87,7 +82,7 @@ def install_cheat_engine(key: str, installer: Path, settings: dict) -> None:
         )
     except Exception as e:
         raise OSError(log.fail("Cheat Engine installer failed to start", e)) from e
-    exe = _find_ce_exe(_drive_c(key))
+    exe = _find_ce_exe(key)
     if exe is None:
         stderr_line = next(
             (

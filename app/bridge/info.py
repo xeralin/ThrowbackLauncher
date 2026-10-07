@@ -1,7 +1,7 @@
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QMimeData, QObject, QUrl, Signal, Slot
+from PySide6.QtCore import Property, QMimeData, QObject, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 
 from core import log, settings
@@ -21,9 +21,9 @@ class InfoController(QObject):
         self._rescan = False
         self._usage_in.connect(self._on_disk_usage)
 
-    @Slot(result="QVariantMap")
-    def snapshot(self) -> dict:
-        return {"warning": settings.warning}
+    @Property(str, constant=True)
+    def warning(self) -> str:
+        return settings.warning or ""
 
     @Slot()
     def refresh_disk_usage(self) -> None:

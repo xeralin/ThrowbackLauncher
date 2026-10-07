@@ -5,7 +5,6 @@ from dataclasses import asdict
 
 from PySide6.QtCore import QCoreApplication, QObject, QTimer, Signal, Slot
 
-from bridge.reporter import SignalReporter
 from core import log
 from core import update as update_backend
 from core.constants import (
@@ -16,6 +15,7 @@ from core.constants import (
     UNINSTALL_RUNNING,
 )
 from core.github import RateLimitError
+from core.reporter import Reporter
 from core.self_update import take_outcome
 from layout import APP_NAME, RELAUNCH_ARG
 
@@ -35,8 +35,7 @@ class UpdateController(QObject):
         super().__init__()
         self._busy = False
         self._checking = False
-        self._pending: list[update_backend.Component] = []
-        self._components: list[dict] = []
+        self._pending: update_backend.Pending = []
         self._check_error = ""
         self._check_detail = ""
         self._progress = 0
@@ -70,7 +69,10 @@ class UpdateController(QObject):
         return {
             "busy": self._busy,
             "checking": self._checking,
-            "components": self._components,
+            "components": [
+                {"name": component.name, "target": latest, **asdict(notes)}
+                for component, latest, notes in self._pending
+            ],
             "checkError": self._check_error,
             "checkErrorDetail": self._check_detail,
             "progress": self._progress,
@@ -79,7 +81,7 @@ class UpdateController(QObject):
         }
 
     def _emit_progress(self, fraction: float) -> None:
-        pct = min(int(fraction * 100), 100)
+        pct = int(fraction * 100)
         if pct != self._progress:
             self._progress = pct
             self.progress.emit(pct)
@@ -98,7 +100,7 @@ class UpdateController(QObject):
             return
         self._checking = True
         self.changed.emit()
-        threading.Thread(target=lambda: self._check_work(force), daemon=True).start()
+        threading.Thread(target=self._check_work, args=(force,), daemon=True).start()
 
     def _check_work(self, force: bool = False) -> None:
         try:
@@ -110,15 +112,7 @@ class UpdateController(QObject):
 
     def _on_check_done(self, pending: list, error: str, detail: str) -> None:
         if not error or pending:
-            self._pending = [component for component, _, _ in pending]
-            self._components = [
-                {
-                    "name": component.name,
-                    "target": latest,
-                    **asdict(notes),
-                }
-                for component, latest, notes in pending
-            ]
+            self._pending = pending
         self._check_error = error
         self._check_detail = detail
         self._checking = False
@@ -126,7 +120,7 @@ class UpdateController(QObject):
 
     @Slot(str)
     def apply(self, name: str) -> None:
-        component = next((c for c in self._pending if c.name == name), None)
+        component = next((c for c, _, _ in self._pending if c.name == name), None)
         if self._busy or self._checking or component is None:
             return
         if self._settings_bridge.clearing_cache():
@@ -143,9 +137,10 @@ class UpdateController(QObject):
         self._progress = 0
         self.progress.emit(0)
         self.changed.emit()
-        threading.Thread(target=lambda: self._apply_work(component), daemon=True).start()
+        threading.Thread(target=self._apply_work, args=(component,), daemon=True).start()
 
     def _apply_work(self, component: update_backend.Component) -> None:
+        ok = False
         message = ""
         fail_text = ""
 
@@ -154,19 +149,14 @@ class UpdateController(QObject):
             fail_text = text
 
         try:
-            ok = bool(
-                component.apply(
-                    reporter=SignalReporter(progress_emit=self._progress_in.emit, fail_emit=on_fail)
-                )
+            ok = component.apply(
+                reporter=Reporter(progress_emit=self._progress_in.emit, fail_emit=on_fail)
             )
         except RateLimitError as e:
-            ok = False
             message = e.message()
         except OSError as e:
-            ok = False
             message = str(e)
         except Exception as e:
-            ok = False
             message = log.fail(f"{component.name} update failed", e)
         if not ok and not message:
             message = fail_text
@@ -177,8 +167,7 @@ class UpdateController(QObject):
             QTimer.singleShot(_RESTART_DELAY_MS, self._restart)
             return
         if ok:
-            self._pending = [c for c in self._pending if c.name != name]
-            self._components = [c for c in self._components if c["name"] != name]
+            self._pending = [p for p in self._pending if p[0].name != name]
         self._checking = True
         self._busy = False
         self._applying = ""

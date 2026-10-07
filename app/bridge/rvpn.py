@@ -4,10 +4,10 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal, Slot
 
 from bridge.dialogs import EXE_FILTER, pick_file
-from bridge.reporter import SignalReporter
 from bridge.slots import deferred_slot
 from core import log
 from core.github import CancelledError, RateLimitError
+from core.reporter import Reporter
 from core.rvpn import (
     Session,
     ensure_wine,
@@ -73,7 +73,7 @@ class RvpnController(QObject):
 
     @deferred_slot()
     def select_installer(self) -> None:
-        picked = pick_file("Choose the Radmin VPN installer", EXE_FILTER)
+        picked = pick_file("Select Radmin VPN installer", EXE_FILTER)
         if not picked:
             return
         if not is_radmin_installer(picked):
@@ -126,11 +126,9 @@ class RvpnController(QObject):
             self._idle_in.emit()
 
     def _run(self) -> None:
-        reporter = SignalReporter(step_emit=self._step_in.emit, fail_emit=self._error_in.emit)
+        reporter = Reporter(step_emit=self._step_in.emit, fail_emit=self._error_in.emit)
         try:
             ensure_wine(reporter, self._cancel.is_set)
-            if self._cancel.is_set():
-                return
             self._session = Session()
             if self._cancel.is_set():
                 return

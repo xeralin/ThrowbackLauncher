@@ -18,7 +18,7 @@ from core.constants import (
     TL_TOML,
 )
 from core.github import RateLimitError, fetch_to, github_asset
-from core.reporter import NullReporter, Reporter
+from core.reporter import Reporter
 from core.settings import toml_str
 
 _TL_USERNAME_RX = re.compile(r"""username\s*=\s*["']([^"']*)["']""")
@@ -31,9 +31,9 @@ def tl_present() -> bool:
     return all((TL_DIR / f).exists() for f in TL_EXTRACT)
 
 
-def _pe_file_version(path: Path) -> str | None:
+def tl_folder_version(folder: Path) -> str | None:
     try:
-        data = path.read_bytes()
+        data = (folder / TL_LAUNCHER).read_bytes()
     except OSError:
         return None
     at = 0
@@ -46,10 +46,6 @@ def _pe_file_version(path: Path) -> str | None:
     return None
 
 
-def tl_folder_version(folder: Path) -> str | None:
-    return _pe_file_version(folder / TL_LAUNCHER)
-
-
 def tl_version() -> str | None:
     return tl_folder_version(TL_DIR)
 
@@ -58,7 +54,7 @@ def ensure_tl(reporter: Reporter | None = None, force: bool = False) -> None:
     if tl_present() and not force:
         return
 
-    reporter = reporter or NullReporter()
+    reporter = reporter or Reporter()
     TL_DIR.mkdir(parents=True, exist_ok=True)
     zip_path = TL_DIR / "tl.zip"
     tmp_dir = TL_DIR / ".tl.tmp"
@@ -80,19 +76,23 @@ def ensure_tl(reporter: Reporter | None = None, force: bool = False) -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def _read_config(target_dir: Path) -> str:
+    try:
+        return (target_dir / TL_TOML).read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        raise OSError("Config.toml is not valid UTF-8") from e
+
+
 def write_tl_toml(target_dir: Path, username: str) -> None:
-    config = target_dir / TL_TOML
     text = _TL_USERNAME_RX.sub(
-        lambda _: f"username = {toml_str(username)}",
-        config.read_text(encoding="utf-8"),
-        count=1,
+        lambda _: f"username = {toml_str(username)}", _read_config(target_dir), count=1
     )
-    config.write_text(_TL_TOOLS_RX.sub("", text, count=1), encoding="utf-8")
+    (target_dir / TL_TOML).write_text(_TL_TOOLS_RX.sub("", text, count=1), encoding="utf-8")
 
 
 def _launch_table(target_dir: Path) -> dict:
     try:
-        data = tomllib.loads((target_dir / TL_TOML).read_text(encoding="utf-8"))
+        data = tomllib.loads(_read_config(target_dir))
     except OSError, tomllib.TOMLDecodeError:
         return {}
     return data.get("Launch", {})
@@ -106,7 +106,7 @@ def read_tl_autorun(target_dir: Path) -> list[str]:
 def _write_launch_line(target_dir: Path, key: str, value: str) -> None:
     config = target_dir / TL_TOML
     line = f"{key} = {value}"
-    text = config.read_text(encoding="utf-8")
+    text = _read_config(target_dir)
     updated, count = re.subn(rf"(?m)^{key}\s*=.*$", lambda _: line, text, count=1)
     if not count:
         updated, count = re.subn(

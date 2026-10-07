@@ -18,13 +18,12 @@ from core.constants import (
     SEASON_RUNNING,
     STEAM_DIR,
     STEAM_ROOTS,
+    SYSTEM_COMPAT_DIRS,
 )
-from core.manifest import edition_folder, hm_folder_name, is_installed
+from core.manifest import edition_folder, hm_folder_name, is_installed, is_season_folder
 from core.settings import get_setting, libraries
 
 _GAME_PROC_RE = re.compile(r"(?:RainbowSix.*|LaunchR6)\.exe")
-_WINE_ROOT_RE = re.compile(r"^[Zz]:\\")
-_DEFAULT_ORDER = tuple(internal for _, internal, _ in PROTON_BUILTIN)
 
 
 def _proc_environ(pid: int) -> dict[str, str]:
@@ -47,18 +46,17 @@ def _game_candidates() -> Iterator[int]:
             if _GAME_PROC_RE.search(proc.info["name"] or ""):
                 yield proc.pid
         return
-    for proc in psutil.process_iter(["name", "cmdline"]):
-        cmdline = proc.info["cmdline"] or []
-        haystack = " ".join(cmdline) if cmdline else (proc.info["name"] or "")
-        if _GAME_PROC_RE.search(haystack):
+    for proc in psutil.process_iter(["cmdline"]):
+        if _GAME_PROC_RE.search(" ".join(proc.info["cmdline"] or ())):
             yield proc.pid
 
 
 def running_game_env() -> dict[str, str] | None:
-    for pid in _game_candidates():
-        env = _proc_environ(pid)
-        if env.get("STEAM_COMPAT_DATA_PATH"):
-            return env
+    for pids in running_game_folders().values():
+        for pid in pids:
+            env = _proc_environ(pid)
+            if env.get("STEAM_COMPAT_DATA_PATH"):
+                return env
     return None
 
 
@@ -70,7 +68,7 @@ def _game_exe_path(pid: int) -> Path | None:
     for arg in argv:
         if not _GAME_PROC_RE.search(arg):
             continue
-        if not IS_WINDOWS and _WINE_ROOT_RE.match(arg):
+        if not IS_WINDOWS and arg.startswith(("Z:\\", "z:\\")):
             arg = "/" + arg[3:].replace("\\", "/")
         return Path(arg)
     return None
@@ -101,13 +99,9 @@ def running_game_folders() -> dict[str, list[int]]:
         if not IS_WINDOWS and not _proc_environ(pid).get("STEAM_COMPAT_DATA_PATH"):
             continue
         folder = _game_folder(pid, roots)
-        if folder is not None:
+        if folder is not None and is_season_folder(Path(folder)):
             found.setdefault(folder, []).append(pid)
     return found
-
-
-def running_game_pids() -> list[int]:
-    return [pid for pids in running_game_folders().values() for pid in pids]
 
 
 def is_game_running() -> bool:
@@ -180,30 +174,29 @@ def _proton_folders() -> list[Path]:
     for root in STEAM_ROOTS:
         for library in _steam_libraries(root):
             folders += sorted((library / "steamapps" / "common").glob("Proton*"))
-        compat = root / "compatibilitytools.d"
+    extra = os.environ.get("STEAM_EXTRA_COMPAT_TOOLS_PATHS", "").split(":")
+    for compat in (
+        *SYSTEM_COMPAT_DIRS,
+        *(Path(path) for path in extra if path),
+        *(root / "compatibilitytools.d" for root in STEAM_ROOTS),
+        PROTON_DIR,
+    ):
         if compat.is_dir():
             folders += sorted(compat.iterdir())
-    if PROTON_DIR.is_dir():
-        folders += sorted(PROTON_DIR.iterdir())
     return folders
 
 
 def list_protons() -> list[dict]:
     legacy = {folder: (internal, display) for folder, internal, display in PROTON_BUILTIN}
-    protons: list[dict] = []
-    seen: set[Path] = set()
+    protons: dict[str, dict] = {}
     for folder in _proton_folders():
         entry = _proton_entry(folder)
         if entry is None:
             continue
-        binary = entry["binary"].resolve()
-        if binary in seen:
-            continue
-        seen.add(binary)
         if folder.name in legacy:
             entry["internal"], entry["display"] = legacy[folder.name]
-        protons.append(entry)
-    return protons
+        protons.setdefault(entry["internal"], entry)
+    return list(protons.values())
 
 
 def resolve_proton(settings: dict, protons: list[dict] | None = None, key: str = "") -> dict | None:
@@ -215,14 +208,11 @@ def resolve_proton(settings: dict, protons: list[dict] | None = None, key: str =
     choices = [
         per_season.get(key, "") if isinstance(per_season, dict) else "",
         get_setting(settings, "proton", ""),
+        *(internal for _, internal, _ in PROTON_BUILTIN),
     ]
     for choice in choices:
         for proton in protons:
             if proton["internal"] == choice:
-                return proton
-    for internal in _DEFAULT_ORDER:
-        for proton in protons:
-            if proton["internal"] == internal:
                 return proton
     return protons[-1]
 

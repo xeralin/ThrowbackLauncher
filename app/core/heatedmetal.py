@@ -1,15 +1,15 @@
 import contextlib
+import ctypes
 import shutil
 import subprocess
 import tarfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from core import log
 from core.constants import (
     BIN_DIR,
     DEFAULTARGS_DLL,
     HM_API_URL,
-    HM_TAG_API_URL_FMT,
     IS_WINDOWS,
     SEVENZ_API_URL,
     SEVENZ_ASSET,
@@ -81,7 +81,11 @@ def resolve_hm_release(hm_version: str) -> tuple[str, str]:
     latest = hm_version == HM_LATEST
     if latest and _hm_release is not None:
         return _hm_release
-    api_url = HM_API_URL if latest else HM_TAG_API_URL_FMT.format(tag=hm_version)
+    api_url = (
+        HM_API_URL
+        if latest
+        else f"https://api.github.com/repos/DataCluster0/HeatedMetal/releases/tags/{hm_version}"
+    )
     try:
         resolved = github_asset(api_url, ".7z")
     except RateLimitError:
@@ -123,15 +127,52 @@ def _fetch_hm_mod(hm_version: str, tmp_dir: Path, reporter: Reporter) -> tuple[s
     return tag, _extract_hm_archive(archive_path, tmp_dir, reporter)
 
 
+def _listed_mod_complete(root: tuple[str, ...], entries: list[tuple[str, ...]]) -> bool:
+    args = {(*root, name) for name in _DEFAULT_ARGS_NAMES}
+    hm_dir = (*root, _HM_DIR)
+    return any(parts in args for parts in entries) and any(
+        parts[: len(hm_dir)] == hm_dir for parts in entries
+    )
+
+
+class HmFilesRemovedError(OSError):
+    pass
+
+
+def _archive_has_mod(sevenz: Path, archive: Path) -> bool:
+    try:
+        proc = subprocess.run(
+            [str(sevenz), "l", "-ba", "-slt", str(archive)],
+            capture_output=True,
+            check=False,
+            creationflags=NOWINDOW,
+        )
+    except Exception as e:
+        raise OSError(log.fail("Heated Metal archive check failed", e)) from e
+    if proc.returncode != 0:
+        raise OSError(log.fail("Heated Metal archive check failed", _7z_error(proc)))
+    entries = [
+        PurePosixPath(line[7:].replace("\\", "/")).parts
+        for line in proc.stdout.decode(errors="replace").splitlines()
+        if line.startswith("Path = ")
+    ]
+    roots = {()} | {parts[:1] for parts in entries if len(parts) > 1}
+    return any(_listed_mod_complete(root, entries) for root in roots)
+
+
 def cache_hm_archive(archive: Path) -> Path:
-    BIN_DIR.mkdir(parents=True, exist_ok=True)
+    if not _archive_has_mod(ensure_7z(Reporter()), archive):
+        raise OSError(f"{archive.name} does not contain the Heated Metal files")
     cached = BIN_DIR / archive.name
     if archive.resolve() == cached.resolve():
         return cached
-    shutil.copy2(archive, cached)
-    for old in BIN_DIR.glob("*.7z"):
-        if old != cached and not old.name.startswith(_ARCHIVE_PREFIX):
-            old.unlink(missing_ok=True)
+    try:
+        shutil.copy2(archive, cached)
+        for old in BIN_DIR.glob("*.7z"):
+            if old != cached and not old.name.startswith(_ARCHIVE_PREFIX):
+                old.unlink(missing_ok=True)
+    except OSError as e:
+        raise OSError(log.fail("Heated Metal archive copy failed", e)) from e
     return cached
 
 
@@ -160,14 +201,32 @@ def _extract_hm_archive(archive: Path, tmp_dir: Path, reporter: Reporter) -> Pat
         raise OSError(log.fail("Heated Metal extraction failed", e)) from e
     if mod_dir is not None:
         return mod_dir
+    try:
+        intact = _archive_has_mod(sevenz, archive)
+    except OSError:
+        intact = False
+    if intact:
+        raise HmFilesRemovedError(
+            log.fail("Heated Metal extraction failed", "files missing after extraction")
+        )
     archive.unlink(missing_ok=True)
-    if proc.returncode != 0:
-        raise OSError(log.fail("Heated Metal extraction failed", _7z_error(proc)))
-    raise OSError(f"{archive.name} does not contain the Heated Metal files")
+    detail = (
+        _7z_error(proc)
+        if proc.returncode != 0
+        else f"{archive.name} does not contain the Heated Metal files"
+    )
+    raise OSError(log.fail("Heated Metal extraction failed", detail))
 
 
 _PF_SSE4_2_INSTRUCTIONS_AVAILABLE = 38
 _PF_AVX_INSTRUCTIONS_AVAILABLE = 39
+
+
+def hm_files_present(target_dir: Path) -> bool:
+    return (
+        _default_args(target_dir) is not None
+        and (target_dir / _HM_DIR / "HeatedMetal.dll").is_file()
+    )
 
 
 def hm_build_time(target_dir: Path) -> int:
@@ -195,21 +254,19 @@ def hm_crash_log(target_dir: Path) -> list[Path]:
     return sorted(path for path in logs if path.stem == newest)
 
 
-def hm_version_file(target_dir: Path) -> Path:
+def _hm_version_file(target_dir: Path) -> Path:
     return target_dir / _HM_DIR / ".version"
 
 
 def hm_installed_version(target_dir: Path) -> str | None:
     try:
-        return hm_version_file(target_dir).read_text().strip() or None
+        return _hm_version_file(target_dir).read_text().strip() or None
     except OSError:
         return None
 
 
 def _detect_cpu_variant() -> str:
     if IS_WINDOWS:
-        import ctypes
-
         present = ctypes.WinDLL("kernel32").IsProcessorFeaturePresent
         if present(_PF_AVX_INSTRUCTIONS_AVAILABLE):
             return "AVX"
@@ -270,7 +327,7 @@ def apply_hm(
             apply_tl(target_dir, username)
             _apply_hm_mod(target_dir, mod_dir)
             if version:
-                hm_version_file(target_dir).write_text(version)
+                _hm_version_file(target_dir).write_text(version)
             write_launcher(target_dir)
         except OSError as e:
             raise OSError(log.fail("Heated Metal setup failed", e)) from e

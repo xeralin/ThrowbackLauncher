@@ -6,7 +6,6 @@ from core.settings import get_setting, libraries, save_settings, set_setting
 from core.steam import running_game_folders
 
 _RENAMED_KEYS = {"Y10S2_DayBreak": "Y10S2_Daybreak"}
-_KEYED_SETTINGS = ("home_order", "home_sizes", "launch_args", "season_proton", "queue")
 
 
 def _has_entry(parent: Path, name: str) -> bool:
@@ -62,7 +61,7 @@ def migrate(settings: dict) -> None:
         if not failed:
             _rename(PREFIX_DIR, old, new)
     changed = False
-    for name in _KEYED_SETTINGS:
+    for name in ("home_order", "home_sizes", "launch_args", "season_proton", "queue"):
         value = get_setting(settings, name, None)
         renamed = _renamed(value)
         if renamed != value:

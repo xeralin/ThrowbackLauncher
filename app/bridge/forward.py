@@ -17,17 +17,14 @@ class EventForwarder(QObject):
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._flush)
 
-    def _dispatch(self, details: list[str]) -> None:
-        js = ";".join(
-            f"window.dispatchEvent(new CustomEvent('throwback:event',{{detail:{detail}}}))"
-            for detail in details
-        )
-        self._view.page().runJavaScript(js)
-
     def _flush(self) -> None:
         if self._pending:
-            pending, self._pending = self._pending, []
-            self._dispatch(pending)
+            js = ";".join(
+                f"window.dispatchEvent(new CustomEvent('throwback:event',{{detail:{detail}}}))"
+                for detail in self._pending
+            )
+            self._pending = []
+            self._view.page().runJavaScript(js)
 
     def _pend(self, event: str, args: tuple) -> None:
         payload = {"target": self._target, "event": event, "args": list(args)}

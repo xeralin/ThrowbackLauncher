@@ -90,20 +90,19 @@ def _binary_version(binary: Path, args: list[str], pattern: str) -> str | None:
     return match.group(1) if match else None
 
 
-_throwback_release: dict | None = None
+_throwback_release: tuple[str, str] | None = None
 
 
-def _throwback_fetch() -> dict:
+def _throwback_fetch() -> tuple[str, str]:
     global _throwback_release
     if _throwback_release is None:
         asset = RUNTIME_ASSET if IS_WINDOWS else APPIMAGE_ASSET
-        tag, url = github_asset(UPDATE_API_URL, asset)
-        _throwback_release = {"tag": tag, "url": url}
+        _throwback_release = github_asset(UPDATE_API_URL, asset)
     return _throwback_release
 
 
 def _throwback_latest() -> str:
-    tag = _throwback_fetch()["tag"].removeprefix("v")
+    tag = _throwback_fetch()[0].removeprefix("v")
     version_tuple(tag)
     return tag
 
@@ -165,12 +164,12 @@ def _throwback_apply_appimage(reporter: Reporter, url: str) -> None:
 def _throwback_apply(reporter: Reporter) -> bool:
     if is_game_running():
         raise OSError(GAME_RUNNING)
-    release = _throwback_fetch()
     try:
+        tag, url = _throwback_fetch()
         if IS_WINDOWS:
-            _throwback_apply_windows(reporter, release["url"], release["tag"])
+            _throwback_apply_windows(reporter, url, tag)
         else:
-            _throwback_apply_appimage(reporter, release["url"])
+            _throwback_apply_appimage(reporter, url)
     except RateLimitError:
         raise
     except Exception as e:
@@ -206,13 +205,7 @@ def _tl_apply(reporter: Reporter) -> bool:
     return True
 
 
-_hm_installs: list[tuple[dict, Path]] | None = None
-
-
 def _hm_latest_installs() -> list[tuple[dict, Path]]:
-    global _hm_installs
-    if _hm_installs is not None:
-        return _hm_installs
     try:
         downloads = load_downloads()
     except Exception as e:
@@ -226,7 +219,6 @@ def _hm_latest_installs() -> list[tuple[dict, Path]]:
             folder = root / hm_folder_name(download["key"])
             if is_installed(folder):
                 installs.append((download, folder))
-    _hm_installs = installs
     return installs
 
 
@@ -241,8 +233,6 @@ def _hm_current() -> str | None:
 
 
 def _hm_apply(reporter: Reporter) -> bool:
-    global _hm_installs
-    _hm_installs = None
     installs = _hm_latest_installs()
     if not installs:
         return False
@@ -250,15 +240,12 @@ def _hm_apply(reporter: Reporter) -> bool:
         raise OSError(GAME_RUNNING)
     ok = True
     username = effective_username(load_settings())
-    try:
-        for download, folder in installs:
-            try:
-                apply_hm(folder, username, download, reporter=reporter)
-            except OSError as e:
-                reporter.fail(str(e))
-                ok = False
-    finally:
-        _hm_installs = None
+    for download, folder in installs:
+        try:
+            apply_hm(folder, username, download, reporter=reporter)
+        except OSError as e:
+            reporter.fail(str(e))
+            ok = False
     return ok
 
 
@@ -321,9 +308,8 @@ type Pending = list[tuple[Component, str, ReleaseNotes]]
 
 
 def available(force: bool = False) -> tuple[Pending, str, str]:
-    global _throwback_release, _hm_installs
+    global _throwback_release
     _throwback_release = None
-    _hm_installs = None
     clear_release_cache()
     if force:
         invalidate_api_cache()

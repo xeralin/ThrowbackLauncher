@@ -6,8 +6,7 @@ from pathlib import Path
 
 from core.constants import TEXTURE_QUALITIES
 
-KINDS = ("videos", "events", "textures")
-_TEXTURE_RX = re.compile(r"textures(\d)")
+_TEXTURE_RX = re.compile(r"_textures(\d)")
 
 
 def folder_size(path: Path) -> int:
@@ -35,11 +34,14 @@ def _texture_forges(path: Path) -> Iterator[tuple[Path, int, int]]:
             continue
 
 
-def _texture_tiers(path: Path) -> dict[int, int]:
+def _texture_tiers(path: Path) -> list[dict]:
     tiers: dict[int, int] = {}
     for _, level, size in _texture_forges(path):
         tiers[level] = tiers.get(level, 0) + size
-    return tiers
+    return [
+        {"level": level, "quality": TEXTURE_QUALITIES[level], "size": size}
+        for level, size in sorted(tiers.items())
+    ]
 
 
 def _startup_dir(path: Path) -> Path:

@@ -13,7 +13,7 @@ from core.constants import (
     IS_WINDOWS,
 )
 from core.github import RateLimitError, fetch_to, github_asset
-from core.reporter import NullReporter, Reporter
+from core.reporter import Reporter
 from layout import user_data_base
 
 
@@ -21,7 +21,7 @@ def ensure_depotdownloader(reporter: Reporter | None = None, force: bool = False
     if DD_BIN.exists() and not force:
         return DD_BIN
 
-    reporter = reporter or NullReporter()
+    reporter = reporter or Reporter()
     BIN_DIR.mkdir(parents=True, exist_ok=True)
     part = DD_BIN.with_name(DD_BIN.name + ".part")
     try:

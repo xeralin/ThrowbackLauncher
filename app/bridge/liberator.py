@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from core import log
 from core.constants import (
+    HM_FOLDER_SUFFIX,
     IS_WINDOWS,
     LIBERATOR_BIN,
     NO_PROTON,
@@ -18,7 +19,9 @@ from core.constants import (
     UPDATE_API_URL,
 )
 from core.github import RateLimitError, fetch_zip_member, github_asset
+from core.manifest import installed_path
 from core.steam import resolve_proton, running_game_env
+from core.throwbackloader import read_tl_args
 from layout import RUNTIME_ASSET
 
 _ATTACH_DELAY = 1.5
@@ -61,7 +64,7 @@ class LiberatorController(QObject):
         return {
             "attached": False,
             "applied": False,
-            "status": "",
+            "unsupported": False,
             "available": LIBERATOR_BIN.exists(),
             "capabilities": {},
         }
@@ -128,7 +131,15 @@ class LiberatorController(QObject):
     def _on_tick(self, folders: dict) -> None:
         if not self._active:
             return
-        keys = set(folders)
+        keys = {
+            name
+            for name in folders
+            if not name.endswith(HM_FOLDER_SUFFIX)
+            and (
+                (path := installed_path(name, False)) is None
+                or "/vulkan" not in read_tl_args(path).split()
+            )
+        }
         if not keys:
             self._attach_delay = _ATTACH_DELAY
             self._next_attach = 0.0
@@ -154,13 +165,8 @@ class LiberatorController(QObject):
             listener.listen(1)
             port = str(listener.getsockname()[1])
 
-            if IS_WINDOWS:
-                self._proc = subprocess.Popen(
-                    [str(LIBERATOR_BIN), "--runtime", port],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            else:
+            argv, env = [str(LIBERATOR_BIN), "--runtime", port], None
+            if not IS_WINDOWS:
                 env_game = running_game_env()
                 if env_game is None:
                     return
@@ -169,22 +175,14 @@ class LiberatorController(QObject):
                 if proton is None:
                     self._error_in.emit(NO_PROTON)
                     return
+                argv = [str(proton["binary"]), "run", "Z:" + argv[0].replace("/", "\\"), *argv[1:]]
                 env = dict(os.environ)
                 env["STEAM_COMPAT_DATA_PATH"] = prefix
                 client_install = env_game.get("STEAM_COMPAT_CLIENT_INSTALL_PATH")
                 env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = client_install or str(STEAM_DIR)
-                self._proc = subprocess.Popen(
-                    [
-                        str(proton["binary"]),
-                        "run",
-                        "Z:" + str(LIBERATOR_BIN).replace("/", "\\"),
-                        "--runtime",
-                        port,
-                    ],
-                    env=env,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+            self._proc = subprocess.Popen(
+                argv, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
 
             sock = self._await_client(listener)
             if sock is None:
@@ -236,8 +234,6 @@ class LiberatorController(QObject):
                 buffer += data
                 while b"\n" in buffer:
                     line, buffer = buffer.split(b"\n", 1)
-                    if not line.strip():
-                        continue
                     try:
                         msg = json.loads(line.decode("utf-8"))
                     except ValueError:
