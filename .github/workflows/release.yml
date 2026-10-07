@@ -10,14 +10,13 @@ env:
   APPIMAGETOOL_VERSION: "1.9.1"
   APPIMAGETOOL_SHA256: "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
   NUITKA_COMMON: >-
-    --include-package=core --include-package=bridge
     --include-data-dir=next/out=next/out
     --include-data-files=manifest.toml=manifest.toml
     --include-data-files=.github/icon.png=icon.png
     --include-data-files=Liberator.exe=Liberator.exe
 
 jobs:
-  check:
+  frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -27,8 +26,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: next/pnpm-lock.yaml
       - name: Lint frontend
         run: |
           pnpm -C next install --frozen-lockfile
@@ -38,24 +35,8 @@ jobs:
         run: |
           pipx run ruff==$RUFF_VERSION check app/
           pipx run ruff==$RUFF_VERSION format --check app/
-
-  frontend:
-    needs: check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          package_json_file: next/package.json
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: next/pnpm-lock.yaml
       - name: Build frontend
-        run: |
-          pnpm -C next install --frozen-lockfile
-          pnpm -C next build
+        run: pnpm -C next build
       - uses: actions/upload-artifact@v7
         with:
           name: next-out
@@ -69,13 +50,6 @@ jobs:
         with:
           toolchain: "1.98.1"
           targets: x86_64-pc-windows-gnu
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            src/liberator/target
-          key: cargo-liberator-${{ hashFiles('src/liberator/Cargo.lock') }}
-          restore-keys: cargo-liberator-
       - name: Install mingw and git-crypt
         run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 git-crypt
       - name: Unlock Liberator sources
@@ -119,8 +93,6 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-          cache: pip
-          cache-dependency-path: app/requirements.txt
       - name: Verify asset names against layout.py
         run: >
           python -c "import sys; sys.path.insert(0, 'app'); import layout;
@@ -139,17 +111,10 @@ jobs:
         with:
           name: rvpn
           path: rvpn
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cache/Nuitka
-            ~/.cache/ccache
-          key: nuitka-linux-${{ hashFiles('app/requirements.txt') }}
-          restore-keys: nuitka-linux-
       - name: Install deps + Nuitka
         run: |
           python -m pip install -r app/requirements.txt nuitka==${{ env.NUITKA_VERSION }}
-          sudo apt-get update && sudo apt-get install -y patchelf ccache
+          sudo apt-get update && sudo apt-get install -y patchelf
       - name: Nuitka build (standalone)
         run: |
           python -m nuitka --deployment --standalone --enable-plugin=pyside6 --assume-yes-for-downloads \
@@ -192,8 +157,6 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-          cache: pip
-          cache-dependency-path: app/requirements.txt
       - uses: actions/download-artifact@v8
         with:
           name: next-out
@@ -202,11 +165,6 @@ jobs:
         with:
           name: liberator
           path: .
-      - uses: actions/cache@v6
-        with:
-          path: ~\AppData\Local\Nuitka\Nuitka\Cache
-          key: nuitka-windows-${{ hashFiles('app/requirements.txt') }}
-          restore-keys: nuitka-windows-
       - name: Install deps + Nuitka
         run: python -m pip install -r app/requirements.txt nuitka==${{ env.NUITKA_VERSION }}
       - name: Nuitka build app (standalone)
@@ -214,13 +172,10 @@ jobs:
         run: python -m nuitka --deployment --standalone --enable-plugin=pyside6 --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=.github/icon.ico --product-name="Throwback Launcher" --file-version=${GITHUB_REF_NAME#v} --product-version=${GITHUB_REF_NAME#v} --file-description="Throwback Launcher" $NUITKA_COMMON --output-filename=ThrowbackLauncher.exe --output-dir=app-out app/main.py
       - name: Nuitka build installer (onefile)
         shell: bash
-        run: python -m nuitka --deployment --onefile --enable-plugin=pyside6 --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=.github/icon.ico --product-name="Throwback Launcher" --file-version=${GITHUB_REF_NAME#v} --product-version=${GITHUB_REF_NAME#v} --file-description="Throwback Installer" --include-data-dir=app/assets/fonts=assets/fonts --output-filename=Installer.exe --output-dir=installer-out app/installer.py
+        run: python -m nuitka --deployment --onefile --enable-plugin=pyside6 --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=.github/icon.ico --product-name="Throwback Launcher" --file-version=${GITHUB_REF_NAME#v} --product-version=${GITHUB_REF_NAME#v} --file-description="Throwback Installer" --include-data-dir=app/assets/fonts=assets/fonts --output-filename=Installer.exe --output-dir=out app/installer.py
       - name: Package
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path out | Out-Null
-          Compress-Archive -Path app-out/main.dist/* -DestinationPath out/Runtime.zip -Force
-          Copy-Item installer-out/Installer.exe out/Installer.exe -Force
+        run: Compress-Archive -Path app-out/main.dist/* -DestinationPath out/Runtime.zip -Force
       - name: Verify Runtime.zip layout
         run: >
           python -c "import zipfile; names = zipfile.ZipFile('out/Runtime.zip').namelist();
