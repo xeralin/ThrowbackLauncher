@@ -75,7 +75,6 @@ static unsigned __stdcall hook_dispatch(void **Block)
 
 static void install_release_guard(void)
 {
-
     static const BYTE expect[5] = { 0x55, 0x8B, 0xEC, 0x6A, 0xFF };
     HMODULE base = GetModuleHandleA(NULL);
     BYTE *t;
@@ -129,12 +128,10 @@ static BOOL is_uplink_v4(DWORD s_addr_net)
 
 static DWORD default_route_ifindex(void)
 {
-    if (!real_GetAdaptersAddresses) {
-        DWORD idx = 0;
-        if (GetBestInterface(inet_addr("8.8.8.8"), &idx) == NO_ERROR && idx)
-            return idx;
-        return 0;
-    }
+    DWORD best = 0;
+    if (GetBestInterface(inet_addr("8.8.8.8"), &best) == NO_ERROR && best)
+        return best;
+    if (!real_GetAdaptersAddresses) return 0;
 
     ULONG size = 15 * 1024;
     IP_ADAPTER_ADDRESSES *buf = (IP_ADAPTER_ADDRESSES *)malloc(size);
@@ -149,13 +146,6 @@ static DWORD default_route_ifindex(void)
                                       NULL, buf, &size);
     }
     if (r != ERROR_SUCCESS) { free(buf); return 0; }
-
-    DWORD best = 0;
-    if (GetBestInterface(inet_addr("8.8.8.8"), &best) == NO_ERROR && best) {
-        for (IP_ADAPTER_ADDRESSES *a = buf; a; a = a->Next) {
-            if (a->IfIndex == best) { free(buf); return best; }
-        }
-    }
 
     DWORD found = 0;
     int n = 0;
@@ -194,7 +184,6 @@ static ULONG WINAPI hook_GetAdaptersAddresses(
 
     for (PIP_ADAPTER_ADDRESSES cur = Addrs; cur; cur = cur->Next) {
         if (cur->Description && wcscmp(cur->Description, TAP_DESC) == 0) {
-
             cur->Description  = (WCHAR *)RADMIN_DESC;
             cur->FriendlyName = (WCHAR *)RADMIN_FRIENDLY;
             g_tap_ifindex = cur->IfIndex;
@@ -430,7 +419,6 @@ static BOOL hook_import(HMODULE mod, const char *dll, const char *fn, WORD ord,
         for (; orig->u1.AddressOfData; orig++, thunk++) {
             BOOL match;
             if (orig->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
-
                 match = (fn == NULL) &&
                         (IMAGE_ORDINAL(orig->u1.Ordinal) == ord);
             } else {
@@ -519,7 +507,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
 {
     (void)inst; (void)reserved;
     if (reason == DLL_PROCESS_ATTACH) {
-
         AddVectoredExceptionHandler(1, crash_handler);
 
         g_jmp_tls = TlsAlloc();

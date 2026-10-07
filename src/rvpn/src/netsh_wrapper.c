@@ -5,7 +5,8 @@
 
 #define NETSH_CMD_DELAY_MS    1500
 
-static int valid_ipv4(const char *s) {
+static int valid_ipv4(const char *s)
+{
     int octets = 0;
     while (octets < 4) {
         int val = 0, digits = 0;
@@ -17,7 +18,8 @@ static int valid_ipv4(const char *s) {
     return *s == '\0';
 }
 
-static char *to_narrow(const WCHAR *w) {
+static char *to_narrow(const WCHAR *w)
+{
     int len = WideCharToMultiByte(CP_UTF8, 0, w, -1, NULL, 0, NULL, NULL);
     char *buf = malloc(len + 1);
     if (!buf) return NULL;

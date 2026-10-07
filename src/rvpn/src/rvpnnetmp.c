@@ -52,21 +52,18 @@ static int classify_high_priority(const UCHAR *frame, USHORT len)
         return 1;
 
     if (ethertype == 0x0800) {
-
         if (len < 34) return 0;
         UCHAR proto = frame[23];
         if (proto == 6 || proto == 1) {
             return 1;
         }
         if (proto == 17) {
-
             return !(frame[0] & 0x01);
         }
         return 0;
     }
 
     if (ethertype == 0x86dd) {
-
         if (len < 54) return 0;
         UCHAR proto = frame[20];
         if (proto == 6 || proto == 58) {
@@ -308,7 +305,6 @@ static void __stdcall rx_thread_proc(PVOID context)
                 }
 
                 if (is_group) {
-
                     LONG picked_n = 0;
                     LONG seen_n = 0;
                     LONG keep_n = 0;
@@ -333,13 +329,11 @@ static void __stdcall rx_thread_proc(PVOID context)
                     KeReleaseSpinLock(&g_irp_queue.Lock, oldIrql);
 
                     for (LONG i = 0; i < picked_n; i++) {
-
                         if (rx_claim_irp(g_compact_picked[i])) {
                             complete_read_irp(g_compact_picked[i], frameBuf, frameLen);
                         }
                     }
                 } else if (target_fo) {
-
                     PIRP found = NULL;
                     LONG keep_n = 0;
                     for (LONG i = 0; i < g_irp_queue.Count; i++) {
@@ -361,7 +355,6 @@ static void __stdcall rx_thread_proc(PVOID context)
                         }
                     }
                 } else {
-
                     KeReleaseSpinLock(&g_irp_queue.Lock, oldIrql);
                 }
                 continue;
@@ -525,14 +518,12 @@ static NTSTATUS NTAPI DispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Ir
 
     switch (ioctl) {
     case IOCTL_RVPN_VERSION:
-
         if (outLen >= 12 && sysBuffer) {
             ULONG *inData = (ULONG *)sysBuffer;
             UCHAR *out = (UCHAR *)sysBuffer;
             ULONG reqVer = (inLen >= 4) ? inData[0] : 0;
 
             if (reqVer == 4) {
-
                 ULONG st_val = 0;
                 RtlCopyMemory(out, &st_val, 4);
                 RtlCopyMemory(out + 4, g_adapter_mac, 6);
@@ -548,7 +539,6 @@ static NTSTATUS NTAPI DispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Ir
         break;
 
     case IOCTL_RVPN_STATUS:
-
         if (outLen >= 4 && sysBuffer) {
             *((ULONG *)sysBuffer) = 1;
             info = 4;
@@ -556,7 +546,6 @@ static NTSTATUS NTAPI DispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Ir
         break;
 
     case IOCTL_RVPN_CONNECT:
-
         if (outLen >= 1 && sysBuffer) {
             *((UCHAR *)sysBuffer) = 0x20;
             info = 1;
@@ -564,7 +553,6 @@ static NTSTATUS NTAPI DispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Ir
         break;
 
     case IOCTL_RVPN_SETLINK:
-
         if (outLen >= 0xB8 && sysBuffer) {
             RtlZeroMemory(sysBuffer, 0xB8);
             info = 0xB8;
@@ -572,7 +560,6 @@ static NTSTATUS NTAPI DispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Ir
         break;
 
     case IOCTL_RVPN_SETMAC:
-
         if (outLen >= 1 && sysBuffer) {
             *((UCHAR *)sysBuffer) = 0;
             info = 1;
@@ -630,12 +617,10 @@ static NTSTATUS NTAPI DispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Ir
                     g_peer_routes = new_buf;
                     g_peer_routes_capacity = new_cap;
                 } else {
-
                     old_buf = new_buf;
                 }
                 KeReleaseSpinLock(&g_irp_queue.Lock, oldIrql);
                 ExFreePoolWithTag(old_buf, PEER_ROUTES_TAG);
-
             }
         }
         break;
@@ -706,7 +691,6 @@ static NTSTATUS NTAPI DispatchRead(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     }
 
     if (g_irp_queue.Count >= IRP_QUEUE_SIZE) {
-
         PIRP oldIrp = g_irp_queue.Irps[g_irp_queue.Head];
         g_irp_queue.Head = (g_irp_queue.Head + 1) % IRP_QUEUE_SIZE;
         g_irp_queue.Count--;
@@ -771,7 +755,6 @@ static NTSTATUS NTAPI DispatchWrite(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     ULONG mode = ext->SetupMode;
 
     while (offset < length) {
-
         if (mode >= 2) {
             if (offset + 4 > length) break;
             offset += 4;
@@ -851,8 +834,8 @@ NTSTATUS NTAPI DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING Registry
     DriverObject->MajorFunction[IRP_MJ_CLOSE]          = DispatchClose;
     DriverObject->MajorFunction[IRP_MJ_CLEANUP]        = DispatchCleanup;
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DispatchDeviceControl;
-    DriverObject->MajorFunction[IRP_MJ_READ]            = DispatchRead;
-    DriverObject->MajorFunction[IRP_MJ_WRITE]           = DispatchWrite;
+    DriverObject->MajorFunction[IRP_MJ_READ]           = DispatchRead;
+    DriverObject->MajorFunction[IRP_MJ_WRITE]          = DispatchWrite;
 
     return STATUS_SUCCESS;
 }

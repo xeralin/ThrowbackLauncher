@@ -343,7 +343,6 @@ static int process_incoming_frame(int fd, uint8_t *buf, uint16_t *out_len)
 
     uint16_t len;
     if (read_exact(fd, &len, 2) < 0) {
-
         if (errno == EAGAIN || errno == EWOULDBLOCK)
             return 0;
         return -1;
