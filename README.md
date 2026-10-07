@@ -14,12 +14,11 @@
 **Linux**
 
 1. Download `ThrowbackLauncher.AppImage` from the [latest release](https://github.com/xeralin/ThrowbackLauncher/releases/latest)
-2. Enable **Allow executing file as program** in the file properties to make it executable
-3. Open it
+2. Enable **Allow executing file as program** in the file properties to make it executable and run it
 
 **Building**
 
-For a local run on Linux you need [pnpm](https://pnpm.io/) and Python 3.14 or newer.
+For a local run on Linux you need [Node.js](https://nodejs.org/), [pnpm](https://pnpm.io/) and Python 3.14 or newer.
 
 ```sh
 git clone https://github.com/xeralin/ThrowbackLauncher.git
