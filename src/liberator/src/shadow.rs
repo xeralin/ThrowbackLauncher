@@ -1,5 +1,6 @@
 use core::ffi::c_void;
 
+use windows_sys::s;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };
@@ -95,23 +96,15 @@ impl Engine {
             .chain(std::iter::once(0))
             .flat_map(u16::to_le_bytes)
             .collect();
-        let rem = unsafe {
-            VirtualAllocEx(
-                self.proc,
-                core::ptr::null(),
-                wpath.len(),
-                MEM_COMMIT | MEM_RESERVE,
-                PAGE_READWRITE,
-            )
-        };
-        if rem.is_null() {
+        let rem = self.alloc(wpath.len(), PAGE_READWRITE);
+        if rem == 0 {
             return false;
         }
         let mut ok = false;
         let mut pending = false;
-        if self.write_mem(rem as u64, &wpath) {
-            let kernel = unsafe { GetModuleHandleA(b"kernel32.dll\0".as_ptr()) };
-            let ll = unsafe { GetProcAddress(kernel, b"LoadLibraryW\0".as_ptr()) };
+        if self.write_mem(rem, &wpath) {
+            let kernel = unsafe { GetModuleHandleA(s!("kernel32.dll")) };
+            let ll = unsafe { GetProcAddress(kernel, s!("LoadLibraryW")) };
             let start: LPTHREAD_START_ROUTINE = unsafe { std::mem::transmute(ll) };
             let th = unsafe {
                 CreateRemoteThread(
@@ -119,7 +112,7 @@ impl Engine {
                     core::ptr::null(),
                     0,
                     start,
-                    rem as *const c_void,
+                    rem as usize as *const c_void,
                     0,
                     core::ptr::null_mut(),
                 )
@@ -135,7 +128,7 @@ impl Engine {
             }
         }
         if !pending {
-            unsafe { VirtualFreeEx(self.proc, rem, 0, MEM_RELEASE) };
+            unsafe { VirtualFreeEx(self.proc, rem as *mut c_void, 0, MEM_RELEASE) };
         }
         ok
     }
@@ -162,7 +155,7 @@ impl Engine {
         }
         let mut buf = bytes.to_vec();
         let mod_hi = self.base + self.modsize as u64;
-        crate::rebase::rebase(&mut buf, addr, self.base, mod_hi, self.shadow_delta);
+        crate::relocate::relocate(&mut buf, addr, self.base, mod_hi, self.shadow_delta);
         self.write_mem((addr as i64 + self.shadow_delta) as u64, &buf);
     }
 
@@ -172,9 +165,8 @@ impl Engine {
     }
 
     pub(crate) fn shadow_run(&mut self, regions: &[ShadowRegion]) -> bool {
-        let (text_base, text_size) = match self.get_text_section() {
-            Some(x) => x,
-            None => return false,
+        let Some((text_base, text_size)) = self.get_text_section() else {
+            return false;
         };
         let mod_hi = self.base + self.modsize as u64;
 
@@ -225,7 +217,7 @@ impl Engine {
                     buf[o..o + r.patch.len()].copy_from_slice(r.patch);
                 }
             }
-            crate::rebase::rebase(&mut buf, win_base, self.base, mod_hi, reserved_delta);
+            crate::relocate::relocate(&mut buf, win_base, self.base, mod_hi, reserved_delta);
             let copy_base = (win_base as i64 + reserved_delta) as u64;
             let committed_copy = unsafe {
                 VirtualAllocEx(
@@ -300,14 +292,7 @@ impl Engine {
             };
         }
         unsafe { UnmapViewOfFile(view) };
-        let loaded = if existed {
-            true
-        } else {
-            match shadow_dll_path() {
-                Some(dll) => self.load_shadow(&dll),
-                None => false,
-            }
-        };
+        let loaded = existed || shadow_dll_path().is_some_and(|dll| self.load_shadow(&dll));
         unsafe { CloseHandle(map) };
         if !loaded {
             return self.release_and_fail(shadow_base);

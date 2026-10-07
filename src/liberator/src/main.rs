@@ -1,7 +1,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
-pub mod build_scan;
-pub mod rebase;
+pub mod relocate;
+pub mod scan_build;
 pub mod tables;
 pub mod tree;
 

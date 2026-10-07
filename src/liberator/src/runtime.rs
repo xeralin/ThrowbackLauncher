@@ -6,6 +6,7 @@ use std::net::TcpStream;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
+use windows_sys::s;
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, STILL_ACTIVE};
 use windows_sys::Win32::System::Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
@@ -13,6 +14,7 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     PROCESSENTRY32, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
 };
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
+use windows_sys::Win32::System::Memory::{VirtualAllocEx, MEM_COMMIT, MEM_RESERVE};
 use windows_sys::Win32::System::Threading::{
     GetExitCodeProcess, OpenProcess, PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION,
     PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
@@ -58,14 +60,12 @@ fn module_info(pid: u32) -> Option<(u64, u32)> {
     }
     let mut me: MODULEENTRY32 = unsafe { zeroed() };
     me.dwSize = size_of::<MODULEENTRY32>() as u32;
-    let mut out = None;
-    if unsafe { Module32First(snap, &mut me) } != 0 {
-        out = Some((me.modBaseAddr as u64, me.modBaseSize));
-    }
+    let found = unsafe { Module32First(snap, &mut me) } != 0;
     unsafe { CloseHandle(snap) };
-    out
+    found.then_some((me.modBaseAddr as u64, me.modBaseSize))
 }
 
+#[derive(Default)]
 pub struct Engine {
     pub proc: HANDLE,
     pub base: u64,
@@ -76,17 +76,6 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new() -> Self {
-        Engine {
-            proc: core::ptr::null_mut(),
-            base: 0,
-            modsize: 0,
-            exe: "",
-            shadow_pages: Vec::new(),
-            shadow_delta: 0,
-        }
-    }
-
     pub fn attach(&mut self) -> bool {
         let Some((pid, name)) = find_process(&[
             "RainbowSixGame.exe",
@@ -109,19 +98,15 @@ impl Engine {
         if h.is_null() {
             return false;
         }
-        match module_info(pid) {
-            Some((base, size)) => {
-                self.proc = h;
-                self.base = base;
-                self.modsize = size;
-                self.exe = name;
-                true
-            }
-            None => {
-                unsafe { CloseHandle(h) };
-                false
-            }
-        }
+        let Some((base, size)) = module_info(pid) else {
+            unsafe { CloseHandle(h) };
+            return false;
+        };
+        self.proc = h;
+        self.base = base;
+        self.modsize = size;
+        self.exe = name;
+        true
     }
 
     pub fn process_alive(&self) -> bool {
@@ -176,6 +161,18 @@ impl Engine {
         String::from_utf8_lossy(&text).into_owned()
     }
 
+    pub(crate) fn alloc(&self, size: usize, protect: u32) -> u64 {
+        unsafe {
+            VirtualAllocEx(
+                self.proc,
+                core::ptr::null(),
+                size,
+                MEM_COMMIT | MEM_RESERVE,
+                protect,
+            ) as u64
+        }
+    }
+
     pub fn write_mem(&self, addr: u64, bytes: &[u8]) -> bool {
         let mut wr: usize = 0;
         let ok = unsafe {
@@ -199,10 +196,8 @@ impl Engine {
             let remain = self.modsize - off;
             let toread = remain.min(CHUNK + OVERLAP);
             let got = self.read_mem(self.base + off as u64, &mut buf[..toread as usize]);
-            if got > 0 {
-                if let Some(m) = crate::build_scan::scan_build(&buf[..got]) {
-                    return Some(m);
-                }
+            if let Some(m) = crate::scan_build::scan_build(&buf[..got]) {
+                return Some(m);
             }
             off += CHUNK;
         }
@@ -439,10 +434,11 @@ pub struct Runner {
     eng: Engine,
     client: TcpStream,
     build: &'static str,
-    applied: bool,
+    patched: bool,
     pending: bool,
     countdown: i32,
-    status: String,
+    applied: bool,
+    unsupported: bool,
     season: i32,
     disable_primary: bool,
     disable_secondary: bool,
@@ -463,13 +459,14 @@ pub struct Runner {
 impl Runner {
     fn new(client: TcpStream) -> Runner {
         Runner {
-            eng: Engine::new(),
+            eng: Engine::default(),
             client,
             build: "",
-            applied: false,
+            patched: false,
             pending: true,
             countdown: 0,
-            status: String::new(),
+            applied: false,
+            unsupported: false,
             season: -1,
             disable_primary: false,
             disable_secondary: false,
@@ -554,17 +551,13 @@ impl Runner {
     }
 
     fn y5_resolve(&self, static_offset: u64, chain: &[i32]) -> u64 {
-        let mut a = self.eng.read_ptr(self.eng.base + static_offset);
-        if a == 0 {
+        let Some((last, path)) = chain.split_last() else {
             return 0;
+        };
+        match self.y5_deref(self.eng.read_ptr(self.eng.base + static_offset), path) {
+            0 => 0,
+            a => a.wrapping_add(*last as i64 as u64),
         }
-        for off in &chain[..chain.len() - 1] {
-            a = self.eng.read_ptr(a.wrapping_add(*off as i64 as u64));
-            if a == 0 {
-                return 0;
-            }
-        }
-        a.wrapping_add(chain[chain.len() - 1] as i64 as u64)
     }
 
     fn y5_gametype_entry(&self, gametype: usize) -> u64 {
@@ -572,34 +565,14 @@ impl Runner {
             Y5_TEMPLATE_ROOT,
             &y5_append(Y5_CHAIN_GAMETYPE, Y5_GAMETYPE_OFF[gametype]),
         );
-        if template == 0 {
-            return 0;
-        }
-        let descriptor = self.eng.read_ptr(template);
-        if descriptor == 0 {
-            return 0;
-        }
-        self.eng.read_ptr(descriptor)
+        self.y5_deref(template, &[0, 0])
     }
 
     fn y5_gametype_group(&self, gametype: usize) -> String {
-        let entry = self.y5_gametype_entry(gametype);
-        if entry == 0 {
-            return String::new();
+        match self.y5_deref(self.y5_gametype_entry(gametype), &[0x58, 0, 0x20]) {
+            0 => String::new(),
+            name => self.eng.read_ascii(name, 64),
         }
-        let handle = self.eng.read_ptr(entry + 0x58);
-        if handle == 0 {
-            return String::new();
-        }
-        let group = self.eng.read_ptr(handle);
-        if group == 0 {
-            return String::new();
-        }
-        let name = self.eng.read_ptr(group + 0x20);
-        if name == 0 {
-            return String::new();
-        }
-        self.eng.read_ascii(name, 64)
     }
 
     fn y5_gametype_matches(&self, gametype: usize) -> bool {
@@ -673,7 +646,7 @@ impl Runner {
                     for (d, diff_name) in Y5_DIFF_NAMES.iter().enumerate() {
                         map.children.push(TNode {
                             text: diff_name.to_string(),
-                            id: format!("y5:sel:{}:{}:{}", gt, m, d),
+                            id: format!("y5:sel:{gt}:{m}:{d}"),
                             children: Vec::new(),
                         });
                     }
@@ -800,11 +773,7 @@ impl Runner {
         } else if parts[1] == "sel" && parts.len() >= 4 {
             self.y5_gametype = parts[2].parse().unwrap_or(-1);
             self.y5_map = parts[3].parse().unwrap_or(-1);
-            self.y5_difficulty = if parts.len() >= 5 {
-                parts[4].parse().unwrap_or(-1)
-            } else {
-                -1
-            };
+            self.y5_difficulty = parts.get(4).map_or(-1, |d| d.parse().unwrap_or(-1));
             self.y5_event = 0;
         }
         self.apply_y5_playlist();
@@ -829,13 +798,13 @@ impl Runner {
     }
 
     fn end_round(&self) {
-        if self.applied && !self.write_state("EndRound") {
+        if self.patched && !self.write_state("EndRound") {
             self.write_chain("EndRound", &[1]);
         }
     }
 
     fn end_match(&self) {
-        if self.applied && !self.write_state("EndMatch") {
+        if self.patched && !self.write_state("EndMatch") {
             self.write_chain("EndMatch", &[1]);
             self.write_chain("EndMatchTrigger", &[1]);
         }
@@ -908,19 +877,17 @@ impl Runner {
 
     fn disable_self_terminate(&self) {
         for (module, export) in [
-            (&b"kernel32.dll\0"[..], &b"TerminateProcess\0"[..]),
-            (b"ntdll.dll\0", b"NtTerminateProcess\0"),
+            (s!("kernel32.dll"), s!("TerminateProcess")),
+            (s!("ntdll.dll"), s!("NtTerminateProcess")),
         ] {
-            if let Some(f) =
-                unsafe { GetProcAddress(GetModuleHandleA(module.as_ptr()), export.as_ptr()) }
-            {
+            if let Some(f) = unsafe { GetProcAddress(GetModuleHandleA(module), export) } {
                 self.eng.write_mem(f as usize as u64, &[0xC3]);
             }
         }
     }
 
     fn set_mod(&mut self, mod_: &str, enabled: bool) {
-        if !self.applied {
+        if !self.patched {
             return;
         }
         if self.season == SEASON_Y5S1 {
@@ -952,7 +919,7 @@ impl Runner {
     }
 
     fn set_playlist(&mut self, id_str: &str) {
-        if !self.applied {
+        if !self.patched {
             return;
         }
         if id_str.starts_with("y5:") {
@@ -978,10 +945,6 @@ impl Runner {
         IDLE.iter()
             .find(|(b, _)| *b == self.build)
             .is_none_or(|(_, addr)| self.eng.read1(self.eng.base.wrapping_add(*addr)) != 0)
-    }
-
-    fn set_loading_status(&mut self) {
-        self.status = format!("Loading {}", SEASON_NAMES[self.season as usize]);
     }
 
     fn apply_event_mode(&self, root: &mut TNode, em: &str) {
@@ -1012,7 +975,7 @@ impl Runner {
                 });
                 root.children[0].children.push(TNode {
                     text: "Doktor's Curse".to_string(),
-                    id: format!("{}", idv),
+                    id: format!("{idv}"),
                     children: Vec::new(),
                 });
             }
@@ -1030,9 +993,8 @@ impl Runner {
     }
 
     fn build_tree_json(&self) -> String {
-        let tp = match TREE_PARAMS.iter().find(|t| t.build == self.build) {
-            Some(t) => t,
-            None => return TREE_NULL.to_string(),
+        let Some(tp) = TREE_PARAMS.iter().find(|t| t.build == self.build) else {
+            return TREE_NULL.to_string();
         };
         let root_addr = self.eng.resolve_ptr_chain(tp.root_base, tp.root_offs);
         if root_addr == 0 {
@@ -1114,10 +1076,10 @@ impl Runner {
             .map(|((key, _), on)| format!("\"{key}\":{},", full && on))
             .collect();
         format!(
-            "{{\"event\":\"state\",\"attached\":{},\"applied\":{},\"status\":\"{}\",\"capabilities\":{{{caps}\"fullFeature\":{full}}}}}",
+            "{{\"event\":\"state\",\"attached\":{},\"applied\":{},\"unsupported\":{},\"capabilities\":{{{caps}\"fullFeature\":{full}}}}}",
             !self.eng.proc.is_null(),
             self.applied,
-            self.status
+            self.unsupported
         )
     }
 
@@ -1137,13 +1099,10 @@ impl Runner {
             return;
         }
         if self.scanned.is_empty() {
-            match self.eng.detect_build() {
-                Some(s) => self.scanned = s,
-                None => {
-                    self.status = "Loading".to_string();
-                    return;
-                }
-            }
+            let Some(s) = self.eng.detect_build() else {
+                return;
+            };
+            self.scanned = s;
         }
         if self.build.is_empty() {
             let num = self.scanned.rsplit_once('_').map_or("", |(_, n)| n);
@@ -1151,7 +1110,7 @@ impl Runner {
                 .iter()
                 .find(|(b, _)| b.strip_suffix(num).is_some_and(|p| p.ends_with('_')))
             else {
-                self.status = "This game build is not supported".to_string();
+                self.unsupported = true;
                 return;
             };
             self.build = build;
@@ -1159,7 +1118,6 @@ impl Runner {
             self.scan_features();
         }
         if self.pending {
-            self.set_loading_status();
             let idle = match shadow_regions_for_build(self.build) {
                 Some(regions) => self.eng.shadow_delta != 0 || self.eng.shadow_run(regions),
                 None => self.is_idle(),
@@ -1184,11 +1142,11 @@ impl Runner {
             self.countdown -= 1;
             return;
         }
-        if !self.applied {
+        if !self.patched {
             self.disable_self_terminate();
             self.eng.shadow_arm_pages();
             self.apply_static("ApplyCorePatch", "always");
-            self.applied = true;
+            self.patched = true;
         }
         for (build, offset, value) in INIT_BYTES {
             if *build == self.build && self.eng.read1(self.eng.base + offset) != *value {
@@ -1202,7 +1160,7 @@ impl Runner {
             &mut self.onboarding,
             &mut self.badges,
         ) {
-            self.set_loading_status();
+            self.applied = false;
             return;
         }
         self.apply_y5_playlist();
@@ -1214,11 +1172,7 @@ impl Runner {
                 self.send_line(&tj);
             }
         }
-        self.status = if self.is_full_feature() {
-            "Idle".to_string()
-        } else {
-            "Unlock All has been applied".to_string()
-        };
+        self.applied = true;
     }
 
     fn handle_command(&mut self, line: &str) {

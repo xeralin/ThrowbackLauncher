@@ -61,50 +61,39 @@ fn read_i32(b: &[u8], i: usize) -> i32 {
     i32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]])
 }
 
-fn decode_modrm(buf: &[u8], pos: &mut usize, len: usize, rip_disp: &mut Option<usize>) -> bool {
-    if *pos >= len {
+fn decode_modrm(buf: &[u8], pos: &mut usize, rip_disp: &mut Option<usize>) -> bool {
+    let Some(&modrm) = buf.get(*pos) else {
         return false;
-    }
-    let modrm = buf[*pos];
+    };
     *pos += 1;
-    let mod_ = (modrm >> 6) & 3;
+    let mod_ = modrm >> 6;
     let rm = modrm & 7;
     if mod_ == 3 {
         return true;
     }
-    let disp_size: usize;
-    let mut rip_disp_pos: usize = 0;
-    let mut rip_rel = false;
-    if mod_ == 0 && rm == 5 {
-        rip_rel = true;
-        disp_size = 4;
-        rip_disp_pos = *pos;
+    let disp_size = if mod_ == 0 && rm == 5 {
+        if *pos + 4 <= buf.len() {
+            *rip_disp = Some(*pos);
+        }
+        4
     } else {
-        let has_sib = rm == 4;
-        let mut sib_base: i32 = -1;
-        if has_sib {
-            if *pos >= len {
+        let mut sib_base = None;
+        if rm == 4 {
+            let Some(&sib) = buf.get(*pos) else {
                 return false;
-            }
-            sib_base = (buf[*pos] & 7) as i32;
+            };
+            sib_base = Some(sib & 7);
             *pos += 1;
         }
-        if mod_ == 0 {
-            disp_size = if has_sib && sib_base == 5 { 4 } else { 0 };
-        } else if mod_ == 1 {
-            disp_size = 1;
-        } else {
-            disp_size = 4;
+        match mod_ {
+            0 if sib_base == Some(5) => 4,
+            0 => 0,
+            1 => 1,
+            _ => 4,
         }
-    }
-    if rip_rel && rip_disp_pos + 4 <= len {
-        *rip_disp = Some(rip_disp_pos);
-    }
+    };
     *pos += disp_size;
-    if *pos > len {
-        return false;
-    }
-    true
+    *pos <= buf.len()
 }
 
 fn push_rip_fix(
@@ -128,7 +117,7 @@ fn push_rip_fix(
     }
 }
 
-pub fn rebase(buf: &mut [u8], buf_base: u64, mod_lo: u64, mod_hi: u64, delta: i64) {
+pub fn relocate(buf: &mut [u8], buf_base: u64, mod_lo: u64, mod_hi: u64, delta: i64) {
     for fi in scan_rip_rel(buf, buf_base, mod_lo, mod_hi) {
         let v = read_i32(buf, fi);
         let nv = ((v as i64) - delta) as i32;
@@ -146,25 +135,14 @@ fn scan_rip_rel(buf: &[u8], buf_base: u64, mod_lo: u64, mod_hi: u64) -> Vec<usiz
         let mut pfx66 = false;
         let mut pfx67 = false;
         let mut rex: u8 = 0;
-        let mut more = true;
-        while more && pos < len {
-            let b = buf[pos];
+        while let Some(&b) = buf.get(pos) {
             match b {
-                0x66 => {
-                    pfx66 = true;
-                    pos += 1;
-                }
-                0x67 => {
-                    pfx67 = true;
-                    pos += 1;
-                }
-                0xF0 | 0xF2 | 0xF3 | 0x2E | 0x36 | 0x3E | 0x26 | 0x64 | 0x65 => {
-                    pos += 1;
-                }
-                _ => {
-                    more = false;
-                }
+                0x66 => pfx66 = true,
+                0x67 => pfx67 = true,
+                0xF0 | 0xF2 | 0xF3 | 0x2E | 0x36 | 0x3E | 0x26 | 0x64 | 0x65 => {}
+                _ => break,
             }
+            pos += 1;
         }
         if pos >= len {
             break;
@@ -208,18 +186,10 @@ fn scan_rip_rel(buf: &[u8], buf_base: u64, mod_lo: u64, mod_hi: u64) -> Vec<usiz
             let vop = buf[pos];
             pos += 1;
             let no_modrm = map == 1 && vop == 0x77;
-            let has_imm8 = (map == 3)
-                || (map == 1
-                    && (vop == 0x70
-                        || vop == 0x71
-                        || vop == 0x72
-                        || vop == 0x73
-                        || vop == 0xC2
-                        || vop == 0xC4
-                        || vop == 0xC5
-                        || vop == 0xC6));
+            let has_imm8 =
+                map == 3 || (map == 1 && matches!(vop, 0x70..=0x73 | 0xC2 | 0xC4..=0xC6));
             if !no_modrm {
-                if !decode_modrm(buf, &mut pos, len, &mut rip_disp) {
+                if !decode_modrm(buf, &mut pos, &mut rip_disp) {
                     pos = start + 1;
                     continue;
                 }
@@ -282,29 +252,23 @@ fn scan_rip_rel(buf: &[u8], buf_base: u64, mod_lo: u64, mod_hi: u64) -> Vec<usiz
                 modrm_reg = (buf[pos] >> 3) & 7;
             }
             if op_len == 1 && pos < len {
-                let rreg = modrm_reg;
-                let rmod = (buf[pos] >> 6) & 3;
-                let mut invalid = false;
-                if op0 == 0xFE {
-                    invalid = rreg > 1;
-                } else if op0 == 0xFF {
-                    invalid = (rreg == 7) || ((rreg == 3 || rreg == 5) && rmod == 3);
-                } else if op0 == 0x8F {
-                    invalid = rreg != 0;
-                } else if op0 == 0xC6 || op0 == 0xC7 {
-                    invalid = !(rreg == 0 || (rreg == 7 && rmod == 3));
-                } else if (0xD8..=0xDF).contains(&op0) && rmod == 3 {
-                    let idx = (buf[pos] - 0xC0) as u32;
-                    if (X87M3[(op0 - 0xD8) as usize] & (1u64 << idx)) == 0 {
-                        invalid = true;
+                let rmod = buf[pos] >> 6;
+                let invalid = match op0 {
+                    0xFE => modrm_reg > 1,
+                    0xFF => modrm_reg == 7 || (matches!(modrm_reg, 3 | 5) && rmod == 3),
+                    0x8F => modrm_reg != 0,
+                    0xC6 | 0xC7 => !(modrm_reg == 0 || (modrm_reg == 7 && rmod == 3)),
+                    0xD8..=0xDF if rmod == 3 => {
+                        X87M3[(op0 - 0xD8) as usize] & (1u64 << (buf[pos] - 0xC0)) == 0
                     }
-                }
+                    _ => false,
+                };
                 if invalid {
                     pos = start + 1;
                     continue;
                 }
             }
-            if !decode_modrm(buf, &mut pos, len, &mut rip_disp) {
+            if !decode_modrm(buf, &mut pos, &mut rip_disp) {
                 pos = start + 1;
                 continue;
             }

@@ -30,12 +30,11 @@ pub fn rm(node: &mut TNode, path: &[usize], idx: usize) {
 }
 
 fn lookup(table: &[(&str, &str)], raw: &str) -> String {
-    for (r, d) in table {
-        if *r == raw {
-            return d.to_string();
-        }
-    }
-    raw.to_string()
+    table
+        .iter()
+        .find(|(r, _)| *r == raw)
+        .map_or(raw, |(_, d)| d)
+        .to_string()
 }
 
 fn map_display(raw: &str) -> String {
@@ -168,28 +167,23 @@ pub fn label_multiplayer(node: &mut TNode, season: i32) {
     if season >= 5 {
         set_text(node, &[4], "Canister");
     }
-    for i in 0..node.children.len() {
-        let mut j = 0;
-        while j < node.children[i].children.len() {
-            let disp = map_display(&node.children[i].children[j].text);
-            node.children[i].children[j].text = disp;
-            if let Some(k0) = node.children[i].children[j].children.get_mut(0) {
+    for gametype in &mut node.children {
+        for map in &mut gametype.children {
+            map.text = map_display(&map.text);
+            if let Some(k0) = map.children.get_mut(0) {
                 k0.text = "Day".to_string();
             }
-            if node.children[i].children[j].children.len() > 1 {
-                node.children[i].children[j].children[1].text = "Night".to_string();
+            if map.children.len() > 1 {
+                map.children[1].text = "Night".to_string();
             }
-            let rmv = {
-                let t = &node.children[i].children[j].text;
-                t == "!!FLOYD" || t == "!!Staduim Playlist" || t == "!!Western"
-            };
-            if rmv {
-                node.children[i].children.remove(j);
-                continue;
-            }
-            j += 1;
         }
-        trim_season_maps(&mut node.children[i].children, season);
+        gametype.children.retain(|map| {
+            !matches!(
+                map.text.as_str(),
+                "!!FLOYD" | "!!Staduim Playlist" | "!!Western"
+            )
+        });
+        trim_season_maps(&mut gametype.children, season);
     }
     sort_gametypes_by_name(&mut node.children);
 }
@@ -199,35 +193,24 @@ pub fn label_terrorist_hunt(node: &mut TNode, season: i32) {
     set_text(node, &[0], "Normal");
     set_text(node, &[1], "Hard");
     set_text(node, &[2], "Realistic");
-    for i in 0..node.children.len() {
-        for j in 0..node.children[i].children.len() {
-            set_text(&mut node.children[i].children[j], &[0], "Hostage");
-            set_text(&mut node.children[i].children[j], &[1], "Disarm Bomb");
-            set_text(&mut node.children[i].children[j], &[2], "Elimination");
-            let disp = map_display(&node.children[i].children[j].text);
-            node.children[i].children[j].text = disp;
-            for k in 0..node.children[i].children[j].children.len() {
-                for m in 0..node.children[i].children[j].children[k].children.len() {
-                    let d = lookup(
-                        GAMETYPE_NAMES,
-                        &node.children[i].children[j].children[k].children[m].text,
-                    );
-                    node.children[i].children[j].children[k].children[m].text = d;
-                }
+    for difficulty in &mut node.children {
+        for map in &mut difficulty.children {
+            set_text(map, &[0], "Hostage");
+            set_text(map, &[1], "Disarm Bomb");
+            set_text(map, &[2], "Elimination");
+            map.text = map_display(&map.text);
+            for gametype in map.children.iter_mut().flat_map(|mode| &mut mode.children) {
+                gametype.text = lookup(GAMETYPE_NAMES, &gametype.text);
             }
+            sort_gametypes_by_name(&mut map.children);
         }
-        trim_season_maps(&mut node.children[i].children, season);
+        trim_season_maps(&mut difficulty.children, season);
         if season == 10 {
-            set_text(&mut node.children[i], &[18], "Villa");
+            set_text(difficulty, &[18], "Villa");
         }
         if season >= 11 {
-            set_text(&mut node.children[i], &[18], "Hereford Base - Rework");
-            set_text(&mut node.children[i], &[17], "Villa");
-        }
-    }
-    for difficulty in node.children.iter_mut() {
-        for map in difficulty.children.iter_mut() {
-            sort_gametypes_by_name(&mut map.children);
+            set_text(difficulty, &[18], "Hereford Base - Rework");
+            set_text(difficulty, &[17], "Villa");
         }
     }
 }
@@ -255,12 +238,10 @@ pub fn label_situation(node: &mut TNode, advanced_order: bool) {
     }
     set_text(node, &[9], "10 Heavily Fortified");
     set_text(node, &[10], "Article 5");
-    for i in 0..node.children.len() {
-        if !node.children[i].children.is_empty() {
-            set_text(&mut node.children[i], &[0], "Normal");
-            set_text(&mut node.children[i], &[1], "Hard");
-            set_text(&mut node.children[i], &[2], "Realistic");
-        }
+    for situation in &mut node.children {
+        set_text(situation, &[0], "Normal");
+        set_text(situation, &[1], "Hard");
+        set_text(situation, &[2], "Realistic");
     }
 }
 
@@ -295,16 +276,14 @@ pub fn label_gym(node: &mut TNode, season: i32) {
     node.text = "Gym".to_string();
     set_text(node, &[0], "Day");
     set_text(node, &[1], "Night");
-    for i in 0..node.children.len() {
-        if node.children[i].children.len() == 12 {
-            for j in 0..node.children[i].children.len() {
-                let d = map_display(&node.children[i].children[j].text);
-                node.children[i].children[j].text = d;
+    for child in &mut node.children {
+        if child.children.len() == 12 {
+            for map in &mut child.children {
+                map.text = map_display(&map.text);
             }
-            continue;
+        } else {
+            child.text = map_display(&child.text);
         }
-        let d = map_display(&node.children[i].text);
-        node.children[i].text = d;
     }
     if season == SEASON_Y1S2 {
         rm(node, &[], 15);
@@ -318,11 +297,10 @@ pub fn label_gym(node: &mut TNode, season: i32) {
 
 pub fn label_video_review(node: &mut TNode) {
     node.text = "Video Review".to_string();
-    for i in 0..node.children.len() {
-        set_text(&mut node.children[i], &[0], "House - Benchmark");
-        for j in 0..node.children[i].children.len() {
-            let d = map_display(&node.children[i].children[j].text);
-            node.children[i].children[j].text = d;
+    for child in &mut node.children {
+        set_text(child, &[0], "House - Benchmark");
+        for map in &mut child.children {
+            map.text = map_display(&map.text);
         }
     }
 }
@@ -362,7 +340,7 @@ fn tag_ids(node: &mut TNode, tag: &str) {
     if !node.id.is_empty() {
         node.id = format!("{}{}", tag, node.id);
     }
-    for k in node.children.iter_mut() {
+    for k in &mut node.children {
         tag_ids(k, tag);
     }
 }
