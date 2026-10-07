@@ -12,6 +12,17 @@ export const metadata: Metadata = FAQ_PAGES["common-errors"];
 
 const faqs: FaqItem[] = [
   {
+    id: "game-crash",
+    q: "Why does my game keep crashing?",
+    platform: "windows",
+    a: (
+      <p>
+        External overlays like Overwolf may be incompatible with the old R6S
+        build, so disable them before launching the game.
+      </p>
+    ),
+  },
+  {
     id: "download-errors",
     q: "I am getting errors while downloading. What should I do?",
     a: (
@@ -75,20 +86,16 @@ const faqs: FaqItem[] = [
         </p>
         <ol>
           <li>
-            Visit this{" "}
-            <ExternalLink href="https://github.com/abbodi1406/vcredist/releases/latest">
-              repository
-            </ExternalLink>
-          </li>
-          <li>
-            Download <code>VisualCppRedist_AIO_x86_x64.exe</code> and run it as
-            administrator
+            Download{" "}
+            <ExternalLink href="https://github.com/abbodi1406/vcredist/releases/latest/download/VisualCppRedist_AIO_x86_x64.exe">
+              <code>VisualCppRedist_AIO_x86_x64.exe</code>
+            </ExternalLink>{" "}
+            and run it as administrator
           </li>
           <li>Restart your computer and try launching the game again</li>
         </ol>
         <Note className="my-3">
-          If the error persists, make sure Windows is fully up to date, then
-          repeat the steps above.
+          If the error persists, make sure Windows is fully up to date.
         </Note>
       </>
     ),
@@ -119,35 +126,6 @@ const faqs: FaqItem[] = [
             Run <code>dxwebsetup.exe</code>
           </li>
           <li>Restart your computer and try launching the game again</li>
-        </ol>
-      </>
-    ),
-  },
-  {
-    id: "missing-exe",
-    q: (
-      <>
-        How do I fix a missing <code>.exe</code> or the{" "}
-        <code>uplay_rx_loader64.dll</code> error?
-      </>
-    ),
-    platform: "windows",
-    a: (
-      <>
-        <p>
-          This is usually caused by your antivirus blocking or removing a
-          required file.
-        </p>
-        <ol>
-          <li>
-            Follow the instructions on the{" "}
-            <Link href="/faq/general#antivirus-exclusion">General page</Link> to
-            add the Launcher and library folders as exclusions
-          </li>
-          <li>
-            Use <strong>Verify</strong> in the <strong>Manage</strong> tab of
-            the season to restore the removed files
-          </li>
         </ol>
       </>
     ),
@@ -196,31 +174,32 @@ const faqs: FaqItem[] = [
       </>
     ),
     a: (
-      <>
-        <ol>
+      <ol>
+        <li>
+          <strong>Restart the game</strong> — Close it completely with{" "}
+          <strong>Stop</strong> in the Launcher
+          <OnWindows> or via Task Manager</OnWindows> and try again
+        </li>
+        <OnWindows>
           <li>
-            <strong>Restart the game</strong> — Close it completely with{" "}
-            <strong>Stop</strong> in the Launcher
-            <OnWindows> or via Task Manager</OnWindows> and try again
+            <strong>Check your antivirus</strong> — If files were removed,
+            exclude the Launcher and library folders (see{" "}
+            <Link href="/faq/getting-started#antivirus-exclusion">
+              Getting Started
+            </Link>
+            )
           </li>
-          <li>
-            <strong>Verify your files</strong> — Use <strong>Verify</strong> in
-            the <strong>Manage</strong> tab of the season to check for missing
-            or corrupted files
-          </li>
-          <OnWindows>
-            <li>
-              <strong>Check your antivirus</strong> — If files were removed,
-              exclude the Launcher and library folders (see the{" "}
-              <Link href="/faq/general#antivirus-exclusion">General page</Link>)
-              and run <strong>Verify</strong> again
-            </li>
-          </OnWindows>
-        </ol>
-        <Note className="my-3">
-          This issue usually resolves itself after a restart.
-        </Note>
-      </>
+        </OnWindows>
+        <li>
+          <strong>Clear the app cache</strong> — Use <strong>Clear</strong> next
+          to <strong>App cache</strong> in <strong>Settings</strong>
+        </li>
+        <li>
+          <strong>Verify your files</strong> — Use <strong>Verify</strong> in
+          the <strong>Manage</strong> tab of the season to check for missing or
+          corrupted files
+        </li>
+      </ol>
     ),
   },
   {
@@ -241,10 +220,7 @@ const faqs: FaqItem[] = [
             </a>{" "}
             file
           </li>
-          <li>
-            Move it into the folder of the affected season inside your library,
-            replacing the existing file
-          </li>
+          <li>Move it into the season folder and replace the existing file</li>
           <li>Launch the game</li>
         </ol>
         <Image

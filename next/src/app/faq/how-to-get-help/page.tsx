@@ -14,12 +14,12 @@ export default function HowToGetHelp() {
     <>
       <FaqHero page="how-to-get-help" />
 
-      <Note className="mb-6">
+      <Note>
         If you run into errors, attach{" "}
         <code>ThrowbackLauncher/bin/errors.txt</code> to your report.
       </Note>
 
-      <SectionTitle>Reporting an Issue to Staff</SectionTitle>
+      <SectionTitle>Report an Issue</SectionTitle>
       <Prose>
         <p>
           If your issue is not covered in the FAQ, join the{" "}
@@ -52,7 +52,7 @@ export default function HowToGetHelp() {
         <p>
           After posting, ping the <strong>Helper</strong> role once. Do not tag
           individual staff members directly. If you do, you will most likely be
-          ignored or made fun of.
+          ignored.
         </p>
       </Prose>
     </>

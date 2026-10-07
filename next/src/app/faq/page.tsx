@@ -3,7 +3,10 @@ import { Hero } from "@/components/Hero";
 import { CardGrid, NavCard } from "@/components/NavCard";
 import { FAQ_PAGES } from "@/config/faq";
 
-export const metadata: Metadata = FAQ_PAGES.index;
+const description =
+  "Your guide to downloading, setting up, and playing older Rainbow Six Siege seasons.";
+
+export const metadata: Metadata = { title: "FAQ", description };
 
 export default function Faq() {
   return (
@@ -16,19 +19,21 @@ export default function Faq() {
             Welcome to the <em>Throwback FAQ</em>
           </>
         }
-        description={FAQ_PAGES.index.description}
+        description={description}
       />
 
       <CardGrid>
-        <NavCard href="/faq/general" {...FAQ_PAGES.general} />
-        <NavCard href="/faq/multiplayer" {...FAQ_PAGES.multiplayer} />
+        <NavCard
+          href="/faq/getting-started"
+          {...FAQ_PAGES["getting-started"]}
+        />
         <NavCard href="/faq/common-errors" {...FAQ_PAGES["common-errors"]} />
+        <NavCard href="/faq/multiplayer" {...FAQ_PAGES.multiplayer} />
         <NavCard
           href="/faq/how-to-get-help"
           {...FAQ_PAGES["how-to-get-help"]}
         />
         <NavCard href="/faq/heated-metal" {...FAQ_PAGES["heated-metal"]} />
-        <NavCard href="/faq/cheat-engine" {...FAQ_PAGES["cheat-engine"]} />
       </CardGrid>
     </>
   );

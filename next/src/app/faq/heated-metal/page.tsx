@@ -10,6 +10,7 @@ import { ExternalLink } from "@/components/ExternalLink";
 import { LinkButton } from "@/components/LinkButton";
 import { OnLinux, OnWindows } from "@/components/OnPlatform";
 import { FaqAccordion, type FaqItem } from "@/components/FaqAccordion";
+import { ProtonSteps } from "@/components/SetupSteps";
 
 export const metadata: Metadata = FAQ_PAGES["heated-metal"];
 
@@ -66,16 +67,16 @@ export default function HeatedMetal() {
       <SectionTitle>Support</SectionTitle>
       <Prose>
         <p>
-          Heated Metal is a full SDK (Software Development Kit) for R6S by{" "}
+          Heated Metal is an SDK (Software Development Kit) for R6S by{" "}
           <ExternalLink href={site.heatedMetalRepoUrl}>
             DataCluster0
           </ExternalLink>{" "}
-          that adds extended capabilities to specific old game builds.
+          that adds extended capabilities to the following seasons.
         </p>
         <SeasonTable rows={heatedMetalSeasons} showVersion />
       </Prose>
 
-      <div className="mb-8 flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2">
         <LinkButton href={site.heatedMetalRepoUrl} variant="primary">
           Repository
         </LinkButton>
@@ -88,12 +89,20 @@ export default function HeatedMetal() {
       <Prose>
         <ul>
           <OnWindows>
-            <li>The latest Visual C++ Redistributables</li>
+            <li>
+              Latest{" "}
+              <ExternalLink href={site.vcRedistUrl}>
+                Visual C++ Redistributable
+              </ExternalLink>
+            </li>
           </OnWindows>
           <li>Medium or above in-game textures on Y5S3 Shadow Legacy</li>
-          <li>
-            External overlays disabled, as they can stop the UI from rendering
-          </li>
+          <OnWindows>
+            <li>External overlays like Overwolf disabled</li>
+          </OnWindows>
+          <OnLinux>
+            <li>External overlays disabled</li>
+          </OnLinux>
         </ul>
       </Prose>
 
@@ -101,46 +110,31 @@ export default function HeatedMetal() {
       <Prose>
         <ol>
           <li>
-            Open one of the supported seasons above in the Launcher and switch
-            to the <strong>Heated Metal</strong> tab
+            Navigate to one of the supported seasons above and switch to the{" "}
+            <strong>Heated Metal</strong> tab
           </li>
           <li>
-            Press <strong>Download</strong>, then launch the game from the
-            Launcher once it completes
+            Press <strong>Download</strong>
           </li>
         </ol>
         <OnLinux>
-          <p>
-            <strong>Y9S2 New Blood</strong> only runs on a specific Proton
-            build.
-          </p>
-          <ol>
-            <li>
-              Download the Proton build from{" "}
-              <ExternalLink href={site.indevReleasesUrl}>
-                <code>#indev-releases</code>
-              </ExternalLink>
-            </li>
-            <li>
-              Extract it into{" "}
-              <code>~/.local/share/ThrowbackLauncher/bin/proton</code>
-            </li>
-            <li>
-              Pick it under <strong>Proton</strong> in the{" "}
-              <strong>Manage</strong> tab of the season
-            </li>
-          </ol>
+          <div className="mb-4">
+            <ProtonSteps />
+          </div>
         </OnLinux>
         <Note>
-          <strong>Y9S2 New Blood</strong> is only available on the{" "}
+          <strong>Y9S2 Heated Metal</strong> is only available on the{" "}
           <ExternalLink href={site.heatedMetalDiscordUrl}>
             Heated Metal Discord
           </ExternalLink>
-          . Download the <code>.7z</code> from{" "}
-          <ExternalLink href={site.indevReleasesUrl}>
+          . Download the latest <code>Unstable.7z</code> from{" "}
+          <ExternalLink
+            href={site.heatedMetalDiscordUrl}
+            className="whitespace-nowrap"
+          >
             <code>#indev-releases</code>
-          </ExternalLink>{" "}
-          first.
+          </ExternalLink>
+          .
         </Note>
       </Prose>
 

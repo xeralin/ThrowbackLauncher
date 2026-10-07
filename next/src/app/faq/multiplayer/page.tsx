@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { FAQ_PAGES } from "@/config/faq";
 import { site } from "@/config/site";
+import Image from "next/image";
 import Link from "next/link";
 import { FaqHero } from "@/components/FaqHero";
 import { SectionTitle } from "@/components/SectionTitle";
@@ -23,28 +24,36 @@ const faqs: FaqItem[] = [
     ),
   },
   {
-    id: "find-game",
-    q: "I cannot find the hosted game. What should I check?",
+    id: "join-game",
+    q: "I cannot join the hosted game. What should I do?",
     a: (
       <ol>
         <li>
-          <strong>Check your game version</strong> — All players must be on the
-          same build, which installing the same season through the Launcher
-          guarantees, and which <strong>Show Metrics</strong> in the game
-          settings confirms
+          <strong>Build</strong> — All players must be on the same build, which
+          installing the same season through the Launcher guarantees, and which
+          the in-game <strong>Show Metrics</strong> option confirms
         </li>
         <li>
-          <strong>Check your Radmin VPN network</strong> — Make sure all players
-          are connected to the same network and no other VPN is running
-        </li>
-        <li>
-          <strong>Check your firewall</strong> — Make sure the old R6S build is
-          allowed through your firewall
-          <OnWindows> for both private and public networks</OnWindows>
+          <strong>Network</strong> — Make sure all players are connected to the
+          same network and no other VPN is running
         </li>
         <li>
           <strong>Restart</strong> — Try restarting both the game and Radmin VPN
         </li>
+        <OnWindows>
+          <li>
+            <strong>Firewall</strong> — Make sure the old R6S build is allowed
+            through your firewall for both private and public networks
+            <Image
+              src="/media/others/radmin-firewall.webp"
+              alt="Radmin VPN with System, Firewall Exceptions and Add Application open and RainbowSix selected"
+              width={524}
+              height={160}
+              unoptimized
+              className="rounded-none border-0"
+            />
+          </li>
+        </OnWindows>
       </ol>
     ),
   },
