@@ -318,57 +318,59 @@ export function Sidebar({
       <div className="mt-auto">
         {queuedSeasons.length > 0 && (
           <div className="mx-2 mb-2 flex max-h-36 flex-col-reverse overflow-y-auto rounded-md border border-border bg-surface-2">
-            {queuedSeasons.map((season, index) => (
-              <button
-                key={editionId(season)}
-                type="button"
-                draggable
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = "move";
-                  setDragId(editionId(season));
-                }}
-                onDragEnd={() => setDragId(null)}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  if (!dragId || dragId === editionId(season)) return;
-                  const from = dl.queue.findIndex(
-                    (entry) => editionId(entry) === dragId,
-                  );
-                  const to = dl.queue.findIndex(
-                    (entry) =>
-                      entry.key === season.key && entry.hm === season.hm,
-                  );
-                  moveQueueEntry(from, to);
-                }}
-                onKeyDown={(event) => {
-                  if (
-                    !event.altKey ||
-                    (event.key !== "ArrowUp" && event.key !== "ArrowDown")
-                  )
-                    return;
-                  event.preventDefault();
-                  const from = dl.queue.findIndex(
-                    (entry) =>
-                      entry.key === season.key && entry.hm === season.hm,
-                  );
-                  const to = from + (event.key === "ArrowUp" ? 1 : -1);
-                  if (moveQueueEntry(from, to))
-                    pendingQueueFocus.current = editionId(season);
-                }}
-                onClick={() => openSeason(season)}
-                data-queue-id={editionId(season)}
-                className={`group flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-border ${
-                  dragId === editionId(season) ? "opacity-40" : ""
-                }`}
-              >
-                <span className="font-mono text-micro text-text-muted">
-                  {index + 1}
-                </span>
-                <span className="min-w-0 grow truncate-fade font-display text-label font-bold leading-none text-text-muted transition-colors group-hover:text-text">
-                  {seasonTitle(season)}
-                </span>
-              </button>
-            ))}
+            <div>
+              {queuedSeasons.toReversed().map((season, index) => (
+                <button
+                  key={editionId(season)}
+                  type="button"
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    setDragId(editionId(season));
+                  }}
+                  onDragEnd={() => setDragId(null)}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    if (!dragId || dragId === editionId(season)) return;
+                    const from = dl.queue.findIndex(
+                      (entry) => editionId(entry) === dragId,
+                    );
+                    const to = dl.queue.findIndex(
+                      (entry) =>
+                        entry.key === season.key && entry.hm === season.hm,
+                    );
+                    moveQueueEntry(from, to);
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      !event.altKey ||
+                      (event.key !== "ArrowUp" && event.key !== "ArrowDown")
+                    )
+                      return;
+                    event.preventDefault();
+                    const from = dl.queue.findIndex(
+                      (entry) =>
+                        entry.key === season.key && entry.hm === season.hm,
+                    );
+                    const to = from + (event.key === "ArrowUp" ? 1 : -1);
+                    if (moveQueueEntry(from, to))
+                      pendingQueueFocus.current = editionId(season);
+                  }}
+                  onClick={() => openSeason(season)}
+                  data-queue-id={editionId(season)}
+                  className={`group flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-border ${
+                    dragId === editionId(season) ? "opacity-40" : ""
+                  }`}
+                >
+                  <span className="font-mono text-micro text-text-muted">
+                    {queuedSeasons.length - index}
+                  </span>
+                  <span className="min-w-0 grow truncate-fade font-display text-label font-bold leading-none text-text-muted transition-colors group-hover:text-text">
+                    {seasonTitle(season)}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {activeSeason && (
