@@ -14,7 +14,7 @@
 **Linux**
 
 1. Download `ThrowbackLauncher.AppImage` from the [latest release](https://github.com/xeralin/ThrowbackLauncher/releases/latest)
-2. Enable **Allow executing file as program** in the file properties to make it executable and run it
+2. Enable **Allow executing file as program** in the file properties to make it executable
 
 **Building**
 
