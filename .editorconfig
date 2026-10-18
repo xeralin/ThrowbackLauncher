@@ -10,12 +10,9 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 4
 
-[*.{ts,tsx,mjs,css,json,yml}]
+[*.{ts,tsx,js,mjs,css,json,yml}]
 indent_style = space
 indent_size = 2
 
 [Makefile]
 indent_style = tab
-
-[*.md]
-trim_trailing_whitespace = false
