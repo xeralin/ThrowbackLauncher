@@ -28,10 +28,18 @@ static LONG CALLBACK crash_handler(PEXCEPTION_POINTERS ep)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-#define DISPATCH_RVA 0x636A0
-#define FREE_RVA     0xC9001
-#define COUNTER_RVA  0x13F1D8
+static const struct rv_build {
+    DWORD stamp;
+    DWORD dispatch;
+    DWORD free_fn;
+    DWORD counter;
+    DWORD get_inetwork;
+} k_builds[] = {
+    { 0x68A8905C, 0x636A0, 0xC9001, 0x13F1D8, 0x5BA70 },
+    { 0x6A69EE38, 0x788C0, 0xE5807, 0x15C778, 0x67D00 },
+};
 
+static const struct rv_build *g_build = NULL;
 static BYTE *g_rvbase = NULL;
 
 static void longjmp_tramp(void)
@@ -51,7 +59,7 @@ static unsigned __stdcall hook_dispatch(void **Block)
         void *fn  = Block[0];
         void *arg = Block[1];
 
-        ((void (__cdecl *)(void *, unsigned))(g_rvbase + FREE_RVA))(Block, 8);
+        ((void (__cdecl *)(void *, unsigned))(g_rvbase + g_build->free_fn))(Block, 8);
         if (fn) {
             void *env[5];
             void **prev;
@@ -66,12 +74,10 @@ static unsigned __stdcall hook_dispatch(void **Block)
             }
         }
 
-        _InterlockedDecrement((long *)(g_rvbase + COUNTER_RVA));
+        _InterlockedDecrement((long *)(g_rvbase + g_build->counter));
     }
     return 0;
 }
-
-#define GETINETWORK_RVA 0x5BA70
 
 static void install_release_guard(void)
 {
@@ -84,9 +90,17 @@ static void install_release_guard(void)
         return;
     g_rvbase = (BYTE *)base;
 
+    PIMAGE_NT_HEADERS nt =
+        (PIMAGE_NT_HEADERS)(g_rvbase + ((PIMAGE_DOS_HEADER)base)->e_lfanew);
+    for (size_t i = 0; i < ARRAYSIZE(k_builds); i++)
+        if (k_builds[i].stamp == nt->FileHeader.TimeDateStamp)
+            g_build = &k_builds[i];
+    if (!g_build)
+        return;
+
     {
         static const BYTE gi_expect[3] = { 0x56, 0x57, 0x8B };
-        BYTE *g = (BYTE *)base + GETINETWORK_RVA;
+        BYTE *g = (BYTE *)base + g_build->get_inetwork;
         DWORD go;
         if (memcmp(g, gi_expect, sizeof(gi_expect)) == 0 &&
             VirtualProtect(g, 3, PAGE_EXECUTE_READWRITE, &go)) {
@@ -97,7 +111,7 @@ static void install_release_guard(void)
         }
     }
 
-    t = (BYTE *)base + DISPATCH_RVA;
+    t = (BYTE *)base + g_build->dispatch;
     if (memcmp(t, expect, sizeof(expect)) != 0)
         return;
     if (!VirtualProtect(t, 6, PAGE_EXECUTE_READWRITE, &old))
@@ -399,6 +413,41 @@ static LONG WINAPI hook_RegSetKeySecurity(HKEY hKey, SECURITY_INFORMATION si,
     return ERROR_SUCCESS;
 }
 
+static ULONG WINAPI perf_stub_ul(HANDLE prov, void *inst, ULONG id, ULONG val)
+{
+    (void)prov; (void)inst; (void)id; (void)val;
+    return ERROR_SUCCESS;
+}
+
+static ULONG WINAPI perf_stub_ull(HANDLE prov, void *inst, ULONG id, ULONGLONG val)
+{
+    (void)prov; (void)inst; (void)id; (void)val;
+    return ERROR_SUCCESS;
+}
+
+static const struct perf_stub {
+    const char *name;
+    FARPROC fn;
+} k_perf_stubs[] = {
+    { "PerfIncrementULongCounterValue",     (FARPROC)perf_stub_ul },
+    { "PerfDecrementULongCounterValue",     (FARPROC)perf_stub_ul },
+    { "PerfIncrementULongLongCounterValue", (FARPROC)perf_stub_ull },
+    { "PerfDecrementULongLongCounterValue", (FARPROC)perf_stub_ull },
+};
+
+static FARPROC (WINAPI *real_GetProcAddress)(HMODULE, LPCSTR) = NULL;
+
+static FARPROC WINAPI hook_GetProcAddress(HMODULE mod, LPCSTR name)
+{
+    FARPROC p = real_GetProcAddress ? real_GetProcAddress(mod, name) : NULL;
+    if (p || ((ULONG_PTR)name >> 16) == 0)
+        return p;
+    for (size_t i = 0; i < ARRAYSIZE(k_perf_stubs); i++)
+        if (strcmp(name, k_perf_stubs[i].name) == 0)
+            return k_perf_stubs[i].fn;
+    return NULL;
+}
+
 static BOOL hook_import(HMODULE mod, const char *dll, const char *fn, WORD ord,
                         void *newfn, void **saved)
 {
@@ -520,6 +569,8 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         hook_ws2_32(exe);
         hook_import(exe, "ADVAPI32.DLL", "RegSetKeySecurity", 0,
                     hook_RegSetKeySecurity,  NULL);
+        hook_import(exe, "KERNEL32.dll", "GetProcAddress", 0,
+                    hook_GetProcAddress,     (void **)&real_GetProcAddress);
         hook_import(exe, "KERNEL32.dll", "LoadLibraryW", 0,
                     hook_LoadLibraryW,       (void **)&real_LoadLibraryW);
         hook_import(exe, "KERNEL32.dll", "LoadLibraryA", 0,

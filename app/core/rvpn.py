@@ -1,5 +1,4 @@
 import contextlib
-import getpass
 import hashlib
 import mmap
 import os
@@ -53,7 +52,6 @@ _VPN_IP_SCAN = re.compile(r"26\.\d+\.\d+\.\d+")
 _VPN_IP = re.compile(rf"^{_VPN_IP_SCAN.pattern}$")
 _SERVICE_VER = re.compile(r"Service version:\s*([\d.]+)")
 _MAC_RE = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
-_USER_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _NETSH_ADDR = re.compile(r"ip addr add (\d+\.\d+\.\d+\.\d+)/(\d+)")
 
 _NET_CLASS = r"{4d36e972-e325-11ce-bfc1-08002be10318}"
@@ -470,14 +468,11 @@ class Session:
     def _net_bringup(self) -> str | None:
         if not _MAC_RE.match(self._mac):
             return "invalid adapter MAC"
-        user = getpass.getuser()
-        if not _USER_RE.match(user):
-            return "invalid user name"
         script = "; ".join(
             [
                 "modprobe tun",
                 f"ip link delete {_TAP}",
-                f"ip tuntap add dev {_TAP} mode tap user {user}",
+                f"ip tuntap add dev {_TAP} mode tap user {os.getuid()}",
                 f"ip link set {_TAP} address {self._mac}",
                 f"ip link set {_TAP} up",
                 f"ip link set {_TAP} multicast on",
@@ -603,9 +598,9 @@ class Session:
         env = dict(self._env)
         env["WINEDLLOVERRIDES"] = "mscoree=;mshtml=;netsh.exe=n"
         env["WINE_LARGE_ADDRESS_AWARE"] = "1"
-        shim = RVPN_BIN_DIR / "dns_shim.so"
+        shims = ":".join(str(RVPN_BIN_DIR / name) for name in ("dns_shim.so", "reuseport_shim.so"))
         preload = env.get("LD_PRELOAD", "")
-        env["LD_PRELOAD"] = f"{shim}:{preload}" if preload else str(shim)
+        env["LD_PRELOAD"] = f"{shims}:{preload}" if preload else shims
         try:
             self._service_proc = subprocess.Popen(
                 ["wine", "rvpn_launcher.exe", "/run"],

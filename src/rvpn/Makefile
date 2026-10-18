@@ -19,7 +19,8 @@ DDK_INC = /usr/x86_64-w64-mingw32/include/ddk
 $(warning DDK headers not found in standard paths; rvpnnetmp.sys compile may fail)
 endif
 
-BINS = $(BUILD)/tap_bridge $(BUILD)/dns_shim.so $(BUILD)/rvpnnetmp.sys $(BUILD)/adapter_hook.dll \
+BINS = $(BUILD)/tap_bridge $(BUILD)/dns_shim.so $(BUILD)/reuseport_shim.so \
+       $(BUILD)/rvpnnetmp.sys $(BUILD)/adapter_hook.dll \
        $(BUILD)/rvpn_launcher.exe $(BUILD)/netsh.exe $(BUILD)/netsh64.exe \
        $(BUILD)/drvinst.exe
 
@@ -30,6 +31,10 @@ $(BUILD)/tap_bridge: src/tap_bridge.c | $(BUILD)
 	$(STRIP) $@
 
 $(BUILD)/dns_shim.so: src/dns_shim.c src/private_v4.h | $(BUILD)
+	$(CC) $(CFLAGS) -fPIC -shared -o $@ $< -ldl
+	$(STRIP) $@
+
+$(BUILD)/reuseport_shim.so: src/reuseport_shim.c | $(BUILD)
 	$(CC) $(CFLAGS) -fPIC -shared -o $@ $< -ldl
 	$(STRIP) $@
 
