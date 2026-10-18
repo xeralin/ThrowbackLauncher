@@ -8,7 +8,7 @@ import { Note } from "@/components/Note";
 import { ExternalLink } from "@/components/ExternalLink";
 import { VersionChip } from "@/components/VersionChip";
 import { Modal } from "@/components/Modal";
-import { StrokeIcon } from "@/components/icons";
+import { REFRESH, StrokeIcon } from "@/components/icons";
 import {
   useDownloader,
   useUpdate,
@@ -74,19 +74,7 @@ function UpdateCard({
           )}
         </button>
       </div>
-      {notes.truncated ? (
-        <>
-          <div className="cut-fade -mb-2 pb-4">
-            <Markdown nodes={notes.nodes} />
-          </div>
-          <Note>
-            Read the{" "}
-            <ExternalLink href={component.url}>full release notes</ExternalLink>
-          </Note>
-        </>
-      ) : (
-        notes.nodes.length > 0 && <Markdown nodes={notes.nodes} />
-      )}
+      {notes.length > 0 && <Markdown nodes={notes} />}
     </div>
   );
 }
@@ -166,7 +154,7 @@ export default function UpdatesPage() {
             >
               <StrokeIcon
                 key={spins}
-                d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5"
+                d={REFRESH}
                 className={`size-4${spins ? " animate-spin-once" : ""}`}
               />
             </button>

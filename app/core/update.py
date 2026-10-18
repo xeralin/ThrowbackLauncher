@@ -113,7 +113,6 @@ _REPOSITORY_RX = re.compile(r"/repos/([^/]+/[^/]+)/")
 @dataclass
 class ReleaseNotes:
     body: str = ""
-    url: str = ""
     repository: str = ""
 
 
@@ -122,7 +121,6 @@ def _release_notes(api_url: str) -> ReleaseNotes:
     repository = _REPOSITORY_RX.search(api_url)
     return ReleaseNotes(
         release.get("body") or "",
-        release.get("html_url") or "",
         repository.group(1) if repository else "",
     )
 

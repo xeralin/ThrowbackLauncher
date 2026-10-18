@@ -1,4 +1,4 @@
-import type { Element, ElementContent, Root } from "hast";
+import type { Element, ElementContent, Root, RootContent } from "hast";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
@@ -12,12 +12,7 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { visitParents } from "unist-util-visit-parents";
-import {
-  OPENABLE,
-  isBlank,
-  limitNotes,
-  type ReleaseNotes,
-} from "@/lib/markdown";
+import { OPENABLE, isBlank } from "@/lib/markdown";
 
 function buildUrl(values: BuildUrlValues) {
   return values.type === "commit" || values.type === "compare"
@@ -129,7 +124,7 @@ function linkImages(tree: Root) {
 export function parseReleaseNotes(
   body: string,
   repository?: string,
-): ReleaseNotes {
+): RootContent[] {
   const processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
@@ -141,7 +136,7 @@ export function parseReleaseNotes(
     .use(rehypeSanitize, schema)
     .use(repository ? [[resolveUrls, repository]] : [])
     .use(() => linkImages);
-  const text = body.slice(0, 16_000);
-  const notes = limitNotes(processor.runSync(processor.parse(text)));
-  return text.length < body.length ? { ...notes, truncated: true } : notes;
+  return processor
+    .runSync(processor.parse(body))
+    .children.filter((node) => !isBlank(node));
 }

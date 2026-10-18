@@ -1,4 +1,4 @@
-import type { Element, ElementContent, Root, RootContent } from "hast";
+import type { Element, ElementContent, RootContent } from "hast";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
@@ -15,59 +15,6 @@ export function parseInline(text: string): ElementContent[] {
 
 export function isBlank(node: RootContent | ElementContent): boolean {
   return node.type === "text" && node.value.trim() === "";
-}
-
-function isHeading(node: RootContent): boolean {
-  return node.type === "element" && /^h[1-6]$/.test(node.tagName);
-}
-
-function isFootnotes(node: RootContent): boolean {
-  return node.type === "element" && "dataFootnotes" in node.properties;
-}
-
-function isList(node: RootContent): node is Element {
-  return (
-    node.type === "element" && (node.tagName === "ul" || node.tagName === "ol")
-  );
-}
-
-export type ReleaseNotes = { nodes: RootContent[]; truncated: boolean };
-
-export function limitNotes(root: Root): ReleaseNotes {
-  const nodes = root.children.filter((node) => !isBlank(node));
-  const kept: RootContent[] = [];
-  let budget = 20;
-  let truncated = false;
-  for (const node of nodes) {
-    if (isHeading(node) || isFootnotes(node)) {
-      kept.push(node);
-      continue;
-    }
-    if (isList(node)) {
-      const items = node.children.filter((item) => !isBlank(item));
-      if (items.length > budget) {
-        if (budget > 0)
-          kept.push({ ...node, children: items.slice(0, budget) });
-        truncated = true;
-        break;
-      }
-      budget -= items.length;
-    } else {
-      if (budget === 0) {
-        truncated = true;
-        break;
-      }
-      budget -= 1;
-    }
-    kept.push(node);
-  }
-  if (truncated) {
-    while (kept.length && isHeading(kept[kept.length - 1])) kept.pop();
-    kept.push(
-      ...nodes.filter((node) => isFootnotes(node) && !kept.includes(node)),
-    );
-  }
-  return { nodes: kept, truncated };
 }
 
 const ALERT = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]$/i;
