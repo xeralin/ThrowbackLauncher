@@ -88,6 +88,7 @@
   --z-sidebar: 100;
   --z-link-preview: 101;
   --z-hamburger: 110;
+  --z-menu: 120;
   --z-modal: 150;
   --z-toast: 200;
 
@@ -335,6 +336,8 @@
 [data-reduce-motion]
   *:not(.scroll-fade):not(.truncate-fade):not(.transfer-fill):not(
     .animate-save-check
+  ):not(.animate-spin):not(.animate-spin-once):not(.animate-erase-once):not(
+    .animate-pulse
   ),
 [data-reduce-motion] *::before,
 [data-reduce-motion] *:not(.transfer-fill)::after,
@@ -512,14 +515,6 @@
   );
   animation: truncateFade linear both;
   animation-timeline: scroll(self inline);
-}
-
-@utility cut-fade {
-  mask-image: linear-gradient(
-    to bottom,
-    #000 calc(100% - var(--fade-edge)),
-    transparent
-  );
 }
 
 @utility scroll-fade {
