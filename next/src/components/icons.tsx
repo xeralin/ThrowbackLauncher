@@ -58,7 +58,11 @@ export const CHEVRON_RIGHT = "m9 6 6 6-6 6";
 export const CHEVRON_LEFT = "m15 6-6 6 6 6";
 export const CHEVRON_DOWN = "m6 9 6 6 6-6";
 export const CHECK = "M5 13l4 4L19 7";
+export const COPY =
+  "M11 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2ZM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1";
 export const PROTON = "m4 17 6-6-6-6M12 19h8";
+export const REFRESH =
+  "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5";
 export const INFO =
   "M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0zM12 16v-4M12 8h.01";
 

@@ -35,14 +35,7 @@ function FilesMissing({
     });
   };
 
-  if (selectHm)
-    return (
-      <SelectHmModal
-        onSelect={dl.pickHmArchive}
-        onSelected={verify}
-        onClose={onClose}
-      />
-    );
+  if (selectHm) return <SelectHmModal onSelected={verify} onClose={onClose} />;
 
   return (
     <ConfirmModal

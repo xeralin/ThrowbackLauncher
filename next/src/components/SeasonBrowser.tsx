@@ -14,6 +14,7 @@ import { createPortal, flushSync } from "react-dom";
 import { usePathname } from "next/navigation";
 import { Button, iconButton } from "@/components/Button";
 import { SeasonDetail } from "@/components/SeasonDetail";
+import { SeasonMenu } from "@/components/SeasonMenu";
 import { CardKeyArt, SeasonKeyArt } from "@/components/SeasonKeyArt";
 import { StrokeIcon } from "@/components/icons";
 import {
@@ -179,6 +180,7 @@ const DashCard = memo(function DashCard({
   onRegister,
   onOpen,
   onAction,
+  onMenu,
   onDragStart,
   onDragOver,
   onDragEnd,
@@ -199,6 +201,7 @@ const DashCard = memo(function DashCard({
   onRegister: (id: string, el: HTMLElement | null) => void;
   onOpen: (season: Season) => void;
   onAction: (season: Season) => void;
+  onMenu: (season: Season, x: number, y: number) => void;
   onDragStart: (id: string) => void;
   onDragOver: (id: string) => void;
   onDragEnd: (cancelled: boolean) => void;
@@ -324,6 +327,14 @@ const DashCard = memo(function DashCard({
       }}
       onDrop={(event) => event.preventDefault()}
       onDragEnd={(event) => onDragEnd(event.dataTransfer.dropEffect === "none")}
+      onContextMenu={
+        editing
+          ? undefined
+          : (event) => {
+              event.preventDefault();
+              onMenu(season, event.clientX, event.clientY);
+            }
+      }
       className={`relative h-full ${panel} transition-[border-color,box-shadow,opacity] duration-200 ${
         editing
           ? "cursor-grab active:cursor-grabbing"
@@ -471,6 +482,14 @@ export function SeasonBrowser({
   const [dragId, setDragId] = useState<string | null>(null);
   const [draftOrder, setDraftOrder] = useState<string[] | null>(null);
   const [draftSizes, setDraftSizes] = useState<Record<string, string>>({});
+  const menuSeq = useRef(0);
+  const [menu, setMenu] = useState<{
+    id: number;
+    season: Season;
+    x: number;
+    y: number;
+  } | null>(null);
+  if (menu && (selected || editing)) setMenu(null);
   const cardRefs = useRef(new Map<string, HTMLElement>());
   const lastRects = useRef(new Map<string, { left: number; top: number }>());
   const flipping = useRef(false);
@@ -703,6 +722,16 @@ export function SeasonBrowser({
     if (el) cardRefs.current.set(id, el);
     else cardRefs.current.delete(id);
   }, []);
+
+  const openMenu = useCallback(
+    (season: Season, x: number, y: number) =>
+      setMenu({ id: ++menuSeq.current, season, x, y }),
+    [],
+  );
+  const closeMenu = useCallback(
+    () => setMenu((current) => (current === menu ? null : current)),
+    [menu],
+  );
 
   const previewResize = useCallback(
     (id: string, width: number, height: number) =>
@@ -941,6 +970,7 @@ export function SeasonBrowser({
               onRegister={registerCard}
               onOpen={open}
               onAction={runAction}
+              onMenu={openMenu}
               onDragStart={setDragId}
               onDragOver={moveDragged}
               onDragEnd={endDrag}
@@ -1047,6 +1077,15 @@ export function SeasonBrowser({
               topbarSlot,
             )}
           {listContent}
+          {menu && (
+            <SeasonMenu
+              key={menu.id}
+              season={menu.season}
+              x={menu.x}
+              y={menu.y}
+              onClose={closeMenu}
+            />
+          )}
         </>
       )}
     </div>

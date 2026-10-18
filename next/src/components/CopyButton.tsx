@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { iconButton } from "@/components/Button";
-import { CHECK, StrokeIcon } from "@/components/icons";
+import { CHECK, COPY, StrokeIcon } from "@/components/icons";
 import { saveCheck } from "@/components/ui";
 
 export function CopyButton({
@@ -28,7 +28,7 @@ export function CopyButton({
       className={`relative ${iconButton}`}
     >
       <StrokeIcon
-        d="M11 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2ZM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+        d={COPY}
         className={`size-4 transition-opacity duration-200 ${copied > 0 ? "opacity-0" : ""}`}
       />
       {copied > 0 && (

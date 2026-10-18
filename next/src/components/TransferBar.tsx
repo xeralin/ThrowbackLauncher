@@ -1,6 +1,5 @@
 "use client";
 
-import { LogBox, type LogLine } from "@/components/LogBox";
 import { NyanCat, toggleNyan } from "@/components/NyanCat";
 import {
   determinatePercent,
@@ -36,21 +35,5 @@ export function TransferBar({ state }: { state: string }) {
         {percent}%
       </span>
     </>
-  );
-}
-
-export function TransferPanel({
-  lines,
-  state,
-}: {
-  lines: LogLine[];
-  state: string;
-}) {
-  if (!lines.length || state === "idle") return null;
-
-  return (
-    <div className="mt-3 flex min-h-0 flex-1 flex-col">
-      <LogBox lines={lines} />
-    </div>
   );
 }

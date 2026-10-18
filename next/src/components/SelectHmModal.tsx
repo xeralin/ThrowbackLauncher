@@ -6,14 +6,12 @@ import { ExternalLink } from "@/components/ExternalLink";
 import { ProtonSteps } from "@/components/SetupSteps";
 import { link } from "@/components/ui";
 import { site } from "@/config/site";
-import { onBridgeEvent, usePlatform } from "@/lib/bridge";
+import { onBridgeEvent, onBridgeReady, usePlatform } from "@/lib/bridge";
 
 export function SelectHmModal({
-  onSelect,
   onSelected,
   onClose,
 }: {
-  onSelect: () => void;
   onSelected: () => void;
   onClose: () => void;
 }) {
@@ -32,7 +30,7 @@ export function SelectHmModal({
 
   function select() {
     setBusy(true);
-    onSelect();
+    onBridgeReady((bridge) => bridge.downloader.pick_hm_archive());
   }
 
   return (
