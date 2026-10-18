@@ -1,4 +1,3 @@
-import contextlib
 import hashlib
 import os
 import platform
@@ -112,16 +111,6 @@ _STEAM_HOME_DIRS = (
 
 
 def _steam_roots() -> list[Path]:
-    if IS_WINDOWS:
-        import winreg
-
-        with contextlib.suppress(OSError):
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
-                value, _ = winreg.QueryValueEx(key, "SteamPath")
-            if value:
-                return [Path(value)]
-        program_files = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
-        return [Path(program_files) / "Steam"]
     roots: list[Path] = []
     for name in _STEAM_HOME_DIRS:
         path = (Path.home() / name).resolve()
