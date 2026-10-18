@@ -11,7 +11,7 @@ fn match_core(s: &[u8], mut p: usize) -> Option<usize> {
     }
     let digits = s[p..]
         .iter()
-        .take(8)
+        .take(9)
         .take_while(|c| c.is_ascii_digit())
         .count();
     (digits >= 7).then_some(p + digits)
