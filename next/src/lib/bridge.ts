@@ -309,7 +309,7 @@ export type LiberatorCapabilities = {
 
 export type LiberatorState = {
   attached: boolean;
-  applied: boolean;
+  unlocked: boolean;
   unsupported: boolean;
   available: boolean;
   capabilities: Partial<LiberatorCapabilities>;
@@ -335,7 +335,6 @@ export type UpdateComponent = {
   name: string;
   target: string;
   body: string;
-  url: string;
   repository: string;
 };
 
@@ -657,7 +656,6 @@ type DownloaderActions = {
   deletePartial: (key: string, hm: boolean) => void;
   switchToHm: (key: string) => void;
   hmArchiveCached: (callback: (cached: boolean) => void) => void;
-  pickHmArchive: () => void;
   restoreHm: (key: string) => void;
   removeHm: (key: string) => void;
   importHm: (key: string) => void;
@@ -766,7 +764,6 @@ export function useDownloader(events?: DownloaderEvents): Downloader {
       switchToHm: (key) => objRef.current?.switch_to_hm(key),
       hmArchiveCached: (callback) =>
         objRef.current?.hm_archive_cached(callback),
-      pickHmArchive: () => objRef.current?.pick_hm_archive(),
       restoreHm: (key) => objRef.current?.restore_hm(key),
       removeHm: (key) => objRef.current?.remove_hm(key),
       importHm: (key) => objRef.current?.import_hm(key),
@@ -793,7 +790,7 @@ export function useDownloader(events?: DownloaderEvents): Downloader {
 
 const LIBERATOR_DEFAULT: LiberatorState = {
   attached: false,
-  applied: false,
+  unlocked: false,
   unsupported: false,
   available: true,
   capabilities: {},

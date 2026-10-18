@@ -1,6 +1,6 @@
 import type { SeasonRow } from "@/components/SeasonTable";
 
-export const FULL_SUPPORT: SeasonRow[] = [
+export const SUPPORT: SeasonRow[] = [
   { season: "Y1S0", operation: "Vanilla", build: "8194013" },
   { season: "Y1S1", operation: "Black Ice", build: "8519860" },
   { season: "Y1S2", operation: "Dust Line", build: "9132097" },
@@ -13,9 +13,6 @@ export const FULL_SUPPORT: SeasonRow[] = [
   { season: "Y2S3", operation: "Blood Orchid", build: "11493221" },
   { season: "Y2S4", operation: "White Noise", build: "11553121" },
   { season: "Y2S4", operation: "White Noise", build: "11580709" },
-];
-
-export const FULL_SUPPORT_EVENTS: SeasonRow[] = [
   {
     season: "Y3S1",
     operation: "Chimera",
@@ -74,25 +71,97 @@ export const FULL_SUPPORT_EVENTS: SeasonRow[] = [
     event: "Grand Larceny / Golden Gun",
     build: "14303219",
   },
-];
-
-export const UNLOCK_ALL_SEASONS: SeasonRow[] = [
-  { season: "Y5S2", operation: "Steel Wave", build: "14664131" },
-  { season: "Y5S3", operation: "Shadow Legacy", build: "15018155" },
-  { season: "Y5S4", operation: "Neon Dawn", build: "15241382" },
-  { season: "Y6S1", operation: "Crimson Heist", build: "15500403" },
-  { season: "Y6S1", operation: "Crimson Heist", build: "15680437" },
+  {
+    season: "Y5S2",
+    operation: "Steel Wave",
+    event: "M.U.T.E. Protocol",
+    build: "14664131",
+  },
+  {
+    season: "Y5S3",
+    operation: "Shadow Legacy",
+    event: "Golden Gun / Sugar Fright",
+    build: "15018155",
+  },
+  {
+    season: "Y5S4",
+    operation: "Neon Dawn",
+    event: "Road To S.I. 2021",
+    build: "15241382",
+  },
+  {
+    season: "Y6S1",
+    operation: "Crimson Heist",
+    event: "Rainbow is Magic / Apocalypse",
+    build: "15500403",
+  },
+  {
+    season: "Y6S1",
+    operation: "Crimson Heist",
+    event: "Rainbow is Magic / Apocalypse",
+    build: "15680437",
+  },
   { season: "Y6S2", operation: "North Star", build: "15701375" },
-  { season: "Y6S2", operation: "North Star", build: "15772114" },
-  { season: "Y6S3", operation: "Crystal Guard", build: "32627923" },
-  { season: "Y6S3", operation: "Crystal Guard", build: "35130040" },
-  { season: "Y6S4", operation: "High Calibre", build: "37046065" },
-  { season: "Y7S1", operation: "Demon Veil", build: "39785137" },
-  { season: "Y7S2", operation: "Vector Glare", build: "43489433" },
-  { season: "Y7S3", operation: "Brutal Swarm", build: "47165842" },
-  { season: "Y7S4", operation: "Solar Raid", build: "50497889" },
-  { season: "Y8S1", operation: "Commanding Force", build: "55217154" },
-  { season: "Y8S2", operation: "Dread Factor", build: "58222837" },
+  {
+    season: "Y6S2",
+    operation: "North Star",
+    event: "Containment",
+    build: "15772114",
+  },
+  {
+    season: "Y6S3",
+    operation: "Crystal Guard",
+    event: "Showdown",
+    build: "32627923",
+  },
+  {
+    season: "Y6S3",
+    operation: "Crystal Guard",
+    event: "Showdown / Doktor's Curse",
+    build: "35130040",
+  },
+  {
+    season: "Y6S4",
+    operation: "High Calibre",
+    event: "Snow Brawl / Road To S.I. 2022",
+    build: "37046065",
+  },
+  {
+    season: "Y7S1",
+    operation: "Demon Veil",
+    event: "Rengoku",
+    build: "39785137",
+  },
+  {
+    season: "Y7S2",
+    operation: "Vector Glare",
+    event: "M.U.T.E. Protocol",
+    build: "43489433",
+  },
+  {
+    season: "Y7S3",
+    operation: "Brutal Swarm",
+    event: "Snipers / Doktor's Curse",
+    build: "47165842",
+  },
+  {
+    season: "Y7S4",
+    operation: "Solar Raid",
+    event: "Snow Brawl",
+    build: "50497889",
+  },
+  {
+    season: "Y8S1",
+    operation: "Commanding Force",
+    event: "Rainbow is Magic",
+    build: "55217154",
+  },
+  {
+    season: "Y8S2",
+    operation: "Dread Factor",
+    event: "Rengoku",
+    build: "58222837",
+  },
   { season: "Y8S3", operation: "Heavy Mettle", build: "62486471" },
   { season: "Y8S4", operation: "Deep Freeze", build: "67466841" },
   { season: "Y9S1", operation: "Deadly Omen", build: "69866602" },
@@ -101,16 +170,23 @@ export const UNLOCK_ALL_SEASONS: SeasonRow[] = [
   { season: "Y9S4", operation: "Collision Point", build: "82873685" },
   { season: "Y10S1", operation: "Prep Phase", build: "87835624" },
   { season: "Y10S2", operation: "Daybreak", build: "91107972" },
+  { season: "Y10S3", operation: "High Stakes", build: "97612398" },
+  { season: "Y10S4", operation: "Tenfold Pursuit", build: "101173381" },
+  { season: "Y11S1", operation: "Silent Hunt", build: "108519331" },
+  { season: "Y11S2", operation: "System Override", build: "114706078" },
 ];
 
-export function yearPairs(rows: SeasonRow[]): SeasonRow[][] {
+export function seasonYear(row: SeasonRow): number {
+  return Number(row.season.slice(1, row.season.indexOf("S")));
+}
+
+export function yearGroups(rows: SeasonRow[]): SeasonRow[][] {
   const groups = new Map<number, SeasonRow[]>();
   for (const row of rows) {
-    const year = Number(row.season.slice(1, row.season.indexOf("S")));
-    const pair = Math.floor((year - 1) / 2);
-    const group = groups.get(pair);
+    const year = seasonYear(row);
+    const group = groups.get(year);
     if (group) group.push(row);
-    else groups.set(pair, [row]);
+    else groups.set(year, [row]);
   }
   return [...groups.values()];
 }

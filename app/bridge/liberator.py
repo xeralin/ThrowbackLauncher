@@ -63,7 +63,7 @@ class LiberatorController(QObject):
     def _default_state(self) -> dict:
         return {
             "attached": False,
-            "applied": False,
+            "unlocked": False,
             "unsupported": False,
             "available": LIBERATOR_BIN.exists(),
             "capabilities": {},

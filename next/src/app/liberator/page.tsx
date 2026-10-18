@@ -8,20 +8,16 @@ import {
   useRef,
 } from "react";
 import { Button } from "@/components/Button";
-import { InfoHint } from "@/components/InfoHint";
 import { LiberatorMissingModal } from "@/components/LiberatorMissingModal";
 import { LiberatorStatus } from "@/components/LiberatorStatus";
+import { CHEVRON_RIGHT, INFO, StrokeIcon } from "@/components/icons";
 import {
-  CHEVRON_RIGHT,
-  INFO,
-  StrokeIcon,
-  UnlockIcon,
-} from "@/components/icons";
-import { panel } from "@/components/ui";
-import {
-  SupportedSeasons,
-  type SupportView,
-} from "@/components/SupportedSeasons";
+  columnItem,
+  columnItemActive,
+  columnItemIdle,
+  panel,
+} from "@/components/ui";
+import { SupportedSeasons } from "@/components/SupportedSeasons";
 import { Switch } from "@/components/Switch";
 import { Tabs, type TabItem } from "@/components/Tabs";
 import {
@@ -34,13 +30,17 @@ import {
 
 type SessionMods = Partial<Record<keyof LiberatorCapabilities, boolean>>;
 
-let session: { mods: SessionMods; path: number[] } = { mods: {}, path: [] };
+type Session = { mods: SessionMods; path: number[]; lastPicked: string };
+
+const SESSION_DEFAULT: Session = { mods: {}, path: [], lastPicked: "" };
+
+let session = SESSION_DEFAULT;
 
 let sessionStarted = false;
 const sessionListeners = new Set<() => void>();
 
-function setSession(mods: SessionMods, path: number[]) {
-  session = { mods, path };
+function setSession(next: Partial<Session>) {
+  session = { ...session, ...next };
   for (const listener of sessionListeners) listener();
 }
 
@@ -49,45 +49,25 @@ function subscribeSession(listener: () => void): () => void {
     sessionStarted = true;
     onBridgeEvent("liberator", (event, args) => {
       if (event === "state" && !(args[0] as { attached: boolean }).attached)
-        setSession({}, []);
+        setSession(SESSION_DEFAULT);
     });
   }
   sessionListeners.add(listener);
   return () => sessionListeners.delete(listener);
 }
 
-type Mod = { key: keyof LiberatorCapabilities; label: string; hint?: string };
+type Mod = { key: keyof LiberatorCapabilities; label: string };
 
 const PLAYERS_GROUP: Mod[] = [
-  {
-    key: "deathless",
-    label: "Deathless Players and Hostage",
-    hint: "Players and the hostage survive most damage.",
-  },
-  {
-    key: "unlimitedEquip",
-    label: "Unlimited Equipment",
-    hint: "Gives every player unlimited equipment and reinforcements.",
-  },
-  {
-    key: "unlimitedAmmo",
-    label: "Unlimited Ammo",
-    hint: "Gives every player unlimited ammo with no reloading. Enable it before spawning. It can be buggy.",
-  },
+  { key: "deathless", label: "Deathless Players and Hostage" },
+  { key: "unlimitedEquip", label: "Unlimited Equipment" },
+  { key: "unlimitedAmmo", label: "Unlimited Ammo" },
 ];
 
 const MATCH_GROUP: Mod[] = [
   { key: "infiniteTime", label: "Infinite Match Time" },
-  {
-    key: "disableAI",
-    label: "Brain-Dead AI",
-    hint: "Enable this before the match starts.",
-  },
-  {
-    key: "displayBuild",
-    label: "Display Build Number",
-    hint: "Displays the build number in R6S. Toggle the Display Mode once in the R6S Options menu to make it appear.",
-  },
+  { key: "disableAI", label: "Brain-Dead AI" },
+  { key: "displayBuild", label: "Display Build Number" },
 ];
 
 const LOADOUT_GROUP: Mod[] = [
@@ -97,27 +77,22 @@ const LOADOUT_GROUP: Mod[] = [
   { key: "disableSecondaryGadget", label: "Disable Secondary Gadget" },
 ];
 
-type TabId = "playlist" | "modifications" | SupportView;
+type TabId = "playlist" | "modifications" | "support";
 
 function ModToggle({
   label,
   checked,
   disabled,
   onToggle,
-  hint,
 }: {
   label: string;
   checked: boolean;
   disabled: boolean;
   onToggle: (value: boolean) => void;
-  hint?: string;
 }) {
   return (
     <div className="flex items-center gap-2 px-2 py-1.5">
-      <span className="flex flex-1 items-center gap-1.5 text-ui text-text">
-        {label}
-        {hint && <InfoHint text={hint} />}
-      </span>
+      <span className="flex-1 text-ui text-text">{label}</span>
       <Switch
         label={label}
         checked={checked}
@@ -178,12 +153,12 @@ function PlaylistColumns({
                       ? onPath([...activePath.slice(0, col), index])
                       : leaf(col, node.id)
                   }
-                  className={`flex w-full items-center gap-1.5 rounded-md border-l-2 border-transparent px-2 py-1 text-left text-ui font-semibold transition-colors ${
+                  className={`${columnItem} ${
                     chosen
                       ? "bg-action-dim text-text"
                       : active
-                        ? "bg-surface-2 text-text"
-                        : "text-text-muted hover:bg-surface-2 hover:text-text"
+                        ? columnItemActive
+                        : columnItemIdle
                   }`}
                 >
                   <span className="min-w-0 flex-1 truncate-fade">
@@ -209,27 +184,42 @@ export default function LiberatorPage() {
   const settings = useSettings();
   const lib = useLiberator();
 
-  const { mods, path: columnPath } = useSyncExternalStore(
+  const {
+    mods,
+    path: columnPath,
+    lastPicked,
+  } = useSyncExternalStore(
     subscribeSession,
     () => session,
     () => session,
   );
-  const [lastPicked, setLastPicked] = useState("");
-  const [tab, setTab] = useState<TabId>("full");
+  const [tab, setTab] = useState<TabId>("support");
   const [missingClosed, setMissingClosed] = useState(false);
   const [pageShown, setPageShown] = useState(false);
 
   const enabled = settings?.liberator_enabled ?? true;
   const caps = lib.capabilities;
-  const controlsEnabled = lib.applied && !!caps.fullFeature;
-  const [prevControlsEnabled, setPrevControlsEnabled] =
-    useState(controlsEnabled);
+  const controlsEnabled = lib.unlocked && !!caps.fullFeature;
+  const playlistReady = controlsEnabled && !!lib.tree;
+  const modsReady =
+    controlsEnabled &&
+    ([...PLAYERS_GROUP, ...MATCH_GROUP, ...LOADOUT_GROUP].some(
+      (mod) => caps[mod.key],
+    ) ||
+      !!caps.endRound ||
+      !!caps.endMatch);
+  const [prevPlaylistReady, setPrevPlaylistReady] = useState(playlistReady);
   const focusInTabs = useRef(false);
 
-  if (controlsEnabled !== prevControlsEnabled) {
-    setPrevControlsEnabled(controlsEnabled);
-    if (controlsEnabled) setTab("playlist");
-    else if (tab !== "unlock") setTab("full");
+  if (
+    (tab === "playlist" && !controlsEnabled) ||
+    (tab === "modifications" && !modsReady)
+  )
+    setTab("support");
+
+  if (playlistReady !== prevPlaylistReady) {
+    setPrevPlaylistReady(playlistReady);
+    if (playlistReady && tab !== "modifications") setTab("playlist");
   }
 
   useEffect(() => {
@@ -244,10 +234,9 @@ export default function LiberatorPage() {
   }, []);
 
   useEffect(() => {
-    if (controlsEnabled) return;
     if (focusInTabs.current && document.activeElement === document.body)
-      document.getElementById("tab-full")?.focus();
-  }, [controlsEnabled]);
+      document.getElementById(`tab-${tab}`)?.focus();
+  }, [tab]);
 
   useEffect(() => {
     let alive = true;
@@ -262,12 +251,6 @@ export default function LiberatorPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!lastPicked) return;
-    const timer = setTimeout(() => setLastPicked(""), 5000);
-    return () => clearTimeout(timer);
-  }, [lastPicked]);
-
   const tabs: TabItem<TabId>[] = useMemo(
     () => [
       {
@@ -279,7 +262,7 @@ export default function LiberatorPage() {
             className="size-3.5"
           />
         ),
-        disabled: !controlsEnabled,
+        disabled: !playlistReady,
       },
       {
         id: "modifications",
@@ -290,29 +273,24 @@ export default function LiberatorPage() {
             className="size-3.5"
           />
         ),
-        disabled: !controlsEnabled,
+        disabled: !modsReady,
       },
       {
-        id: "full",
+        id: "support",
         label: "Support",
         icon: <StrokeIcon d={INFO} className="size-3.5" />,
       },
-      {
-        id: "unlock",
-        label: "Unlock All",
-        icon: <UnlockIcon className="size-3.5" />,
-      },
     ],
-    [controlsEnabled],
+    [modsReady, playlistReady],
   );
 
   function toggleMod(key: keyof LiberatorCapabilities, checked: boolean) {
-    setSession({ ...mods, [key]: checked }, columnPath);
+    setSession({ mods: { ...session.mods, [key]: checked } });
     lib.setMod(key, checked);
   }
 
   function pickGametype(id: string) {
-    setLastPicked(id);
+    setSession({ lastPicked: id });
     lib.setPlaylist(id);
   }
 
@@ -324,9 +302,8 @@ export default function LiberatorPage() {
             key={mod.key}
             label={mod.label}
             checked={!!mods[mod.key]}
-            disabled={!controlsEnabled || !caps[mod.key]}
+            disabled={!caps[mod.key]}
             onToggle={(value) => toggleMod(mod.key, value)}
-            hint={mod.hint}
           />
         ))}
       </div>
@@ -334,7 +311,7 @@ export default function LiberatorPage() {
   );
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-[calc(100dvh_-_var(--topbar-h)_-_2*var(--page-pad))] flex-col">
       <Tabs
         tabs={tabs}
         active={tab}
@@ -355,7 +332,7 @@ export default function LiberatorPage() {
         role="tabpanel"
         id={`tabpanel-${tab}`}
         aria-labelledby={`tab-${tab}`}
-        className="mt-4 min-h-0 flex-1"
+        className="mt-4 min-h-0 flex-1 overflow-y-auto"
       >
         {tab === "modifications" && (
           <div className="max-w-[720px]">
@@ -372,7 +349,7 @@ export default function LiberatorPage() {
                     <Button
                       variant="secondary"
                       className="flex-1"
-                      disabled={!controlsEnabled || !caps.endRound}
+                      disabled={!caps.endRound}
                       onClick={lib.endRound}
                     >
                       End round
@@ -380,7 +357,7 @@ export default function LiberatorPage() {
                     <Button
                       variant="secondary"
                       className="flex-1"
-                      disabled={!controlsEnabled || !caps.endMatch}
+                      disabled={!caps.endMatch}
                       onClick={lib.endMatch}
                     >
                       End match
@@ -399,16 +376,12 @@ export default function LiberatorPage() {
               path={columnPath}
               lastPicked={lastPicked}
               onPick={pickGametype}
-              onPath={(path) => setSession(mods, path)}
+              onPath={(path) => setSession({ path })}
             />
           </div>
         )}
 
-        {(tab === "full" || tab === "unlock") && (
-          <div className="h-full overflow-y-auto">
-            <SupportedSeasons view={tab} />
-          </div>
-        )}
+        {tab === "support" && <SupportedSeasons />}
       </div>
 
       {pageShown &&

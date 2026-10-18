@@ -3,6 +3,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { buttonVariants } from "@/components/Button";
 import { CHEVRON_DOWN, StrokeIcon } from "@/components/icons";
+import { columnItem, columnItemIdle } from "@/components/ui";
 import { usePopoverDismiss } from "@/lib/popover";
 
 export function RendererMenu({
@@ -61,10 +62,10 @@ export function RendererMenu({
                   setOpen(false);
                   if (option.arg !== active) onSelect(option.arg);
                 }}
-                className={`flex w-full items-center rounded-md border-l-2 border-transparent px-2 py-1 text-left text-ui font-semibold transition-colors ${
+                className={`${columnItem} ${
                   option.arg === active
                     ? "bg-action-dim text-text"
-                    : "text-text-muted hover:bg-surface-2 hover:text-text"
+                    : columnItemIdle
                 }`}
               >
                 {option.label}

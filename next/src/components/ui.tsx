@@ -22,6 +22,14 @@ export const pageTitle = "font-display text-[1.9rem] font-bold text-text";
 
 export const link = "text-link hover:underline";
 
+export const columnItem =
+  "flex w-full items-center gap-1.5 rounded-md border-l-2 border-transparent px-2 py-1 text-left text-ui font-semibold transition-colors";
+
+export const columnItemActive = "bg-surface-2 text-text";
+
+export const columnItemIdle =
+  "text-text-muted hover:bg-surface-2 hover:text-text";
+
 export const stepBox =
   "rounded-lg border border-border px-[0.6rem] py-[0.45rem]";
 

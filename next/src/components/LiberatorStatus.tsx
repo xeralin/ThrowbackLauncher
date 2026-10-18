@@ -14,12 +14,12 @@ export function LiberatorStatus({
 }) {
   if (!enabled || (lib.available && !lib.attached)) return null;
   const problem = !lib.available || lib.unsupported;
-  if (loadingOnly && (problem || lib.applied)) return null;
+  if (loadingOnly && (problem || lib.unlocked)) return null;
   const label = !lib.available
     ? "Liberator is missing"
     : lib.unsupported
       ? "This game build is not supported"
-      : lib.applied
+      : lib.unlocked
         ? "Unlock All has been applied"
         : "Loading";
 
@@ -27,7 +27,7 @@ export function LiberatorStatus({
     <span role="img" aria-label={label} className="flex">
       {problem ? (
         <WarningIcon className={`${size} text-notice-edge`} />
-      ) : lib.applied ? (
+      ) : lib.unlocked ? (
         <UnlockIcon filled className={`${size} text-success`} />
       ) : (
         <StrokeIcon className={`${size} animate-spin text-text`}>
