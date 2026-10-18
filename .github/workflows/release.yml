@@ -72,7 +72,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install mingw
-        run: sudo apt-get update && sudo apt-get install -y gcc make mingw-w64
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64
       - name: Build Radmin VPN helpers
         run: sh src/rvpn/build.sh
       - uses: actions/upload-artifact@v7
@@ -200,11 +200,12 @@ jobs:
       - name: Create draft release with binaries
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --title "$GITHUB_REF_NAME" --notes ""
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --notes ""
           gh release upload "$GITHUB_REF_NAME" \
             "artifacts/appimage/ThrowbackLauncher.AppImage" \
             "artifacts/windows/Installer.exe" \
             "artifacts/windows/Runtime.zip" \
-            --clobber --repo "$GITHUB_REPOSITORY"
+            --clobber
