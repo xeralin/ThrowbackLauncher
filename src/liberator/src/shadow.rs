@@ -27,7 +27,7 @@ pub(crate) fn shadow_regions_for_build(build: &str) -> Option<&'static [ShadowRe
 }
 
 impl Engine {
-    fn get_text_section(&self) -> Option<(u64, u32)> {
+    pub(crate) fn section(&self, name: &[u8]) -> Option<(u64, u32)> {
         let mut dos = [0u8; 64];
         if self.read_mem(self.base, &mut dos) < 64 {
             return None;
@@ -45,11 +45,11 @@ impl Engine {
             if self.read_mem(sec_table + i * 40, &mut sec) < 40 {
                 return None;
             }
-            if &sec[0..5] == b".text" && sec[5] == 0 {
-                let text_size = u32::from_le_bytes([sec[8], sec[9], sec[10], sec[11]]);
-                let text_base =
+            if sec[..name.len()] == *name && sec[name.len()..8].iter().all(|&b| b == 0) {
+                let size = u32::from_le_bytes([sec[8], sec[9], sec[10], sec[11]]);
+                let base =
                     self.base + u32::from_le_bytes([sec[12], sec[13], sec[14], sec[15]]) as u64;
-                return Some((text_base, text_size));
+                return Some((base, size));
             }
         }
         None
@@ -165,7 +165,7 @@ impl Engine {
     }
 
     pub(crate) fn shadow_run(&mut self, regions: &[ShadowRegion]) -> bool {
-        let Some((text_base, text_size)) = self.get_text_section() else {
+        let Some((text_base, text_size)) = self.section(b".text") else {
             return false;
         };
         let mod_hi = self.base + self.modsize as u64;

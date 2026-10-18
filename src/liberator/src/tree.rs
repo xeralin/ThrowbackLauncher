@@ -7,6 +7,22 @@ pub struct TNode {
     pub children: Vec<TNode>,
 }
 
+pub fn leaf(text: &str, id: String) -> TNode {
+    TNode {
+        text: text.to_string(),
+        id,
+        children: Vec::new(),
+    }
+}
+
+pub fn branch(text: &str, children: Vec<TNode>) -> TNode {
+    TNode {
+        text: text.to_string(),
+        id: String::new(),
+        children,
+    }
+}
+
 pub fn get_path_mut<'a>(node: &'a mut TNode, path: &[usize]) -> Option<&'a mut TNode> {
     let mut cur = node;
     for &i in path {
@@ -29,16 +45,12 @@ pub fn rm(node: &mut TNode, path: &[usize], idx: usize) {
     }
 }
 
-fn lookup(table: &[(&str, &str)], raw: &str) -> String {
-    table
+fn map_display(raw: &str) -> String {
+    MAP_NAMES
         .iter()
         .find(|(r, _)| *r == raw)
         .map_or(raw, |(_, d)| d)
         .to_string()
-}
-
-fn map_display(raw: &str) -> String {
-    lookup(MAP_NAMES, raw)
 }
 
 fn json_escape(s: &str, out: &mut String) {
@@ -59,7 +71,7 @@ fn event_node_names(event_mode: &str) -> &'static [&'static str] {
         "Mad_House" => &["Mad House"],
         "Rainbow_Is_Magic" => &["Rainbow is Magic"],
         "Showdown" => &["Showdown"],
-        "Doktors_Curse_MoneyHeist" => &["Money Heist", "Doktor's Curse"],
+        "Doktors_Curse_MoneyHeist" => &["Doktor's Curse", "Money Heist"],
         "Stadium" => &["Road To S.I. 2020"],
         "Outbreak" => &["Outbreak"],
         _ => &[],
@@ -132,7 +144,7 @@ fn tn_json(node: &TNode, out: &mut String) {
     out.push_str("]}");
 }
 
-pub fn tn_list(nodes: &[TNode]) -> String {
+fn tn_list(nodes: &[TNode]) -> String {
     let mut out = String::new();
     for (i, k) in nodes.iter().enumerate() {
         if i != 0 {
@@ -143,8 +155,44 @@ pub fn tn_list(nodes: &[TNode]) -> String {
     out
 }
 
+fn label_hereford(nodes: &mut [TNode]) {
+    let lone = !nodes.iter().any(|node| node.text == "Hereford Base");
+    for node in nodes {
+        if lone && node.text == "Hereford Base - Rework" {
+            node.text = "Hereford Base".to_string();
+        }
+        label_hereford(&mut node.children);
+    }
+}
+
+pub fn tree_event(roots: &mut [TNode]) -> String {
+    label_hereford(roots);
+    format!("{{\"event\":\"tree\",\"tree\":[{}]}}", tn_list(roots))
+}
+
 fn sort_gametypes_by_name(nodes: &mut [TNode]) {
     nodes.sort_by(|a, b| a.text.cmp(&b.text));
+}
+
+fn label_gametypes(mode: &mut TNode) {
+    let name = |text: &str| GAMETYPE_NAMES.iter().find(|(raw, ..)| *raw == text);
+    let mut sides = mode
+        .children
+        .iter()
+        .filter_map(|gametype| name(&gametype.text))
+        .map(|(_, side, _)| side);
+    let mixed = sides
+        .next()
+        .is_some_and(|first| sides.any(|side| side != first));
+    for gametype in &mut mode.children {
+        if let Some((_, side, lighting)) = name(&gametype.text) {
+            gametype.text = if mixed {
+                format!("{side} - {lighting}")
+            } else {
+                lighting.to_string()
+            };
+        }
+    }
 }
 
 fn trim_season_maps(maps: &mut Vec<TNode>, season: i32) {
@@ -199,8 +247,8 @@ pub fn label_terrorist_hunt(node: &mut TNode, season: i32) {
             set_text(map, &[1], "Disarm Bomb");
             set_text(map, &[2], "Elimination");
             map.text = map_display(&map.text);
-            for gametype in map.children.iter_mut().flat_map(|mode| &mut mode.children) {
-                gametype.text = lookup(GAMETYPE_NAMES, &gametype.text);
+            for mode in &mut map.children {
+                label_gametypes(mode);
             }
             sort_gametypes_by_name(&mut map.children);
         }
@@ -320,11 +368,11 @@ pub fn label_outbreak(node: &mut TNode) {
     rm(node, &[1], 0);
     set_text(node, &[1, 0], "Art Review");
     set_text(node, &[1, 0, 0], "Sierra Paradise");
-    set_text(node, &[1, 0, 1], "Sierra Paradise 2");
-    set_text(node, &[1, 0, 2], "Sierra Veterans Wing");
-    set_text(node, &[1, 0, 3], "Sierra Veterans Wing 2");
-    set_text(node, &[1, 0, 4], "The Nest");
-    set_text(node, &[1, 0, 5], "The Nest 2");
+    rm(node, &[1, 0], 1);
+    set_text(node, &[1, 0, 1], "Sierra Veterans Wing");
+    set_text(node, &[1, 0, 2], "Sierra Veterans Wing 2");
+    set_text(node, &[1, 0, 3], "The Nest");
+    set_text(node, &[1, 0, 4], "The Nest 2");
     rm(node, &[], 2);
     if node.children.len() > 1 {
         if node.children[1].children.len() == 1 {
@@ -353,7 +401,7 @@ pub fn add_original_hereford(node: &mut TNode) {
             clone.text = "Hereford Base".to_string();
             tag_ids(&mut clone, "hereford1:");
             tag_ids(&mut node.children[i], "hereford0:");
-            node.children.insert(i + 1, clone);
+            node.children.insert(i, clone);
             i += 2;
             continue;
         }
