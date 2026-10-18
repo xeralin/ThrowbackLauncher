@@ -57,6 +57,37 @@ const faqs: FaqItem[] = [
       </ol>
     ),
   },
+  {
+    id: "find-game",
+    q: "Why does the hosted game not appear in Join Local in Year 1?",
+    platform: "windows",
+    a: (
+      <>
+        <p>
+          These seasons use the network adapter that Windows prefers, so all
+          Windows players need to make Radmin VPN the preferred one.
+        </p>
+        <ol>
+          <li>
+            Search for <code>ncpa.cpl</code> in the Windows Start menu
+          </li>
+          <li>
+            Right-click <strong>Radmin VPN</strong> and select{" "}
+            <strong>Properties</strong>
+          </li>
+          <li>
+            Select <strong>Internet Protocol Version 4 (TCP/IPv4)</strong> and
+            click <strong>Properties</strong> &gt; <strong>Advanced</strong>
+          </li>
+          <li>
+            Uncheck <strong>Automatic metric</strong>, enter <strong>1</strong>{" "}
+            under <em>Interface metric</em> and confirm with <strong>OK</strong>
+          </li>
+          <li>Restart the game</li>
+        </ol>
+      </>
+    ),
+  },
 ];
 
 export default function Multiplayer() {
