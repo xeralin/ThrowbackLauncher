@@ -1,13 +1,27 @@
 import type { Metadata } from "next";
 import { FAQ_PAGES } from "@/config/faq";
+import Link from "next/link";
 import { FaqHero } from "@/components/FaqHero";
 import { Note } from "@/components/Note";
 import { ExclusionSteps } from "@/components/SetupSteps";
 import { FaqAccordion, type FaqItem } from "@/components/FaqAccordion";
 import { ExternalLink } from "@/components/ExternalLink";
+import { UnlockIcon } from "@/components/icons";
 import { site } from "@/config/site";
 
 export const metadata: Metadata = FAQ_PAGES["getting-started"];
+
+function AppliedIcon() {
+  return (
+    <span
+      role="img"
+      aria-label="Unlock All has been applied"
+      className="inline-flex align-[-0.2em]"
+    >
+      <UnlockIcon filled className="size-[1.22em] text-success" />
+    </span>
+  );
+}
 
 const faqs: FaqItem[] = [
   {
@@ -58,6 +72,28 @@ const faqs: FaqItem[] = [
     id: "current-season",
     q: "Do I need the current season of R6S installed?",
     a: <p>No. Each downloaded season runs on its own, like a separate game.</p>,
+  },
+  {
+    id: "operators-locked",
+    q: "Why are my operators locked?",
+    a: (
+      <p>
+        Since Y8S3 Heavy Mettle, operators are locked by default. Wait until the{" "}
+        <Link href="/liberator">Liberator page</Link> shows <AppliedIcon />.
+      </p>
+    ),
+  },
+  {
+    id: "build-support",
+    q: "Why is there a warning next to the Liberator switch?",
+    a: (
+      <p>
+        Your game build is not supported. The Liberator only supports specific
+        game builds. The <strong>Support</strong> tab on the{" "}
+        <Link href="/liberator">Liberator page</Link> lists every supported
+        build.
+      </p>
+    ),
   },
 ];
 
