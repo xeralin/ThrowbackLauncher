@@ -2,7 +2,7 @@ import Image from "next/image";
 import { keyArtFade } from "@/components/SeasonKeyArt";
 import { BuildChips } from "@/components/SeasonTable";
 import { renderInline } from "@/components/Markdown";
-import { panel, stepBox } from "@/components/ui";
+import { panel } from "@/components/ui";
 import type {
   SeasonInfoEntry,
   InfoOperator,
@@ -154,13 +154,6 @@ export function SeasonInfo({
               </span>
             ))}
           </div>
-        )}
-        {entry.slowClose && (
-          <p
-            className={`${stepBox} text-[0.78rem] leading-[1.45] text-text-muted`}
-          >
-            Closing this season from the in-game menu can take up to 10 seconds.
-          </p>
         )}
         <InfoList title="Requirements" rows={requirements} />
       </div>

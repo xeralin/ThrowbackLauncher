@@ -19,7 +19,6 @@ export type SeasonInfoEntry = {
   highlights: string[];
   events?: string[];
   requirements?: (string | false)[];
-  slowClose?: boolean;
 };
 
 export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
@@ -93,7 +92,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Angled Grip attachment for faster ADS transitions",
       "**Tactical Realism** custom game mode with minimal HUD",
     ],
-    slowClose: true,
   },
   Y1S4_RedCrow: {
     release: "Nov 17, 2016",
@@ -117,7 +115,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Neck shots count as headshots, limbs take full damage",
       "ACOG removed from the SMG-11",
     ],
-    slowClose: true,
   },
   Y2S1_VelvetShell: {
     release: "Feb 7, 2017",
@@ -139,7 +136,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Sight positions harmonized across all weapons",
       "Capitão gets a Claymore, IQ gets Frag Grenades",
     ],
-    slowClose: true,
   },
   Y2S2_Health: {
     release: "Jun 7, 2017",
@@ -224,7 +220,7 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
     highlights: [
       "Reload rework — ADS interrupt and resume points",
       "**Raw Input** option for mouse and keyboard",
-      "Blitz 2-speed/2-armor, Ela gets a weaker Scorpion",
+      "Faster Blitz with less armor, weaker Scorpion for Ela",
     ],
     events: ["Outbreak"],
   },
@@ -459,7 +455,7 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "**Ping 2.0** contextual pings, also on cams and after death",
       "DP27 light machine gun for Tachanka",
     ],
-    events: ["Sugar Fright"],
+    events: ["Golden Gun", "Sugar Fright"],
   },
   Y5S4_NeonDawn: {
     release: "Dec 1, 2020",
@@ -483,7 +479,7 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Hibana can fire 2, 4 or 6 X-KAIROS pellets at once",
       "Reinforcements deploy in 4.5s instead of 5.5s",
     ],
-    events: ["Legacy", "Road To S.I. 2021"],
+    events: ["Road To S.I. 2021"],
   },
   Y6S1_CrimsonHeist: {
     release: "Mar 16, 2021",
@@ -873,7 +869,7 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
     highlights: [
       "Modernized maps — Coastline, Villa and Oregon",
       "Shield operators can no longer push through intact barricades",
-      "Skopós made 3-speed/1-health with faster Shell swaps",
+      "Faster Skopós with less health and quicker Shell swaps",
     ],
     events: ["Rainbow is Magic"],
   },
@@ -892,7 +888,7 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Modernized maps — Emerald Plains, Kanal and Outback",
       "XK23 assault rifle for Dokkaebi, Rauora and Sens",
       "Gridlock makes enemies limp with Trax Stingers",
-      "Zofia back to 2-speed/2-health",
+      "Zofia faster again with less health",
     ],
     events: ["Rengoku"],
   },
