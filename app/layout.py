@@ -3,7 +3,7 @@ import os
 import sys
 from pathlib import Path
 
-VERSION = "0.1.9"
+VERSION = "0.2.0"
 
 APP_NAME = "Throwback Launcher"
 DIR_NAME = "ThrowbackLauncher"
