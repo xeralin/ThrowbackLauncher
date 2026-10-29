@@ -5,17 +5,16 @@ import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 import { ExternalLink } from "@/components/ExternalLink";
 import { CHECK, CHEVRON_RIGHT, StrokeIcon } from "@/components/icons";
 import { Note } from "@/components/Note";
-import { link } from "@/components/ui";
+import { link, stepBox } from "@/components/ui";
 import { OPENABLE, parseInline, toAlert } from "@/lib/markdown";
 
-const ALERTS: Record<string, [string, ComponentProps<typeof Note>["variant"]]> =
-  {
-    NOTE: ["Note", "info"],
-    TIP: ["Tip", "tip"],
-    IMPORTANT: ["Important", "important"],
-    WARNING: ["Warning", "notice"],
-    CAUTION: ["Caution", "error"],
-  };
+const ALERTS: Record<string, ComponentProps<typeof Note>["variant"]> = {
+  NOTE: "info",
+  TIP: "tip",
+  IMPORTANT: "important",
+  WARNING: "notice",
+  CAUTION: "error",
+};
 
 const mdLink = `${link} [&_code]:text-inherit [&_strong]:text-inherit`;
 const components: Partial<Components> = {
@@ -48,7 +47,7 @@ const components: Partial<Components> = {
       role="checkbox"
       aria-checked={!!checked}
       aria-disabled
-      className={`-ml-4 mr-1.5 inline-flex size-3.5 items-center justify-center rounded-[4px] border align-[-2px] ${
+      className={`-ml-4 mr-1.5 inline-flex size-3.5 items-center justify-center rounded-sm border align-[-2px] ${
         checked
           ? "border-action bg-action text-action-text"
           : "border-border bg-surface-2"
@@ -71,11 +70,9 @@ const components: Partial<Components> = {
   blockquote: ({ node, children }) => {
     const alert = node && toAlert(node);
     if (!alert) return <blockquote>{children}</blockquote>;
-    const [title, variant] = ALERTS[alert.kind];
     return (
-      <Note variant={variant}>
-        <div className="mb-1 font-display text-[0.9rem] font-bold">{title}</div>
-        <div className="[&>*+*]:mt-2">{renderNodes(alert.children)}</div>
+      <Note variant={ALERTS[alert.kind]} className="[&>*+*]:mt-2">
+        {renderNodes(alert.children)}
       </Note>
     );
   },
@@ -93,5 +90,5 @@ export function renderInline(text: string) {
 }
 
 export function Markdown({ nodes }: { nodes: RootContent[] }) {
-  return <div className="notes">{renderNodes(nodes)}</div>;
+  return <div className={`notes ${stepBox} bg-well`}>{renderNodes(nodes)}</div>;
 }

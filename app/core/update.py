@@ -44,6 +44,7 @@ from core.heatedmetal import (
 from core.manifest import (
     effective_username,
     hm_folder_name,
+    hm_version,
     installed_downloads,
     is_installed,
     load_downloads,
@@ -171,8 +172,7 @@ def _throwback_apply(reporter: Reporter) -> bool:
     except RateLimitError:
         raise
     except Exception as e:
-        reporter.fail(log.fail("Update failed", e))
-        return False
+        raise OSError(log.fail("Update failed", e)) from e
     return True
 
 
@@ -211,7 +211,7 @@ def _hm_latest_installs() -> list[tuple[dict, Path]]:
         return []
     installs: list[tuple[dict, Path]] = []
     for download in downloads:
-        if download.get("hm_version") != HM_LATEST:
+        if hm_version(download) != HM_LATEST:
             continue
         for root in libraries():
             folder = root / hm_folder_name(download["key"])
@@ -236,15 +236,16 @@ def _hm_apply(reporter: Reporter) -> bool:
         return False
     if is_game_running():
         raise OSError(GAME_RUNNING)
-    ok = True
     username = effective_username(load_settings())
+    error = None
     for download, folder in installs:
         try:
             apply_hm(folder, username, download, reporter=reporter)
         except OSError as e:
-            reporter.fail(str(e))
-            ok = False
-    return ok
+            error = e
+    if error is not None:
+        raise error
+    return True
 
 
 @dataclass
@@ -253,7 +254,7 @@ class Component:
     present: Callable[[], bool]
     current: Callable[[], str | None]
     latest: Callable[[], str | None]
-    apply: Callable[..., bool]
+    apply: Callable[[Reporter], bool]
     restart: bool = False
     release_url: str = ""
 
@@ -282,6 +283,7 @@ COMPONENTS = [
         lambda: _binary_version(SEVENZ_BIN, [], r"7-Zip(?:\s+\([arz]\))?\s+(\d+(?:\.\d+)+)"),
         lambda: github_tag(SEVENZ_API_URL),
         lambda reporter: bool(ensure_7z(reporter, force=True)),
+        release_url=SEVENZ_API_URL,
     ),
     Component(
         "ThrowbackLoader",
