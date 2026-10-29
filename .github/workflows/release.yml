@@ -128,10 +128,8 @@ jobs:
           cp -a nuitka-out/main.dist/. "$appdir/usr/bin/"
           chmod +x "$appdir/usr/bin/rvpn/tap_bridge"
           cp .github/icon.png "$appdir/ThrowbackLauncher.png"
-          printf '[Desktop Entry]\nType=Application\nName=Throwback Launcher\nComment=A Rainbow Six Siege launcher for Operation Throwback\nExec=ThrowbackLauncher\nIcon=ThrowbackLauncher\nTerminal=false\nCategories=Game;\nStartupWMClass=ThrowbackLauncher\n' > "$appdir/ThrowbackLauncher.desktop"
-          mkdir -p "$appdir/usr/share/applications"
-          cp "$appdir/ThrowbackLauncher.desktop" "$appdir/usr/share/applications/"
-          printf '#!/usr/bin/env bash\nHERE="$(dirname "$(readlink -f "$0")")"\nexport XDG_DATA_DIRS="$HERE/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"\nexport QTWEBENGINE_DISABLE_SANDBOX=1\nexec "$HERE/usr/bin/ThrowbackLauncher" "$@"\n' > "$appdir/AppRun"
+          printf '[Desktop Entry]\nType=Application\nName=Throwback Launcher\nExec=ThrowbackLauncher\nIcon=ThrowbackLauncher\nTerminal=false\nCategories=Game;\nStartupWMClass=ThrowbackLauncher\n' > "$appdir/ThrowbackLauncher.desktop"
+          printf '#!/usr/bin/env bash\nHERE="$(dirname "$(readlink -f "$0")")"\nexport QTWEBENGINE_DISABLE_SANDBOX=1\nexec "$HERE/usr/bin/ThrowbackLauncher" "$@"\n' > "$appdir/AppRun"
           chmod +x "$appdir/AppRun"
           curl -fsSL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-x86_64.AppImage"
           echo "$APPIMAGETOOL_SHA256  appimagetool" | sha256sum -c -
@@ -172,7 +170,7 @@ jobs:
         run: python -m nuitka --deployment --standalone --enable-plugin=pyside6 --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=.github/icon.ico --product-name="Throwback Launcher" --file-version=${GITHUB_REF_NAME#v} --product-version=${GITHUB_REF_NAME#v} --file-description="Throwback Launcher" $NUITKA_COMMON --output-filename=ThrowbackLauncher.exe --output-dir=app-out app/main.py
       - name: Nuitka build installer (onefile)
         shell: bash
-        run: python -m nuitka --deployment --onefile --enable-plugin=pyside6 --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=.github/icon.ico --product-name="Throwback Launcher" --file-version=${GITHUB_REF_NAME#v} --product-version=${GITHUB_REF_NAME#v} --file-description="Throwback Installer" --include-data-dir=app/assets/fonts=assets/fonts --output-filename=Installer.exe --output-dir=out app/installer.py
+        run: python -m nuitka --deployment --onefile --enable-plugin=pyside6 --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=.github/icon.ico --product-name="Throwback Launcher" --file-version=${GITHUB_REF_NAME#v} --product-version=${GITHUB_REF_NAME#v} --file-description="Throwback Installer" --include-data-dir=app/assets/fonts=assets/fonts --output-filename=ThrowbackLauncher.exe --output-dir=out app/installer.py
       - name: Package
         shell: pwsh
         run: Compress-Archive -Path app-out/main.dist/* -DestinationPath out/Runtime.zip -Force
@@ -184,7 +182,7 @@ jobs:
         with:
           name: windows
           path: |
-            out/Installer.exe
+            out/ThrowbackLauncher.exe
             out/Runtime.zip
 
   release:
@@ -204,8 +202,10 @@ jobs:
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
             gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --notes ""
+          cp artifacts/windows/ThrowbackLauncher.exe artifacts/windows/Installer.exe
           gh release upload "$GITHUB_REF_NAME" \
             "artifacts/appimage/ThrowbackLauncher.AppImage" \
+            "artifacts/windows/ThrowbackLauncher.exe" \
             "artifacts/windows/Installer.exe" \
             "artifacts/windows/Runtime.zip" \
             --clobber

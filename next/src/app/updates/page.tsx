@@ -179,7 +179,7 @@ export default function UpdatesPage() {
         </Note>
       ) : (
         <Note variant="error" className="mb-6 max-w-[600px]">
-          Download <code>Installer.exe</code> from the{" "}
+          Download <code>ThrowbackLauncher.exe</code> from the{" "}
           <ExternalLink href={site.latestReleaseUrl}>
             latest release
           </ExternalLink>{" "}
@@ -192,7 +192,7 @@ export default function UpdatesPage() {
           <UpdateCard
             key={component.name}
             component={component}
-            applying={update.applying === component.name && update.busy}
+            applying={update.applying === component.name}
             progress={update.progress}
             disabled={update.busy || update.checking || downloading}
             onApply={() => update.apply(component.name)}

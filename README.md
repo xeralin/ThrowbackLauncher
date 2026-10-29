@@ -8,7 +8,7 @@
 
 **Windows**
 
-1. Download `Installer.exe` from the [latest release](https://github.com/xeralin/ThrowbackLauncher/releases/latest) and run it
+1. Download `ThrowbackLauncher.exe` from the [latest release](https://github.com/xeralin/ThrowbackLauncher/releases/latest) and run it
 2. If your browser or Windows Security blocks it, follow the steps on [Getting Started](https://xeralin.github.io/ThrowbackFAQ/getting-started/)
 
 **Linux**
