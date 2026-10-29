@@ -106,21 +106,22 @@ def _unix_paths() -> Iterator[str]:
         v for env in ("XDG_RUNTIME_DIR", "TMPDIR", "TMP", "TEMP") if (v := os.environ.get(env))
     ] + ["/tmp"]
     seen: set[str] = set()
-    for base in bases:
-        root = Path(base)
-        dirs = (
-            root,
-            *sorted(root.glob("app/*")),
-            *sorted(root.glob(".flatpak/*/xdg-run")),
-        )
-        for d in dirs:
+    for root in map(Path, bases):
+        for d in (root, *sorted(root.glob("app/*")), *sorted(root.glob(".flatpak/*/xdg-run"))):
             for name in _IPC_NAMES:
-                p = d / name
-                if p.exists():
-                    s = str(p)
-                    if s not in seen:
-                        seen.add(s)
-                        yield s
+                if (p := d / name).exists() and (s := str(p)) not in seen:
+                    seen.add(s)
+                    yield s
+
+
+def _read_exact(sock: _PipeConn | socket.socket, n: int) -> bytes:
+    data = b""
+    while len(data) < n:
+        chunk = sock.recv(n - len(data))
+        if not chunk:
+            raise ConnectionError("socket closed")
+        data += chunk
+    return data
 
 
 class _PipeConn:
@@ -242,21 +243,10 @@ class Presence:
         sock = self.sock
         if sock is None:
             raise ConnectionError("not connected")
-        header = b""
-        while len(header) < 8:
-            chunk = sock.recv(8 - len(header))
-            if not chunk:
-                raise ConnectionError("socket closed")
-            header += chunk
-        op, length = struct.unpack("<II", header)
-        body = b""
-        while len(body) < length:
-            chunk = sock.recv(length - len(body))
-            if not chunk:
-                raise ConnectionError("socket closed")
-            body += chunk
+        op, length = struct.unpack("<II", _read_exact(sock, 8))
+        body = _read_exact(sock, length)
         try:
-            payload = json.loads(body.decode())
+            payload = json.loads(body)
         except ValueError as e:
             raise ConnectionError("malformed frame") from e
         if not isinstance(payload, dict):

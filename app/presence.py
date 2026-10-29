@@ -48,15 +48,9 @@ class PresenceController:
         wake.wait(timeout)
         wake.clear()
 
-    @staticmethod
-    def _drop(presence: Presence | None) -> None:
-        if presence is not None:
-            presence.close()
-
     def _run(self, stop: threading.Event, wake: threading.Event) -> None:
-        presence: Presence | None = None
+        presence = Presence("")
         folder: str | None = None
-        client_id = ""
         activity: dict | None = None
         sent = False
         delay = 1
@@ -65,22 +59,18 @@ class PresenceController:
                 if self._folder != folder:
                     folder = self._folder
                     resolved = resolve_install(folder, self._downloads) if folder else None
-                    new_id, activity = (
+                    client_id, activity = (
                         build_activity(*resolved, int(time.time())) if resolved else ("", None)
                     )
-                    if new_id != client_id or activity is None:
-                        self._drop(presence)
-                        presence = None
-                        client_id = new_id
+                    if client_id != presence.client_id or activity is None:
+                        presence.close()
+                        presence = Presence(client_id)
                     sent = False
                     delay = 1
-                if presence is not None:
-                    presence.drain()
+                presence.drain()
                 if activity is not None:
-                    if presence is None or not presence.connected:
-                        presence = Presence(client_id)
+                    if not presence.connected:
                         if not presence.connect():
-                            presence = None
                             wait, delay = delay, min(delay * 2, MAX_RECONNECT_DELAY)
                             self._sleep(wake, wait)
                             continue
@@ -88,6 +78,6 @@ class PresenceController:
                         sent = False
                     if not sent:
                         sent = presence.set(activity)
-                self._sleep(wake, POLL_INTERVAL if presence is not None else None)
+                self._sleep(wake, POLL_INTERVAL if activity is not None else None)
         finally:
-            self._drop(presence)
+            presence.close()
