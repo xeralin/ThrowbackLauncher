@@ -47,6 +47,7 @@ _FIFOS = (_FIFO_B2D, "/tmp/rvpn_d2b_high", _FIFO_D2B_LOW)
 _RUNTIME_FILES = (_CMD_FILE, _CMD_PROC, _MAC_RAW, *_FIFOS)
 
 _SERVICE_TIMEOUT_S = 30
+_WINE_TAG = "11.20"
 
 _VPN_IP_SCAN = re.compile(r"26\.\d+\.\d+\.\d+")
 _VPN_IP = re.compile(rf"^{_VPN_IP_SCAN.pattern}$")
@@ -77,7 +78,7 @@ def ensure_wine(reporter: Reporter, cancelled: Callable[[], bool]) -> None:
     tmp_dir = BIN_DIR / ".wine.tmp"
     try:
         _, asset_url = github_asset(
-            "https://api.github.com/repos/Kron4ek/Wine-Builds/releases/latest",
+            f"https://api.github.com/repos/Kron4ek/Wine-Builds/releases/tags/{_WINE_TAG}",
             "staging-amd64-wow64.tar.xz",
         )
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -156,6 +157,13 @@ def _kill_helpers(env: dict[str, str]) -> None:
     _wineserver_stop(env)
 
 
+def _tap_ifindex() -> str:
+    try:
+        return Path("/sys/class/net", _TAP, "ifindex").read_text()
+    except OSError:
+        return ""
+
+
 def _is_fifo(path: str) -> bool:
     try:
         return stat.S_ISFIFO(Path(path).stat().st_mode)
@@ -189,11 +197,8 @@ def _extract_ip(text: str) -> str | None:
 
 
 def _reg_hive(key: str) -> str:
-    if key.startswith("HKLM\\"):
-        return "HKEY_LOCAL_MACHINE\\" + key[5:]
-    if key.startswith("HKCU\\"):
-        return "HKEY_CURRENT_USER\\" + key[5:]
-    return key
+    hive, _, path = key.partition("\\")
+    return {"HKLM": "HKEY_LOCAL_MACHINE", "HKCU": "HKEY_CURRENT_USER"}[hive] + "\\" + path
 
 
 def _reg_value(reg_type: str, data: str) -> str:
@@ -290,6 +295,7 @@ class _Root:
             with contextlib.suppress(OSError, ValueError):
                 proc.stdin.write(b"__END__\n")
                 proc.stdin.flush()
+            with contextlib.suppress(OSError, ValueError):
                 proc.stdin.close()
         try:
             proc.wait(timeout=5)
@@ -315,10 +321,10 @@ class Session:
         self, installer: Path | None, reporter: Reporter, *, on_running: Callable[[], None]
     ) -> None:
         try:
-            if not self._preflight(reporter):
-                return
+            self._preflight()
             _kill_helpers(self._env)
-            if not self._ensure_installed(installer, reporter) or self._cancel.is_set():
+            self._ensure_installed(installer, reporter)
+            if self._cancel.is_set():
                 return
             self._root.open()
             self._stage_artifacts(reporter)
@@ -328,22 +334,22 @@ class Session:
             if self._cancel.is_set():
                 return
             if error:
-                reporter.fail(log.fail("Network setup failed", error))
-                return
-            if not self._start_bridge(reporter):
-                return
+                raise OSError(log.fail("Network setup failed", error))
+            self._start_bridge(reporter)
             self._configure_registry(reporter)
             self._start_relay()
-            if not self._start_service(reporter):
-                return
+            self._start_service(reporter)
             reporter.update("Configuring routes")
             error = self._net_ready()
             if error:
-                reporter.fail(log.fail("Routing failed", error))
-                return
+                raise OSError(log.fail("Routing failed", error))
             self._launch_gui()
             on_running()
-            self._wait_exit()
+            error = self._wait_exit()
+            if error:
+                raise OSError(log.fail("Radmin VPN stopped unexpectedly", error))
+        except OSError as e:
+            reporter.fail(str(e))
         finally:
             self._teardown()
 
@@ -352,23 +358,19 @@ class Session:
         _terminate(self._gui_proc)
         _terminate(self._service_proc)
 
-    def _preflight(self, reporter: Reporter) -> bool:
+    def _preflight(self) -> None:
         if shutil.which("pkexec") is None:
-            reporter.fail(
+            raise OSError(
                 log.fail("pkexec not found, a polkit agent is required", "missing dependency")
             )
-            return False
         if shutil.which("ip") is None:
-            reporter.fail(log.fail("iproute2 (ip) is not available", "missing dependency"))
-            return False
-        return True
+            raise OSError(log.fail("iproute2 (ip) is not available", "missing dependency"))
 
-    def _ensure_installed(self, installer: Path | None, reporter: Reporter) -> bool:
+    def _ensure_installed(self, installer: Path | None, reporter: Reporter) -> None:
         if is_installed():
-            return True
+            return
         if installer is None or not installer.is_file():
-            reporter.fail("Radmin VPN installer not found")
-            return False
+            raise OSError("Radmin VPN installer not found")
         reporter.update("Installing")
         try:
             RVPN_PREFIX.mkdir(parents=True, exist_ok=True)
@@ -410,21 +412,19 @@ class Session:
             if self._cancel.wait(0.2):
                 _stop_proc(proc)
                 _wineserver_stop(self._env)
-                return False
+                return
         for _ in range(30):
             if self._cancel.wait(0.5):
-                return False
+                return
             if is_installed():
                 break
         else:
-            reporter.fail(
+            raise OSError(
                 log.fail("Radmin VPN install failed", f"installer exit={proc.returncode}")
             )
-            return False
         _wineserver_stop(self._env)
         self._scrub_ndis()
         _wineserver_stop(self._env)
-        return True
 
     def _stage_artifacts(self, reporter: Reporter) -> None:
         reporter.update("Installing components")
@@ -484,19 +484,20 @@ class Session:
                 f"nmcli device set {_TAP} managed no",
             ]
         )
+        stale = _tap_ifindex()
         error = self._root.run(script)
         if error:
             return error
         for _ in range(600):
             if not self._root.alive():
                 return "authorization was declined"
-            if Path("/sys/class/net", _TAP).exists():
+            if _tap_ifindex() not in ("", stale):
                 return None
             if self._cancel.wait(0.1):
                 return None
         return "could not create the network device"
 
-    def _start_bridge(self, reporter: Reporter) -> bool:
+    def _start_bridge(self, reporter: Reporter) -> None:
         reporter.update("Preparing network bridge")
         for fifo in _FIFOS:
             _rm(fifo)
@@ -507,21 +508,18 @@ class Session:
                 stderr=subprocess.DEVNULL,
             )
         except OSError as e:
-            reporter.fail(log.fail("Network bridge failed to start", e))
-            return False
+            raise OSError(log.fail("Network bridge failed to start", e)) from e
         for _ in range(10):
             if _is_fifo(_FIFO_B2D) and _is_fifo(_FIFO_D2B_LOW):
-                return True
+                return
             if self._bridge_proc.poll() is not None:
-                reporter.fail(
+                raise OSError(
                     log.fail(
                         "Network bridge failed to start", f"exit={self._bridge_proc.returncode}"
                     )
                 )
-                return False
             time.sleep(0.1)
-        reporter.fail(log.fail("Network bridge failed to start", "fifo timeout"))
-        return False
+        raise OSError(log.fail("Network bridge failed to start", "fifo timeout"))
 
     def _configure_registry(self, reporter: Reporter) -> None:
         reporter.update("Configuring adapter")
@@ -592,7 +590,7 @@ class Session:
             if error:
                 log.fail("Applying the VPN address failed", error)
 
-    def _start_service(self, reporter: Reporter) -> bool:
+    def _start_service(self, reporter: Reporter) -> None:
         reporter.update("Running daemon")
         _rm(_SERVICE_LOG)
         env = dict(self._env)
@@ -613,27 +611,24 @@ class Session:
             raise OSError(log.fail("Radmin VPN daemon failed to start", e)) from e
         for _ in range(_SERVICE_TIMEOUT_S * 5):
             if self._cancel.wait(0.2):
-                return False
+                raise CancelledError
             text = _read_utf16(_SERVICE_LOG)
             match = _SERVICE_VER.search(text)
             if match is not None and match.group(1).startswith("1.4"):
-                reporter.fail(
+                raise OSError(
                     log.fail("This Radmin VPN installer is outdated", f"daemon {match.group(1)}")
                 )
-                return False
             ip = _extract_ip(text)
             if ip:
                 self._vpn_ip = ip
-                return True
+                return
             if self._service_proc.poll() is not None:
-                reporter.fail(
+                raise OSError(
                     log.fail("Radmin VPN daemon exited", f"exit={self._service_proc.returncode}")
                 )
-                return False
-        reporter.fail(
+        raise OSError(
             log.fail("Radmin VPN daemon never became ready", f"{_SERVICE_TIMEOUT_S}s timeout")
         )
-        return False
 
     def _net_ready(self) -> str | None:
         if not _VPN_IP.match(self._vpn_ip):
@@ -661,12 +656,15 @@ class Session:
         except OSError as e:
             raise OSError(log.fail("Radmin VPN GUI failed to start", e)) from e
 
-    def _wait_exit(self) -> None:
-        proc = self._gui_proc
-        while proc.poll() is None:
-            if self._cancel.wait(0.3):
-                _terminate(proc)
-                break
+    def _wait_exit(self) -> str | None:
+        while not self._cancel.wait(0.3):
+            if self._gui_proc.poll() is not None:
+                return None
+            for name, proc in (("bridge", self._bridge_proc), ("daemon", self._service_proc)):
+                if proc.poll() is not None and not self._cancel.is_set():
+                    return f"{name} exit={proc.returncode}"
+        _terminate(self._gui_proc)
+        return None
 
     def _teardown(self) -> None:
         self._relay_stop.set()
