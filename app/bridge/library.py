@@ -1,7 +1,8 @@
 from PySide6.QtCore import Property, QObject, Slot
 
 from core.constants import NEXT_OUT_DIR
-from core.manifest import edition_folder, installed_path, partial_path
+from core.heatedmetal import HM_UNSTABLE
+from core.manifest import edition_folder, hm_version, installed_path, partial_path
 
 
 def _key_art_url(key: str) -> str | None:
@@ -23,7 +24,7 @@ def _season_entry(download: dict, hm: bool) -> dict:
         "sizeGb": download["size_gb"],
         "build": download["build"],
         "hmAvailable": bool(download.get("hm")),
-        "hmBeta": bool(download.get("hm_beta")),
+        "hmBeta": hm_version(download) == HM_UNSTABLE,
         "partial": False,
         "keyArt": _key_art_url(download["key"]),
     }

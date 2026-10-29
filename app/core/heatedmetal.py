@@ -16,6 +16,7 @@ from core.constants import (
     SEVENZ_BIN,
 )
 from core.github import RateLimitError, fetch_to, github_asset
+from core.manifest import hm_version
 from core.reporter import Reporter
 from core.throwbackloader import apply_tl, ensure_tl, write_launcher
 from core.winspawn import NOWINDOW
@@ -33,6 +34,7 @@ _NOTICES_NAME = "ThirdPartyLegalNotices.txt"
 _HM_DIR = "HeatedMetal"
 _ARCHIVE_PREFIX = "HeatedMetal-"
 HM_LATEST = "latest"
+HM_UNSTABLE = "unstable"
 
 
 def _default_args(mod_dir: Path) -> Path | None:
@@ -41,10 +43,6 @@ def _default_args(mod_dir: Path) -> Path | None:
         if candidate.exists():
             return candidate
     return None
-
-
-def _hm_mod_complete(mod_dir: Path) -> bool:
-    return _default_args(mod_dir) is not None and (mod_dir / _HM_DIR).is_dir()
 
 
 def ensure_7z(reporter: Reporter, force: bool = False) -> Path:
@@ -127,12 +125,15 @@ def _fetch_hm_mod(hm_version: str, tmp_dir: Path, reporter: Reporter) -> tuple[s
     return tag, _extract_hm_archive(archive_path, tmp_dir, reporter)
 
 
-def _listed_mod_complete(root: tuple[str, ...], entries: list[tuple[str, ...]]) -> bool:
-    args = {(*root, name) for name in _DEFAULT_ARGS_NAMES}
-    hm_dir = (*root, _HM_DIR)
-    return any(parts in args for parts in entries) and any(
-        parts[: len(hm_dir)] == hm_dir for parts in entries
-    )
+def _mod_root(entries: list[tuple[str, ...]]) -> tuple[str, ...] | None:
+    for root in ((), *{parts[:1] for parts in entries if len(parts) > 1}):
+        args = {(*root, name) for name in _DEFAULT_ARGS_NAMES}
+        hm_dir = (*root, _HM_DIR)
+        if any(parts in args for parts in entries) and any(
+            parts[: len(hm_dir)] == hm_dir for parts in entries
+        ):
+            return root
+    return None
 
 
 class HmFilesRemovedError(OSError):
@@ -156,8 +157,7 @@ def _archive_has_mod(sevenz: Path, archive: Path) -> bool:
         for line in proc.stdout.decode(errors="replace").splitlines()
         if line.startswith("Path = ")
     ]
-    roots = {()} | {parts[:1] for parts in entries if len(parts) > 1}
-    return any(_listed_mod_complete(root, entries) for root in roots)
+    return _mod_root(entries) is not None
 
 
 def cache_hm_archive(archive: Path) -> Path:
@@ -176,15 +176,6 @@ def cache_hm_archive(archive: Path) -> Path:
     return cached
 
 
-def _mod_root(extracted: Path) -> Path | None:
-    if _hm_mod_complete(extracted):
-        return extracted
-    for child in extracted.iterdir():
-        if child.is_dir() and _hm_mod_complete(child):
-            return child
-    return None
-
-
 def _extract_hm_archive(archive: Path, tmp_dir: Path, reporter: Reporter) -> Path:
     sevenz = ensure_7z(reporter)
     try:
@@ -196,11 +187,15 @@ def _extract_hm_archive(archive: Path, tmp_dir: Path, reporter: Reporter) -> Pat
             check=False,
             creationflags=NOWINDOW,
         )
-        mod_dir = _mod_root(tmp_dir) if proc.returncode == 0 else None
+        root = (
+            _mod_root([p.relative_to(tmp_dir).parts for p in tmp_dir.rglob("*")])
+            if proc.returncode == 0
+            else None
+        )
     except Exception as e:
         raise OSError(log.fail("Heated Metal extraction failed", e)) from e
-    if mod_dir is not None:
-        return mod_dir
+    if root is not None:
+        return tmp_dir.joinpath(*root)
     try:
         intact = _archive_has_mod(sevenz, archive)
     except OSError:
@@ -313,14 +308,15 @@ def apply_hm(
     archive: Path | None = None,
 ) -> None:
     tmp_dir = BIN_DIR / ".hm.tmp"
+    release = hm_version(download)
     try:
-        if download.get("hm_beta"):
+        if release == HM_UNSTABLE:
             if archive is None:
                 raise OSError("The Heated Metal archive is required")
             version = ""
             mod_dir = _extract_hm_archive(archive, tmp_dir, reporter)
         else:
-            version, mod_dir = _fetch_hm_mod(download["hm_version"], tmp_dir, reporter)
+            version, mod_dir = _fetch_hm_mod(release, tmp_dir, reporter)
 
         ensure_tl(reporter)
         try:

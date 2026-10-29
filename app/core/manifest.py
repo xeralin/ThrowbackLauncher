@@ -75,6 +75,10 @@ def hm_folder_name(key: str) -> str:
     return f"{key.split('_', 1)[0]}{HM_FOLDER_SUFFIX}"
 
 
+def hm_version(download: dict) -> str | None:
+    return download.get("hm", {}).get("version")
+
+
 def edition_folder(key: str, hm: bool) -> str:
     return hm_folder_name(key) if hm else key
 
