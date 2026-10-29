@@ -29,6 +29,7 @@ type MenuTool = {
   label: string;
   icon: ReactNode;
   hidden?: boolean;
+  disabled?: boolean;
   onSelect: () => void;
 };
 
@@ -76,7 +77,7 @@ export function SeasonMenu({
       tools.push({
         label: "Remove",
         icon: <RemoveIcon />,
-        onSelect: () => setModal({ kind: "removeDownload", hm: hmActive }),
+        onSelect: () => setModal({ kind: "removeDownload" }),
       });
   } else if (editionInstall.installed) {
     tools.push(
@@ -89,49 +90,44 @@ export function SeasonMenu({
         : {
             label: downloading ? "Queue verify" : "Verify",
             icon: <StrokeIcon d={REFRESH} />,
-            hidden: playingSeason,
+            disabled: playingSeason,
             onSelect: verify,
           },
       {
-        label: "Update HM",
-        icon: (
-          <StrokeIcon d="M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5" />
-        ),
-        hidden: !hmActive || !season.hmBeta || playingSeason || downloading,
-        onSelect: () => dl.importHm(season.key),
-      },
-      {
         label: "Copy crash log",
         icon: <StrokeIcon d={COPY} />,
-        hidden: !hmActive || !installs.hm.crashLog,
+        hidden: !hmActive,
+        disabled: !installs.hm.crashLog,
         onSelect: () => copyCrashLog(() => showToast("Crash log copied")),
       },
       {
         label: "Proton",
         icon: <StrokeIcon d={PROTON} />,
-        hidden: platform !== "linux" || protons?.length === 0,
+        hidden: platform !== "linux",
+        disabled: protons?.length === 0,
         onSelect: openProton,
       },
       { label: "Open folder", icon: <FolderIcon />, onSelect: openFolder },
       {
         label: "Uninstall",
         icon: <RemoveIcon />,
-        hidden: downloadingSeason || playingSeason,
-        onSelect: () => setModal({ kind: "uninstall", hm: hmActive }),
+        disabled: downloadingSeason || playingSeason,
+        onSelect: () => setModal({ kind: "uninstall" }),
       },
     );
   } else if (editionInstall.partial && !queuedEdition) {
     tools.push({
       label: "Remove",
       icon: <RemoveIcon />,
-      hidden: playingSeason,
-      onSelect: () => setModal({ kind: "removeDownload", hm: hmActive }),
+      disabled: playingSeason,
+      onSelect: () => setModal({ kind: "removeDownload" }),
     });
   }
   const shownTools = tools.filter((tool) => !tool.hidden);
 
   const ready = loaded && (platform !== "linux" || protons !== null);
-  if (open && ready && !shownTools.length) setOpen(false);
+  if (open && ready && shownTools.every((tool) => tool.disabled))
+    setOpen(false);
   const shown = open && ready;
 
   usePopoverDismiss(open, setOpen, ref);
@@ -160,7 +156,7 @@ export function SeasonMenu({
   useEffect(() => {
     if (shown)
       ref.current
-        ?.querySelector<HTMLButtonElement>("button")
+        ?.querySelector<HTMLButtonElement>("button:enabled")
         ?.focus({ preventScroll: true });
   }, [shown]);
 
@@ -181,7 +177,8 @@ export function SeasonMenu({
     if (!keys.includes(event.key)) return;
     event.preventDefault();
     const buttons = [
-      ...(ref.current?.querySelectorAll<HTMLButtonElement>("button") ?? []),
+      ...(ref.current?.querySelectorAll<HTMLButtonElement>("button:enabled") ??
+        []),
     ];
     if (!buttons.length) return;
     const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
@@ -218,6 +215,7 @@ export function SeasonMenu({
                 type="button"
                 role="menuitem"
                 aria-label={tool.label}
+                disabled={tool.disabled}
                 onClick={() => select(tool)}
                 className={iconButton}
               >

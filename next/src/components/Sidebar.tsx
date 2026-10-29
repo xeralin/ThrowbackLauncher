@@ -16,6 +16,7 @@ import {
   seasonTitle,
   useDownloader,
   useDownloadProgress,
+  useHomeSeasons,
   useLaunch,
   useLiberator,
   useSeasons,
@@ -131,6 +132,7 @@ export function Sidebar({
 }) {
   const pathname = normalizePath(usePathname());
   const router = useRouter();
+  const [homeSeasons] = useHomeSeasons();
   const [hoveredLink, setHoveredLink] = useState("");
   const [members, setMembers] = useState<string | null>(null);
   const [membersShown, setMembersShown] = useState(false);
@@ -223,13 +225,18 @@ export function Sidebar({
   function openSeason(season: Season) {
     onNavigate();
     const ref = { key: season.key, hm: season.hm };
-    if (detail?.seasonKey === season.key || pathname === "/download") {
+    const target =
+      pathname !== "/download" &&
+      homeSeasons?.some((entry) => entry.key === season.key)
+        ? "/"
+        : "/download";
+    if (detail?.seasonKey === season.key || pathname === target) {
       window.dispatchEvent(
         new CustomEvent("throwback:open-season", { detail: ref }),
       );
     } else {
       window.sessionStorage.setItem("tb-open-season", JSON.stringify(ref));
-      router.push("/download");
+      router.push(target);
     }
   }
 
@@ -358,7 +365,7 @@ export function Sidebar({
                   }}
                   onClick={() => openSeason(season)}
                   data-queue-id={editionId(season)}
-                  className={`group flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-border ${
+                  className={`group flex w-full cursor-pointer items-center gap-2 px-2.5 pt-[7px] pb-[5px] text-left transition-colors hover:bg-border ${
                     dragId === editionId(season) ? "opacity-40" : ""
                   }`}
                 >
