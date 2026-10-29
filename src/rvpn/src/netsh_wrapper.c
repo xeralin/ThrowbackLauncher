@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define NETSH_CMD_DELAY_MS    1500
+#define NETSH_CMD_DELAY_MS    500
 
 static int valid_ipv4(const char *s)
 {

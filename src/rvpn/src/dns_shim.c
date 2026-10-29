@@ -2,8 +2,7 @@
 #include <dlfcn.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <stdint.h>
-#include <string.h>
+#include <stddef.h>
 #include <sys/socket.h>
 
 #include "private_v4.h"
@@ -38,32 +37,4 @@ int getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host,
     if (private_sockaddr(sa, salen))
         flags = (flags | NI_NUMERICHOST) & ~NI_NAMEREQD;
     return real(sa, salen, host, hostlen, serv, servlen, flags);
-}
-
-struct hostent *gethostbyaddr(const void *addr, socklen_t len, int type)
-{
-    static struct hostent *(*real)(const void *, socklen_t, int);
-    uint32_t host;
-
-    if (addr != NULL) {
-        if (type == AF_INET && len == (socklen_t)sizeof(host)) {
-            memcpy(&host, addr, sizeof(host));
-            if (private_v4(ntohl(host))) {
-                h_errno = HOST_NOT_FOUND;
-                return NULL;
-            }
-        } else if (type == AF_INET6 &&
-                   len == (socklen_t)sizeof(struct in6_addr) &&
-                   private_v6((const struct in6_addr *)addr)) {
-            h_errno = HOST_NOT_FOUND;
-            return NULL;
-        }
-    }
-    if (real == NULL)
-        real = dlsym(RTLD_NEXT, "gethostbyaddr");
-    if (real == NULL) {
-        h_errno = NO_RECOVERY;
-        return NULL;
-    }
-    return real(addr, len, type);
 }

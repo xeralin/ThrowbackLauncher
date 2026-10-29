@@ -39,7 +39,7 @@ $(BUILD)/reuseport_shim.so: src/reuseport_shim.c | $(BUILD)
 	$(STRIP) $@
 
 $(BUILD)/rvpnnetmp.sys: src/rvpnnetmp.c | $(BUILD)
-	$(MINGW64) -Wno-multichar -shared -o $@ $< \
+	$(MINGW64) $(CFLAGS) -Wno-multichar -shared -o $@ $< \
 		-I$(DDK_INC) \
 		-lntoskrnl -lhal -nostdlib -lgcc \
 		-Wl,--subsystem,native -Wl,--entry,DriverEntry
