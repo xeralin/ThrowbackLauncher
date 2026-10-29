@@ -88,20 +88,7 @@ def pop_settings(settings: dict, *keys: str) -> bool:
     return True
 
 
-def _resolve_libraries(values: list[str]) -> list[Path]:
-    roots: list[Path] = []
-    for value in values:
-        if not value:
-            continue
-        path = Path(value).resolve()
-        if path not in roots:
-            roots.append(path)
-    if DEFAULT_DOWNLOADS_DIR not in roots:
-        roots.append(DEFAULT_DOWNLOADS_DIR)
-    return roots
-
-
-_libraries_current: list[Path] = _resolve_libraries([])
+_libraries_current: list[Path] = [DEFAULT_DOWNLOADS_DIR]
 
 
 def libraries() -> list[Path]:
@@ -114,5 +101,8 @@ def default_library() -> Path:
 
 def set_libraries(values: object) -> None:
     global _libraries_current
-    stored = [v for v in values if isinstance(v, str)] if isinstance(values, list) else []
-    _libraries_current = _resolve_libraries(stored)
+    stored = values if isinstance(values, list) else []
+    roots = list(dict.fromkeys(Path(v).resolve() for v in stored if isinstance(v, str) and v))
+    if DEFAULT_DOWNLOADS_DIR not in roots:
+        roots.append(DEFAULT_DOWNLOADS_DIR)
+    _libraries_current = roots

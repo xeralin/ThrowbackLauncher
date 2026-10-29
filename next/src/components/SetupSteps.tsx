@@ -1,9 +1,9 @@
 "use client";
 
-import { CopyPathRow } from "@/components/CopyPathRow";
+import { CopyButton } from "@/components/CopyButton";
 import { ExternalLink } from "@/components/ExternalLink";
 import { PROTON, StrokeIcon } from "@/components/icons";
-import { stepBox, stepList } from "@/components/ui";
+import { ListRow, stepBox, stepList } from "@/components/ui";
 import { site } from "@/config/site";
 import { useLibraries, useSettings } from "@/lib/bridge";
 
@@ -53,7 +53,17 @@ export function ExclusionStepList({ paths }: { paths: string[] }) {
       </div>
       <div className="flex flex-col gap-2">
         {paths.map((path) => (
-          <CopyPathRow key={path} path={path} />
+          <ListRow key={path} label={path} title={path}>
+            <span className="-mr-1 flex shrink-0 items-center">
+              <CopyButton
+                label="Copy path"
+                copiedLabel="Path copied"
+                onCopy={(copied) =>
+                  navigator.clipboard.writeText(path).then(copied, () => {})
+                }
+              />
+            </span>
+          </ListRow>
         ))}
       </div>
     </div>

@@ -12,7 +12,7 @@ type HeroProps = {
 
 export function Hero({ tag, corner, title, description }: HeroProps) {
   return (
-    <div className="relative mb-8 flex min-h-[160px] overflow-hidden rounded-lg border border-action-edge bg-[linear-gradient(135deg,var(--color-bg)_0%,var(--color-action-veil)_50%,var(--color-bg)_100%)] before:pointer-events-none before:absolute before:inset-0 before:z-[1] before:rounded-[inherit] before:bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,rgba(0,0,0,0.06)_2px,rgba(0,0,0,0.06)_4px)] before:content-[''] after:pointer-events-none after:absolute after:inset-0 after:z-[3] after:animate-scan-move after:bg-[linear-gradient(transparent,color-mix(in_srgb,var(--color-action)_2.5%,transparent)_50%,transparent)] after:bg-[length:100%_60px] after:bg-no-repeat after:content-['']">
+    <div className="relative mb-8 flex min-h-[160px] overflow-hidden rounded-lg border border-action-edge bg-[linear-gradient(135deg,var(--color-bg)_0%,var(--color-action-veil)_50%,var(--color-bg)_100%)] before:pointer-events-none before:absolute before:inset-0 before:z-1 before:rounded-[inherit] before:bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,rgba(0,0,0,0.06)_2px,rgba(0,0,0,0.06)_4px)] before:content-[''] after:pointer-events-none after:absolute after:inset-0 after:z-3 after:animate-scan-move after:bg-[linear-gradient(transparent,color-mix(in_srgb,var(--color-action)_2.5%,transparent)_50%,transparent)] after:bg-size-[100%_60px] after:bg-no-repeat after:content-['']">
       <Image
         src={site.heroImage}
         alt=""
@@ -22,7 +22,7 @@ export function Hero({ tag, corner, title, description }: HeroProps) {
         className="hero-art pointer-events-none select-none object-cover object-center opacity-[0.28]"
       />
       <div className="absolute inset-0 animate-hero-glow bg-[radial-gradient(ellipse_at_70%_50%,var(--color-action-glow)_0%,transparent_65%)]" />
-      <div className="relative z-[2] flex flex-1 flex-col justify-center p-7 max-content:p-5">
+      <div className="relative z-2 flex flex-1 flex-col justify-center p-7 max-content:p-5">
         <div className={`mb-[0.6rem] ${microLabel} text-[0.7rem] text-action`}>
           {tag}
         </div>

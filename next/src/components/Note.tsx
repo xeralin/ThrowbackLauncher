@@ -22,7 +22,7 @@ export function Note({
 }) {
   return (
     <div
-      className={`w-fit select-text rounded-r-sm border-l-[3px] px-[0.4rem] py-[0.35rem] text-ui leading-[1.5] ${variants[variant]} [&_:is(a,button)]:underline [&_strong]:font-semibold [&_strong]:text-inherit ${className}`}
+      className={`w-fit select-text rounded-r-sm border-l-[3px] px-[0.4rem] text-ui leading-normal [--cap-pad:0.35rem] text-box-cap ${variants[variant]} [&_:is(a,button)]:underline [&_strong]:font-semibold [&_strong]:text-inherit ${className}`}
     >
       {children}
     </div>

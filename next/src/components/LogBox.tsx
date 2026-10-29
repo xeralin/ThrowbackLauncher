@@ -30,10 +30,10 @@ export function LogBox({ lines }: { lines: LogLine[] }) {
         }
         follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
       }}
-      className="min-h-24 flex-1 select-text overflow-auto [overflow-anchor:none] rounded-lg border border-border bg-well p-3 font-mono text-label leading-[1.5] text-text-muted"
+      className="min-h-24 flex-1 select-text overflow-auto [overflow-anchor:none] rounded-lg border border-border bg-well p-3 font-mono text-label leading-normal text-text-muted"
     >
       {lines.map((line) => (
-        <div key={line.id} className="whitespace-pre-wrap break-words">
+        <div key={line.id} className="whitespace-pre-wrap wrap-break-word">
           {line.text}
         </div>
       ))}

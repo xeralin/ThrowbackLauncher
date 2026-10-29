@@ -16,7 +16,7 @@ def _registered_dir() -> Path | None:
     with contextlib.suppress(OSError), winreg.OpenKey(winreg.HKEY_CURRENT_USER, UNINSTALL_KEY) as k:
         value, _ = winreg.QueryValueEx(k, "InstallLocation")
         if value:
-            return Path(value)
+            return Path(value).resolve()
     return None
 
 

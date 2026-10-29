@@ -2,7 +2,7 @@ import Image from "next/image";
 import type { Season } from "@/lib/bridge";
 
 export const keyArtFade =
-  "absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-black/90 via-black/55 to-transparent";
+  "absolute inset-x-0 bottom-0 h-[70%] bg-linear-to-t from-black/90 via-black/55 to-transparent";
 
 export function SeasonKeyArt({
   keyArt,
@@ -16,7 +16,7 @@ export function SeasonKeyArt({
   imgClassName?: string;
 }) {
   return (
-    <div className="absolute inset-0 bg-gradient-to-br from-[#1a0d12] to-bg">
+    <div className="absolute inset-0 bg-linear-to-br from-[#1a0d12] to-bg">
       {keyArt && (
         <Image
           src={keyArt}

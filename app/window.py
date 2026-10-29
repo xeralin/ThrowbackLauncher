@@ -1,11 +1,9 @@
-from pathlib import Path
-
-from PySide6.QtCore import QChildEvent, QEvent, QFile, QIODevice, QObject, QStandardPaths, Qt, QUrl
+from PySide6.QtCore import QChildEvent, QEvent, QFile, QIODevice, QObject, Qt, QUrl
 from PySide6.QtGui import QCloseEvent, QColor, QDesktopServices, QKeyEvent, QWheelEvent
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineScript, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QFileDialog, QWidget
+from PySide6.QtWidgets import QWidget
 
 from core import log
 from core.constants import IS_WINDOWS
@@ -60,7 +58,6 @@ class BrowserView(QWebEngineView):
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, True)
         page.scripts().insert(_platform_script())
         page.newWindowRequested.connect(lambda request: _open_external(request.requestedUrl()))
-        page.profile().downloadRequested.connect(self._accept_download)
 
         channel = QWebChannel(page)
         for name, obj in objects.items():
@@ -70,21 +67,6 @@ class BrowserView(QWebEngineView):
         page.setBackgroundColor(QColor("#0d0d0f"))
 
         self.load(QUrl(url))
-
-    def _accept_download(self, request) -> None:
-        downloads = QStandardPaths.writableLocation(
-            QStandardPaths.StandardLocation.DownloadLocation
-        )
-        picked, _ = QFileDialog.getSaveFileName(
-            None, "", str(Path(downloads) / request.downloadFileName())
-        )
-        if not picked:
-            request.cancel()
-            return
-        target = Path(picked)
-        request.setDownloadDirectory(str(target.parent))
-        request.setDownloadFileName(target.name)
-        request.accept()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         QWidget.closeEvent(self, event)

@@ -138,30 +138,27 @@ def fetch_to(
 ) -> None:
     part = dest.with_name(dest.name + ".part")
     part.unlink(missing_ok=True)
-    last: Exception | None = None
-    for attempt in range(_ATTEMPTS):
-        if attempt:
-            if cancelled is not None and cancelled():
-                part.unlink(missing_ok=True)
-                raise CancelledError
-            time.sleep(_RETRY_DELAY)
-        try:
-            _fetch_part(url, part, on_progress, cancelled)
-            last = None
-            break
-        except CancelledError, RateLimitError:
-            part.unlink(missing_ok=True)
-            raise
-        except urllib.error.HTTPError as exc:
-            last = exc
-            if 400 <= exc.code < 500:
-                break
-        except OSError as exc:
-            last = exc
-    if last is not None:
+    error: Exception | None = None
+    try:
+        for attempt in range(_ATTEMPTS):
+            if attempt:
+                if cancelled is not None and cancelled():
+                    raise CancelledError
+                time.sleep(_RETRY_DELAY)
+            try:
+                _fetch_part(url, part, on_progress, cancelled)
+            except urllib.error.HTTPError as exc:
+                error = exc
+                if 400 <= exc.code < 500:
+                    break
+            except OSError as exc:
+                error = exc
+            else:
+                part.replace(dest)
+                return
+        raise error
+    finally:
         part.unlink(missing_ok=True)
-        raise last
-    part.replace(dest)
 
 
 class _RangeReader(io.RawIOBase):

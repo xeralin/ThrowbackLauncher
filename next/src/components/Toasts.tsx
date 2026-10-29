@@ -95,8 +95,8 @@ export function Toasts() {
           key={toast.id}
           className={`grid overflow-hidden transition-[grid-template-rows] duration-200 ease-out-cubic ${
             toast.leaving
-              ? "[grid-template-rows:0fr]"
-              : "animate-toast-in [grid-template-rows:1fr]"
+              ? "grid-rows-[0fr]"
+              : "animate-toast-in grid-rows-[1fr]"
           }`}
         >
           <div className="min-h-0 self-start">
