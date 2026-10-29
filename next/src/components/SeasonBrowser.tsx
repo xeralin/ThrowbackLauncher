@@ -444,7 +444,7 @@ export function SeasonBrowser({
     if (!searchable || selected) return;
     function onKey(event: KeyboardEvent) {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
-      const typing = event.key.length === 1 && !(event.key === " " && !query);
+      const typing = event.key.length === 1 && event.key !== " ";
       const erasing = event.key === "Backspace" && !!query;
       if (!typing && !erasing) return;
       const target = event.target;
@@ -794,7 +794,6 @@ export function SeasonBrowser({
     dragId,
     draftOrder,
     effectiveOrder,
-    settings,
     cardAction,
     dl,
     lc,
@@ -804,7 +803,6 @@ export function SeasonBrowser({
       dragId,
       draftOrder,
       effectiveOrder,
-      settings,
       cardAction,
       dl,
       lc,
@@ -852,16 +850,18 @@ export function SeasonBrowser({
     setDraftOrder(next);
   }, []);
 
-  const persistOrder = useCallback((order: string[]) => {
-    const { settings } = latest.current;
-    const saved = settings?.home_order ?? [];
-    const displayed = new Set(order);
-    const queue = [...order];
-    const merged = saved.map((id) =>
-      displayed.has(id) ? (queue.shift() as string) : id,
-    );
-    settings?.set_home_order([...merged, ...queue]);
-  }, []);
+  const persistOrder = useCallback(
+    (order: string[]) => {
+      const saved = settings?.home_order ?? [];
+      const displayed = new Set(order);
+      const queue = [...order];
+      const merged = saved.map((id) =>
+        displayed.has(id) ? (queue.shift() as string) : id,
+      );
+      settings?.set_home_order([...merged, ...queue]);
+    },
+    [settings],
+  );
 
   const moveCard = useCallback(
     (id: string, delta: number) => {
@@ -904,7 +904,7 @@ export function SeasonBrowser({
   }, [persistOrder, applyLayout]);
 
   const resetLayout = useCallback(() => {
-    latest.current.settings?.reset_home_layout();
+    settings?.reset_home_layout();
     setResetErase((value) => value + 1);
     applyLayout(() => {
       setDraftOrder(defaultOrder);
@@ -912,7 +912,7 @@ export function SeasonBrowser({
         Object.fromEntries(defaultOrder.map((id) => [id, DEFAULT_SIZE])),
       );
     });
-  }, [applyLayout, defaultOrder]);
+  }, [applyLayout, defaultOrder, settings]);
 
   let listContent: ReactNode;
   if (seasons === null || visible === null) {
