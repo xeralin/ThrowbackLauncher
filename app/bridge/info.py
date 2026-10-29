@@ -13,10 +13,12 @@ from core.shears import folder_size
 
 class InfoController(QObject):
     disk_usage_changed = Signal(float)
+    attached = Signal()
     _usage_in = Signal(float)
 
     def __init__(self) -> None:
         super().__init__()
+        self._usage = -1.0
         self._scanning = False
         self._rescan = False
         self._usage_in.connect(self._on_disk_usage)
@@ -25,7 +27,14 @@ class InfoController(QObject):
     def warning(self) -> str:
         return settings.warning or ""
 
+    @Property(float, notify=disk_usage_changed)
+    def disk_usage(self) -> float:
+        return self._usage
+
     @Slot()
+    def attach(self) -> None:
+        self.attached.emit()
+
     def refresh_disk_usage(self) -> None:
         if self._scanning:
             self._rescan = True
@@ -39,7 +48,9 @@ class InfoController(QObject):
 
     def _on_disk_usage(self, value: float) -> None:
         self._scanning = False
-        self.disk_usage_changed.emit(value)
+        if value != self._usage:
+            self._usage = value
+            self.disk_usage_changed.emit(value)
         if self._rescan:
             self._rescan = False
             self.refresh_disk_usage()

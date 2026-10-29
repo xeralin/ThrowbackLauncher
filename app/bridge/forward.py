@@ -12,13 +12,18 @@ class EventForwarder(QObject):
         self._view = view
         self._target = target
         self._pending: list[str] = []
+        self._attached = False
         self._timer = QTimer(self)
         self._timer.setInterval(_FLUSH_INTERVAL_MS)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._flush)
 
+    def attach(self) -> None:
+        self._attached = True
+        self._flush()
+
     def _flush(self) -> None:
-        if self._pending:
+        if self._pending and self._attached:
             js = ";".join(
                 f"window.dispatchEvent(new CustomEvent('throwback:event',{{detail:{detail}}}))"
                 for detail in self._pending
@@ -35,6 +40,8 @@ class EventForwarder(QObject):
         self._flush()
 
     def send_buffered(self, event: str, *args: object) -> None:
+        if not self._attached:
+            return
         self._pend(event, args)
         if not self._timer.isActive():
             self._timer.start()

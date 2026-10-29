@@ -33,14 +33,16 @@ class UpdateController(QObject):
 
     def __init__(self) -> None:
         super().__init__()
-        self._busy = False
         self._checking = False
         self._pending: update_backend.Pending = []
         self._check_error = ""
         self._check_detail = ""
         self._progress = 0
         self._applying = ""
-        self._outcome = take_outcome()
+        outcome = take_outcome()
+        if outcome is not None:
+            message = "" if outcome else f"{APP_NAME} update failed, previous version kept"
+            QTimer.singleShot(0, lambda: self.done.emit(outcome, APP_NAME, message))
         self._check_done_in.connect(self._on_check_done)
         self._apply_done_in.connect(self._on_apply_done)
         self._progress_in.connect(self._emit_progress)
@@ -54,20 +56,12 @@ class UpdateController(QObject):
 
     @property
     def busy(self) -> bool:
-        return self._busy
-
-    @Slot()
-    def take_startup_outcome(self) -> None:
-        if self._outcome is None:
-            return
-        outcome, self._outcome = self._outcome, None
-        message = "" if outcome else f"{APP_NAME} update failed, previous version kept"
-        self.done.emit(outcome, APP_NAME, message)
+        return bool(self._applying)
 
     @Slot(result="QVariantMap")
     def snapshot(self) -> dict:
         return {
-            "busy": self._busy,
+            "busy": self.busy,
             "checking": self._checking,
             "components": [
                 {"name": component.name, "target": latest, **asdict(notes)}
@@ -96,7 +90,7 @@ class UpdateController(QObject):
 
     @Slot(bool)
     def check(self, force: bool) -> None:
-        if self._busy or self._checking:
+        if self.busy or self._checking:
             return
         self._checking = True
         self.changed.emit()
@@ -121,7 +115,7 @@ class UpdateController(QObject):
     @Slot(str)
     def apply(self, name: str) -> None:
         component = next((c for c, _, _ in self._pending if c.name == name), None)
-        if self._busy or self._checking or component is None:
+        if self.busy or self._checking or component is None:
             return
         if self._settings_bridge.clearing_cache():
             self.error.emit(CACHE_CLEARING)
@@ -132,7 +126,6 @@ class UpdateController(QObject):
         if self._uninstaller.busy_key() is not None:
             self.error.emit(UNINSTALL_RUNNING)
             return
-        self._busy = True
         self._applying = name
         self._progress = 0
         self.progress.emit(0)
@@ -142,24 +135,14 @@ class UpdateController(QObject):
     def _apply_work(self, component: update_backend.Component) -> None:
         ok = False
         message = ""
-        fail_text = ""
-
-        def on_fail(text: str) -> None:
-            nonlocal fail_text
-            fail_text = text
-
         try:
-            ok = component.apply(
-                reporter=Reporter(progress_emit=self._progress_in.emit, fail_emit=on_fail)
-            )
+            ok = component.apply(Reporter(progress=self._progress_in.emit))
         except RateLimitError as e:
             message = e.message()
         except OSError as e:
             message = str(e)
         except Exception as e:
             message = log.fail(f"{component.name} update failed", e)
-        if not ok and not message:
-            message = fail_text
         self._apply_done_in.emit(ok, component.name, message, component.restart)
 
     def _on_apply_done(self, ok: bool, name: str, message: str, restart: bool) -> None:
@@ -169,7 +152,6 @@ class UpdateController(QObject):
         if ok:
             self._pending = [p for p in self._pending if p[0].name != name]
         self._checking = True
-        self._busy = False
         self._applying = ""
         self.changed.emit()
         self.done.emit(ok, name, message)

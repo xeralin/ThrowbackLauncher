@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { DiskSpaceModal } from "@/components/DiskSpaceModal";
-import { HmFilesMissingModal } from "@/components/HmFilesMissingModal";
+import { FilesMissingModal } from "@/components/FilesMissingModal";
 import { Sidebar } from "@/components/Sidebar";
 import { SteamLoginModal } from "@/components/SteamLoginModal";
 import { Toasts } from "@/components/Toasts";
@@ -66,14 +66,11 @@ function BridgeToasts({
             showToast(`${code} switched to Heated Metal`);
           else if (outcome === "switched_tb")
             showToast(`${code} switched to Throwback`);
-          else if (outcome === "no_space")
-            showToast(`${code} download failed, ran out of disk space`);
+          else if (outcome === "no_space") showToast("Not enough disk space");
         } else if (event === "partial_deleted") {
           if (!args[1]) showToast(args[2] as string);
         } else if (event === "rate_limited") {
           showToast(args[0] as string, { key: RATE_LIMIT_TOAST });
-        } else if (event === "warning") {
-          showToast(args[0] as string);
         }
       }),
     [],
@@ -85,22 +82,21 @@ function BridgeToasts({
         if (event === "error") showToast(args[0] as string, { key });
       }),
     );
-    onBridgeReady((bridge) => bridge.rvpn?.take_startup_error());
     return () => offs.forEach((off) => off());
   }, []);
 
-  useEffect(
-    () =>
-      onBridgeEvent("update", (event, args) => {
-        if (event === "done") {
-          const name = args[1] as string;
-          const message = args[2] as string;
-          if (args[0]) showToast(`${name} updated`);
-          else showToast(message || `${name} update failed`);
-        }
-      }),
-    [],
-  );
+  useEffect(() => {
+    const off = onBridgeEvent("update", (event, args) => {
+      if (event === "done") {
+        const name = args[1] as string;
+        const message = args[2] as string;
+        if (args[0]) showToast(`${name} updated`);
+        else showToast(message || `${name} update failed`);
+      }
+    });
+    onBridgeReady((bridge) => bridge.info.attach());
+    return off;
+  }, []);
 
   return null;
 }
@@ -256,7 +252,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <BridgeToasts settings={settings} />
       <SteamLoginModal />
       <DiskSpaceModal />
-      <HmFilesMissingModal />
+      <FilesMissingModal />
       <ScrollReveal />
     </DetailContext>
   );

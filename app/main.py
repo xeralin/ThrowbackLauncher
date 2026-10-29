@@ -71,16 +71,20 @@ CA_BUNDLES = (
 
 FORWARDS = {
     "downloader": {
+        "state_changed": "state",
+        "active_key_changed": "active_key",
+        "active_hm_changed": "active_hm",
+        "verifying_changed": "verifying",
+        "queue_changed": "queue",
         "login_required": "login_required",
         "disk_space_required": "disk_space_required",
         "done": "done",
         "error": "error",
         "partial_deleted": "partial_deleted",
         "rate_limited": "rate_limited",
-        "warning": "warning",
         "log_history": "log_history",
         "hm_archive_picked": "hm_archive_picked",
-        "hm_files_missing": "hm_files_missing",
+        "files_missing": "files_missing",
     },
     "liberator": {
         "state_changed": "state",
@@ -93,7 +97,7 @@ FORWARDS = {
         "error": "error",
         "running_changed": "running",
         "launching_changed": "launching",
-        "hm_files_missing": "hm_files_missing",
+        "files_missing": "files_missing",
     },
     "update": {"changed": "changed", "progress": "progress", "done": "done", "error": "error"},
     "uninstall": {"done": "done"},
@@ -108,21 +112,13 @@ def _wire_events(view: BrowserView, bridges: dict[str, QObject]) -> None:
         if obj is None:
             continue
         forwarder = EventForwarder(view, target)
+        bridges["info"].attached.connect(forwarder.attach)
         for signal, event in signals.items():
             getattr(obj, signal).connect(lambda *args, f=forwarder, e=event: f.send(e, *args))
         if target == "downloader":
             obj.log_line.connect(lambda s, f=forwarder: f.send_buffered("log_line", s))
             obj.progress_changed.connect(
-                lambda *_, f=forwarder, o=obj: f.send_buffered(
-                    "progress", o.progress, o.step, o.steps
-                )
-            )
-            for prop in ("state", "active_key", "active_hm", "verifying"):
-                getattr(obj, f"{prop}_changed").connect(
-                    lambda *_, f=forwarder, o=obj, p=prop: f.send(p, getattr(o, p))
-                )
-            obj.queue_changed.connect(
-                lambda *_, f=forwarder, o=obj: f.send("queue", o.queued_items())
+                lambda *args, f=forwarder: f.send_buffered("progress", *args)
             )
 
 
@@ -186,12 +182,22 @@ def main() -> int:
     downloader.set_peers(updater, settings_bridge, uninstaller, launch, shears)
     updater.set_peers(settings_bridge, downloader, uninstaller)
 
+    info = InfoController()
+    for changed in (
+        settings_bridge.libraries_changed,
+        downloader.done,
+        downloader.partial_deleted,
+        uninstaller.done,
+        shears.cut_done,
+    ):
+        changed.connect(info.refresh_disk_usage)
+
     scheme_handler = AppSchemeHandler(NEXT_OUT_DIR, app)
     QWebEngineProfile.defaultProfile().installUrlSchemeHandler(SCHEME, scheme_handler)
 
     bridges: dict[str, QObject] = {
         "library": LibraryController(downloads),
-        "info": InfoController(),
+        "info": info,
         "settings": settings_bridge,
         "downloader": downloader,
         "liberator": liberator,
@@ -207,6 +213,7 @@ def main() -> int:
         bridges["cheatengine"] = CheatEngineController(settings)
     view = BrowserView(APP_ORIGIN + "/", bridges)
     view.setWindowTitle(APP_NAME)
+    view.loadFinished.connect(info.refresh_disk_usage)
 
     def apply_scale() -> None:
         view.setZoomFactor(settings_bridge.scale / 100)
@@ -281,11 +288,10 @@ def main() -> int:
         elif tray is not None:
             tray.deleteLater()
             tray = None
+        app.setQuitOnLastWindowClosed(tray is None)
 
     sync_tray()
     settings_bridge.close_to_tray_changed.connect(sync_tray)
-    app.setQuitOnLastWindowClosed(False)
-    app.lastWindowClosed.connect(lambda: None if tray is not None else app.quit())
 
     return app.exec()
 

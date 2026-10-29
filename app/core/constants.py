@@ -19,7 +19,7 @@ def version_tuple(v: str) -> tuple[int, ...]:
     return tuple(int(p) for p in v.split("."))
 
 
-FROZEN = bool(getattr(sys, "frozen", False)) or "__compiled__" in globals()
+FROZEN = "__compiled__" in globals()
 IS_WINDOWS = sys.platform.startswith("win")
 
 
@@ -151,7 +151,7 @@ REMOVING_FILES = "Files are still being removed"
 PARTIAL_EXISTS = "A partial download exists"
 NOT_INSTALLED = "Not installed"
 NOT_INSTALLED_HM = "Not installed as Heated Metal"
-FOLDER_NOT_FOUND = "Folder not found, is the drive connected?"
+FOLDER_NOT_FOUND = "Library folder not found"
 NO_PROTON = "No Proton found"
 GAME_RUNNING = "Stop R6S first"
 SEASON_RUNNING = "Stop this season first"

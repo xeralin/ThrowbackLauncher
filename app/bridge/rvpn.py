@@ -35,8 +35,6 @@ class RvpnController(QObject):
         self._installer: Path | None = None
         self._busy = False
         self._cancel = threading.Event()
-        self._pending_error = ""
-        self._attached = False
         self._state = self._make_state("idle")
         self._state_in.connect(self._store_and_emit)
         self._step_in.connect(self._store_step)
@@ -63,13 +61,6 @@ class RvpnController(QObject):
     @Slot(result="QVariantMap")
     def snapshot(self) -> dict:
         return self._state
-
-    @Slot()
-    def take_startup_error(self) -> None:
-        self._attached = True
-        if self._pending_error:
-            text, self._pending_error = self._pending_error, ""
-            self.error.emit(text)
 
     @deferred_slot()
     def select_installer(self) -> None:
@@ -126,7 +117,7 @@ class RvpnController(QObject):
             self._idle_in.emit()
 
     def _run(self) -> None:
-        reporter = Reporter(step_emit=self._step_in.emit, fail_emit=self._error_in.emit)
+        reporter = Reporter(fail=self._error_in.emit, update=self._step_in.emit)
         try:
             ensure_wine(reporter, self._cancel.is_set)
             self._session = Session()
@@ -146,12 +137,8 @@ class RvpnController(QObject):
             self._idle_in.emit()
 
     def _on_error_in(self, text: str) -> None:
-        if self._cancel.is_set():
-            return
-        if self._attached:
+        if not self._cancel.is_set():
             self.error.emit(text)
-        else:
-            self._pending_error = text
 
     def _on_idle_in(self) -> None:
         self._busy = False

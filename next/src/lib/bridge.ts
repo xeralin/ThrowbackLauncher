@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useReducer,
   useRef,
@@ -46,10 +47,11 @@ type LibraryObject = {
 
 type InfoObject = {
   warning: string;
+  disk_usage: number;
+  attach(): void;
   open_library(path: string): void;
   open_season(key: string, hm: boolean): void;
   copy_crash_log(key: string, callback: (error: string) => void): void;
-  refresh_disk_usage(): void;
   disk_usage_changed: QtSignal;
 };
 
@@ -240,8 +242,6 @@ export type SettingsObject = {
   libraries_changed: QtSignal;
 };
 
-type QueueEntry = { key: string; hm: boolean; verify: boolean };
-
 type DownloaderState = {
   state: string;
   activeKey: string;
@@ -249,7 +249,7 @@ type DownloaderState = {
   verifying: boolean;
   loginKind: string;
   diskShortfall: number;
-  queue: QueueEntry[];
+  queue: EditionRef[];
 };
 
 type DownloaderSnapshot = DownloaderState & DownloadProgress;
@@ -302,7 +302,7 @@ export type LiberatorCapabilities = {
   disablePrimaryGadget: boolean;
   disableSecondaryGadget: boolean;
   displayBuild: boolean;
-  endRound: boolean;
+  skip: boolean;
   endMatch: boolean;
   fullFeature: boolean;
 };
@@ -326,7 +326,7 @@ type LiberatorObject = {
   tree_snapshot(callback: (tree: GametypeNode[] | null) => void): void;
   set_mod(mod: string, enabled: boolean): void;
   set_playlist(playlistId: string): void;
-  end_round(): void;
+  skip(): void;
   end_match(): void;
   restore(): void;
 };
@@ -353,7 +353,6 @@ export type InstalledComponent = { name: string; version: string };
 
 type UpdateObject = {
   snapshot(callback: (snapshot: UpdateSnapshot) => void): void;
-  take_startup_outcome(): void;
   installed(callback: (components: InstalledComponent[]) => void): void;
   check(force: boolean): void;
   apply(name: string): void;
@@ -369,7 +368,6 @@ type RvpnSnapshot = {
 
 type RvpnObject = {
   snapshot(callback: (snapshot: RvpnSnapshot) => void): void;
-  take_startup_error(): void;
   select_installer(): void;
   run(): void;
   stop(): void;
@@ -383,9 +381,8 @@ export type CheatEngineStatus = {
 };
 
 type CheatEngineObject = {
-  pick_installer(callback: (path: string) => void): void;
   status(key: string, callback: (status: CheatEngineStatus) => void): void;
-  install(key: string): void;
+  install(key: string, callback: (started: boolean) => void): void;
   add(key: string, callback: (error: string) => void): void;
   remove(key: string, callback: (error: string) => void): void;
 };
@@ -502,35 +499,32 @@ export function useHomeSeasons(): [Season[] | null, () => void] {
   return [seasons, refreshHome];
 }
 
+function subscribeDiskUsage(listener: () => void): () => void {
+  let cancelled = false;
+  let disconnect: (() => void) | undefined;
+  onBridgeReady((bridge) => {
+    if (cancelled) return;
+    bridge.info.disk_usage_changed.connect(listener);
+    disconnect = () => bridge.info.disk_usage_changed.disconnect(listener);
+    listener();
+  });
+  return () => {
+    cancelled = true;
+    disconnect?.();
+  };
+}
+
+function diskUsageSnapshot(): number | null {
+  const gb = window.throwback?.info.disk_usage ?? -1;
+  return gb < 0 ? null : gb;
+}
+
 export function useDiskUsage(): number | null {
-  const [gb, setGb] = useState<number | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    let disconnect: (() => void) | undefined;
-    const refresh = () =>
-      onBridgeReady((bridge) => bridge.info.refresh_disk_usage());
-    onBridgeReady((bridge) => {
-      if (cancelled) return;
-      bridge.info.disk_usage_changed.connect(setGb);
-      bridge.settings.libraries_changed.connect(refresh);
-      disconnect = () => {
-        bridge.info.disk_usage_changed.disconnect(setGb);
-        bridge.settings.libraries_changed.disconnect(refresh);
-      };
-      bridge.info.refresh_disk_usage();
-    });
-    const offDownloader = onBridgeEvent("downloader", (event) => {
-      if (event === "done" || event === "partial_deleted") refresh();
-    });
-    const offUninstall = onBridgeEvent("uninstall", refresh);
-    return () => {
-      cancelled = true;
-      disconnect?.();
-      offDownloader();
-      offUninstall();
-    };
-  }, []);
-  return gb;
+  return useSyncExternalStore(
+    subscribeDiskUsage,
+    diskUsageSnapshot,
+    () => null,
+  );
 }
 
 export function useSettings(): SettingsObject | null {
@@ -599,6 +593,23 @@ export function useLibraries(): [LibraryEntry[] | null, () => void] {
   return [libraries, refresh];
 }
 
+export function useProtons(): [ProtonOption[] | null, () => void] {
+  const platform = usePlatform();
+  const [protons, setProtons] = useState<ProtonOption[] | null>(null);
+  const reload = useCallback(() => {
+    onBridgeReady((bridge) => bridge.settings.proton_options(setProtons));
+  }, []);
+
+  useEffect(() => {
+    if (platform !== "linux") return;
+    reload();
+    window.addEventListener("focus", reload);
+    return () => window.removeEventListener("focus", reload);
+  }, [platform, reload]);
+
+  return [protons, reload];
+}
+
 function useBridgeHandle<K extends keyof Bridge>(
   name: K,
   hooks: {
@@ -608,11 +619,10 @@ function useBridgeHandle<K extends keyof Bridge>(
 ): [RefObject<Bridge[K] | null>, boolean] {
   const [ready, setReady] = useState(false);
   const objRef = useRef<Bridge[K] | null>(null);
-  const hooksRef = useRef(hooks);
-
-  useEffect(() => {
-    hooksRef.current = hooks;
-  });
+  const init = useEffectEvent((obj: Bridge[K], alive: () => boolean) =>
+    hooks.init?.(obj, alive),
+  );
+  const onEvent = useEffectEvent(hooks.onEvent);
 
   useEffect(() => {
     let mounted = true;
@@ -622,11 +632,11 @@ function useBridgeHandle<K extends keyof Bridge>(
       if (!mounted) return;
       objRef.current = bridge[name];
       setReady(bridge[name] != null);
-      hooksRef.current.init?.(bridge[name], alive);
+      init(bridge[name], alive);
     });
 
     const offEvent = onBridgeEvent(name, (event, args) => {
-      hooksRef.current.onEvent(event, args, alive);
+      onEvent(event, args, alive);
     });
     return () => {
       mounted = false;
@@ -728,7 +738,7 @@ export function useDownloader(events?: DownloaderEvents): Downloader {
           setSnap((prev) => ({ ...prev, verifying: value as boolean }));
           break;
         case "queue":
-          setSnap((prev) => ({ ...prev, queue: value as QueueEntry[] }));
+          setSnap((prev) => ({ ...prev, queue: value as EditionRef[] }));
           break;
         case "log_line":
           events?.onLog?.(value as string);
@@ -801,7 +811,7 @@ type Liberator = LiberatorState & {
   tree: GametypeNode[] | null;
   setMod: (mod: string, enabled: boolean) => void;
   setPlaylist: (id: string) => void;
-  endRound: () => void;
+  skip: () => void;
   endMatch: () => void;
   restore: () => void;
 };
@@ -836,7 +846,7 @@ export function useLiberator(): Liberator {
       setMod: (mod: string, enabled: boolean) =>
         objRef.current?.set_mod(mod, enabled),
       setPlaylist: (id: string) => objRef.current?.set_playlist(id),
-      endRound: () => objRef.current?.end_round(),
+      skip: () => objRef.current?.skip(),
       endMatch: () => objRef.current?.end_match(),
       restore: () => objRef.current?.restore(),
     }),
@@ -1028,7 +1038,6 @@ export function useUpdate(): Update {
       obj.snapshot((snapshot) => {
         if (alive()) setSnap(snapshot);
       });
-      obj.take_startup_outcome();
       obj.check(false);
     },
     onEvent: (event, args, alive) => {
@@ -1128,9 +1137,8 @@ type CheatEngineEvents = { onDone?: () => void };
 
 type CheatEngine = {
   ready: boolean;
-  pickInstaller: (callback: (path: string) => void) => void;
   status: (key: string, callback: (status: CheatEngineStatus) => void) => void;
-  install: (key: string) => void;
+  install: (key: string, callback: (started: boolean) => void) => void;
   add: (key: string, callback: (error: string) => void) => void;
   remove: (key: string, callback: (error: string) => void) => void;
 };
@@ -1145,9 +1153,8 @@ export function useCheatEngine(events?: CheatEngineEvents): CheatEngine {
   return useMemo(
     () => ({
       ready,
-      pickInstaller: (callback) => objRef.current?.pick_installer(callback),
       status: (key, callback) => objRef.current?.status(key, callback),
-      install: (key) => objRef.current?.install(key),
+      install: (key, callback) => objRef.current?.install(key, callback),
       add: (key, callback) => objRef.current?.add(key, callback),
       remove: (key, callback) => objRef.current?.remove(key, callback),
     }),
