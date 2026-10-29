@@ -7,6 +7,7 @@ from pathlib import Path
 from core.constants import TEXTURE_QUALITIES
 
 _TEXTURE_RX = re.compile(r"_textures(\d)")
+_EVENT_VIDEO_RX = {"fury": re.compile(r"^fury_|_gameover\.bik$")}
 
 
 def folder_size(path: Path) -> int:
@@ -48,11 +49,20 @@ def _startup_dir(path: Path) -> Path:
     return path / "videos" / "startup"
 
 
-def _video_files(path: Path) -> list[Path]:
+def _videos(path: Path) -> list[Path]:
     v = path / "videos"
     if not v.is_dir():
         return []
     return [f for f in v.iterdir() if f.is_file()]
+
+
+def _event_video(f: Path, event_pattern: str | None) -> bool:
+    rx = _EVENT_VIDEO_RX.get(event_pattern or "")
+    return rx is not None and rx.search(f.name.lower()) is not None
+
+
+def _video_files(path: Path, event_pattern: str | None) -> list[Path]:
+    return [f for f in _videos(path) if not _event_video(f, event_pattern)]
 
 
 def _files_size(files: list[Path]) -> int:
@@ -70,7 +80,7 @@ def _event_files(path: Path, pattern: str) -> list[Path]:
         if f.is_file()
         and f.suffix.lower() in (".forge", ".depgraphbin")
         and pattern in f.stem.lower()
-    ]
+    ] + [f for f in _videos(path) if _event_video(f, pattern)]
 
 
 def _delete_files(files: list[Path]) -> None:
@@ -89,7 +99,7 @@ def _delete_files(files: list[Path]) -> None:
 def scan_download(d: Path, event_pattern: str | None) -> dict:
     return {
         "tiers": _texture_tiers(d),
-        "videos": _files_size(_video_files(d)) + folder_size(_startup_dir(d)),
+        "videos": _files_size(_video_files(d, event_pattern)) + folder_size(_startup_dir(d)),
         "events": _files_size(_event_files(d, event_pattern)) if event_pattern else 0,
     }
 
@@ -97,7 +107,9 @@ def scan_download(d: Path, event_pattern: str | None) -> dict:
 def cut_download(d: Path, kind: str, level: int, event_pattern: str | None) -> None:
     if kind == "videos":
         startup = _startup_dir(d)
-        _delete_files(_video_files(d) + [f for f in startup.rglob("*") if f.is_file()])
+        _delete_files(
+            _video_files(d, event_pattern) + [f for f in startup.rglob("*") if f.is_file()]
+        )
         shutil.rmtree(startup, ignore_errors=True)
         return
     if kind == "events":
