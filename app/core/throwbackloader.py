@@ -27,8 +27,8 @@ _TL_TOOLS_RX = re.compile(
 )
 
 
-def tl_present() -> bool:
-    return all((TL_DIR / f).exists() for f in TL_EXTRACT)
+def tl_present(folder: Path = TL_DIR) -> bool:
+    return all((folder / name).is_file() for name in TL_EXTRACT)
 
 
 def tl_folder_version(folder: Path) -> str | None:

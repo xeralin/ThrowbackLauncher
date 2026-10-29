@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { ExternalLink } from "@/components/ExternalLink";
 import { SelectHmModal } from "@/components/SelectHmModal";
 import { ExclusionSteps } from "@/components/SetupSteps";
+import { link } from "@/components/ui";
+import { site } from "@/config/site";
 import {
   onBridgeEvent,
   useDownloader,
@@ -12,7 +15,7 @@ import {
   useSeasons,
 } from "@/lib/bridge";
 
-type MissingFiles = { key: string; library: string };
+type MissingFiles = { key: string; library: string; hm: boolean };
 
 function FilesMissing({
   missing,
@@ -27,8 +30,20 @@ function FilesMissing({
   const lc = useLaunch();
   const platform = usePlatform();
 
+  const name = missing.hm ? (
+    "Heated Metal"
+  ) : (
+    <ExternalLink href={site.throwbackLoaderRepoUrl} className={link}>
+      ThrowbackLoader
+    </ExternalLink>
+  );
+
   const verify = () => {
     onClose();
+    if (!missing.hm) {
+      dl.verify(missing.key, false);
+      return;
+    }
     lc.installs(missing.key, (installs) => {
       if (installs.hm.installed) dl.restoreHm(missing.key);
       else dl.enqueue(missing.key, true, "");
@@ -42,7 +57,10 @@ function FilesMissing({
       title="Files are missing"
       confirmLabel="Verify"
       onConfirm={() => {
-        if (!seasons?.find((season) => season.key === missing.key)?.hmBeta)
+        if (
+          !missing.hm ||
+          !seasons?.find((season) => season.key === missing.key)?.hmBeta
+        )
           verify();
         else
           dl.hmArchiveCached((cached) =>
@@ -54,26 +72,30 @@ function FilesMissing({
       {platform === "windows" ? (
         <div className="flex flex-col gap-3">
           <p className="text-body text-text-muted">
-            Windows Security may have removed Heated Metal files.
+            Windows Security may have removed {name} files.
           </p>
           <ExclusionSteps library={missing.library} />
         </div>
       ) : (
         <p className="text-body text-text-muted">
-          Heated Metal files were not found.
+          {name} files were not found.
         </p>
       )}
     </ConfirmModal>
   );
 }
 
-export function HmFilesMissingModal() {
+export function FilesMissingModal() {
   const [missing, setMissing] = useState<MissingFiles | null>(null);
 
   useEffect(() => {
     const show = (event: string, args: unknown[]) => {
-      if (event === "hm_files_missing")
-        setMissing({ key: args[0] as string, library: args[1] as string });
+      if (event === "files_missing")
+        setMissing({
+          key: args[0] as string,
+          hm: args[1] as boolean,
+          library: args[2] as string,
+        });
     };
     const offs = [
       onBridgeEvent("launch", show),

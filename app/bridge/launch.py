@@ -33,14 +33,14 @@ from core.steam import (
     running_game_folders,
     stop_game,
 )
-from core.throwbackloader import read_tl_args, write_tl_args
+from core.throwbackloader import read_tl_args, tl_present, write_tl_args
 
 
 class LaunchController(QObject):
     error = Signal(str)
     running_changed = Signal("QVariantList")
     launching_changed = Signal(object)
-    hm_files_missing = Signal(str, str)
+    files_missing = Signal(str, bool, str)
     _fail_in = Signal(str, int)
     _spawned_in = Signal(object, int)
 
@@ -94,10 +94,9 @@ class LaunchController(QObject):
             if self._launching in pairs and proc is not None:
                 self._set_launching(None)
             elif proc is not None and proc.poll() is not None:
-                failed = self._launching
-                self._set_launching(None)
-                self._jobs.put(partial(self._on_closed, failed[0]))
-                self.error.emit(log.fail("Launch failed", f"exit={proc.returncode}"))
+                self._on_fail(
+                    log.fail("Launch failed", f"exit={proc.returncode}"), self._launch_gen
+                )
         if self._launching is not None:
             self._watchdog.keep_fast()
 
@@ -183,8 +182,8 @@ class LaunchController(QObject):
         if folder is None:
             self.error.emit(NOT_INSTALLED)
             return
-        if hm and not hm_files_present(folder):
-            self.hm_files_missing.emit(key, str(folder.parent))
+        if not tl_present(folder) or (hm and not hm_files_present(folder)):
+            self.files_missing.emit(key, hm, str(folder.parent))
             return
         self._launch_proc = None
         self._launch_gen += 1
@@ -221,6 +220,7 @@ class LaunchController(QObject):
             self._jobs.put(partial(self._kill_job, proc))
             return
         self._launch_proc = proc
+        threading.Thread(target=proc.wait, daemon=True).start()
         self._watchdog.poke()
 
     def _kill_job(self, proc: subprocess.Popen) -> None:
@@ -246,8 +246,8 @@ class LaunchController(QObject):
         self._jobs.put(partial(self._stop_job, key, launch_proc))
 
     def _stop_job(self, key: str, launch_proc: subprocess.Popen | None) -> None:
-        if launch_proc is not None and launch_proc.poll() is None:
-            stop_game([launch_proc.pid])
+        if launch_proc is not None:
+            self._kill_job(launch_proc)
         if IS_WINDOWS:
             folders = running_game_folders()
             stop_game([pid for name in (key, hm_folder_name(key)) for pid in folders.get(name, ())])
