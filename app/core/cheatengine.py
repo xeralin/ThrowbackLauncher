@@ -29,11 +29,11 @@ def _season_folder(key: str) -> Path:
     return path
 
 
-CE_MARKER = "cheat engine"
+_CE_MARKER = "cheat engine"
 
 
 def _without_ce(autorun: list[str]) -> list[str]:
-    return [t for t in autorun if CE_MARKER not in t.lower()]
+    return [t for t in autorun if _CE_MARKER not in t.lower()]
 
 
 def _add_to_autorun(folder: Path, exe: str) -> None:
@@ -43,8 +43,10 @@ def _add_to_autorun(folder: Path, exe: str) -> None:
         raise OSError(log.fail("Cheat Engine setup failed", e)) from e
 
 
-def is_cheat_engine_present(key: str) -> bool:
-    return _find_ce_exe(key) is not None
+def cheat_engine_status(key: str) -> dict:
+    folder = installed_path(key, False)
+    enabled = folder is not None and any(_CE_MARKER in t.lower() for t in read_tl_autorun(folder))
+    return {"enabled": enabled, "present": _find_ce_exe(key) is not None}
 
 
 def remove_cheat_engine(key: str) -> None:
@@ -63,7 +65,7 @@ def add_cheat_engine(key: str) -> None:
     _add_to_autorun(folder, exe)
 
 
-_WINE_NOISE = re.compile(r"^(\d+:)?(fixme|warn|trace):")
+_WINE_NOISE = re.compile(r"^(?:[0-9a-f]+:)*(?:fixme|warn|trace):")
 
 
 def install_cheat_engine(key: str, installer: Path, settings: dict) -> None:

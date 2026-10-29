@@ -29,10 +29,8 @@ export function CheatEngineSetting({
     if (!on) ce.remove(seasonKey, settle);
     else if (status.present) ce.add(seasonKey, settle);
     else
-      ce.pickInstaller((path) => {
-        if (!path) return;
-        ce.install(seasonKey);
-        ce.status(seasonKey, onStatus);
+      ce.install(seasonKey, (started) => {
+        if (started) ce.status(seasonKey, onStatus);
       });
   }
 

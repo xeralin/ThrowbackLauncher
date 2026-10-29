@@ -6,14 +6,11 @@ from PySide6.QtCore import QObject, Signal, Slot
 from bridge.dialogs import EXE_FILTER, pick_file
 from core import log
 from core.cheatengine import (
-    CE_MARKER,
     add_cheat_engine,
+    cheat_engine_status,
     install_cheat_engine,
-    is_cheat_engine_present,
     remove_cheat_engine,
 )
-from core.manifest import installed_path
-from core.throwbackloader import read_tl_autorun
 
 
 class CheatEngineController(QObject):
@@ -24,7 +21,6 @@ class CheatEngineController(QObject):
     def __init__(self, settings: dict) -> None:
         super().__init__()
         self._settings = settings
-        self._installer: Path | None = None
         self._busy = False
         self._done_in.connect(self._on_done)
 
@@ -34,20 +30,9 @@ class CheatEngineController(QObject):
             self.error.emit(message)
         self.done.emit()
 
-    @Slot(result=str)
-    def pick_installer(self) -> str:
-        picked = pick_file("Select Cheat Engine installer", EXE_FILTER)
-        if picked:
-            self._installer = Path(picked)
-        return picked
-
     @Slot(str, result="QVariantMap")
     def status(self, key: str) -> dict:
-        folder = installed_path(key, False)
-        enabled = folder is not None and any(
-            CE_MARKER in t.lower() for t in read_tl_autorun(folder)
-        )
-        return {"enabled": enabled, "present": is_cheat_engine_present(key), "busy": self._busy}
+        return {**cheat_engine_status(key), "busy": self._busy}
 
     @Slot(str, result=str)
     def add(self, key: str) -> str:
@@ -65,12 +50,16 @@ class CheatEngineController(QObject):
             return str(e)
         return ""
 
-    @Slot(str)
-    def install(self, key: str) -> None:
-        if self._busy or self._installer is None:
-            return
+    @Slot(str, result=bool)
+    def install(self, key: str) -> bool:
+        if self._busy:
+            return False
+        picked = pick_file("Select Cheat Engine installer", EXE_FILTER)
+        if not picked:
+            return False
         self._busy = True
-        threading.Thread(target=self._install, args=(key, self._installer), daemon=True).start()
+        threading.Thread(target=self._install, args=(key, Path(picked)), daemon=True).start()
+        return True
 
     def _install(self, key: str, installer: Path) -> None:
         try:
