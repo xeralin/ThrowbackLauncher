@@ -23,6 +23,33 @@ pub struct ShadowSeason {
     pub regions: &'static [ShadowRegion],
 }
 
+pub struct RendererBuild {
+    pub build: &'static str,
+    pub rvas: &'static [(u64, u64)],
+    pub patches: &'static [RendererPatch],
+}
+
+pub struct RendererPatch {
+    pub rva: u64,
+    pub dx: &'static [u8],
+    pub alt: &'static [u8],
+}
+
+pub struct ClassicTimer {
+    pub build: &'static str,
+    pub global: u64,
+    pub role: u64,
+    pub state: u64,
+    pub now: u64,
+    pub start: u64,
+    pub end: u64,
+    pub length: u64,
+    pub freeze: u64,
+    pub armed: u64,
+    pub countup: u64,
+    pub second: u32,
+}
+
 pub struct TreeParams {
     pub build: &'static str,
     pub root_base: u64,
@@ -47,3 +74,6 @@ include!("tree_params.rs");
 include!("names.rs");
 include!("shadow_regions.rs");
 include!("unlock.rs");
+include!("vulkan.rs");
+include!("dx11.rs");
+include!("timers.rs");

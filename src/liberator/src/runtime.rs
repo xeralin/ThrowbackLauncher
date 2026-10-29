@@ -1,24 +1,28 @@
 use core::ffi::c_void;
 use std::collections::HashMap;
-use std::ffi::CStr;
+use std::ffi::{CStr, OsString};
 use std::io::{BufRead, BufReader, Write};
 use std::mem::{size_of, zeroed};
 use std::net::TcpStream;
+use std::os::windows::ffi::OsStringExt;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use windows_sys::s;
+use windows_sys::Wdk::System::Threading::{NtQueryInformationProcess, ProcessBasicInformation};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, STILL_ACTIVE};
 use windows_sys::Win32::System::Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Module32First, Process32First, Process32Next, MODULEENTRY32,
+    CreateToolhelp32Snapshot, Module32FirstW, Process32First, Process32Next, MODULEENTRY32W,
     PROCESSENTRY32, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
 };
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows_sys::Win32::System::Memory::{VirtualAllocEx, MEM_COMMIT, MEM_RESERVE};
 use windows_sys::Win32::System::Threading::{
-    GetExitCodeProcess, OpenProcess, PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION,
-    PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
+    GetExitCodeProcess, OpenProcess, PROCESS_BASIC_INFORMATION, PROCESS_CREATE_THREAD,
+    PROCESS_QUERY_INFORMATION, PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
 };
 
 use crate::shadow::shadow_regions_for_build;
@@ -33,17 +37,18 @@ fn find_process(names: &[&'static str]) -> Option<(u32, &'static str)> {
     }
     let mut pe: PROCESSENTRY32 = unsafe { zeroed() };
     pe.dwSize = size_of::<PROCESSENTRY32>() as u32;
-    let mut found = None;
+    let mut found: Option<(usize, u32)> = None;
     if unsafe { Process32First(snap, &mut pe) } != 0 {
         loop {
             let exe = pe.szExeFile.map(|c| c as u8);
             let exe = CStr::from_bytes_until_nul(&exe).map_or(&[][..], CStr::to_bytes);
-            if let Some(name) = names
+            if let Some(rank) = names
                 .iter()
-                .find(|n| exe.eq_ignore_ascii_case(n.as_bytes()))
+                .position(|n| exe.eq_ignore_ascii_case(n.as_bytes()))
             {
-                found = Some((pe.th32ProcessID, *name));
-                break;
+                if found.is_none_or(|(best, _)| rank < best) {
+                    found = Some((rank, pe.th32ProcessID));
+                }
             }
             if unsafe { Process32Next(snap, &mut pe) } == 0 {
                 break;
@@ -51,19 +56,29 @@ fn find_process(names: &[&'static str]) -> Option<(u32, &'static str)> {
         }
     }
     unsafe { CloseHandle(snap) };
-    found
+    found.map(|(rank, pid)| (pid, names[rank]))
 }
 
-fn module_info(pid: u32) -> Option<(u64, u32)> {
+fn module_info(pid: u32) -> Option<(u64, u32, PathBuf)> {
     let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid) };
     if snap == INVALID_HANDLE_VALUE {
         return None;
     }
-    let mut me: MODULEENTRY32 = unsafe { zeroed() };
-    me.dwSize = size_of::<MODULEENTRY32>() as u32;
-    let found = unsafe { Module32First(snap, &mut me) } != 0;
+    let mut me: MODULEENTRY32W = unsafe { zeroed() };
+    me.dwSize = size_of::<MODULEENTRY32W>() as u32;
+    let found = unsafe { Module32FirstW(snap, &mut me) } != 0;
     unsafe { CloseHandle(snap) };
-    found.then_some((me.modBaseAddr as u64, me.modBaseSize))
+    if !found {
+        return None;
+    }
+    let path = &me.szExePath;
+    let len = path.iter().position(|&c| c == 0).unwrap_or(path.len());
+    let exe = PathBuf::from(OsString::from_wide(&path[..len]));
+    let dir = match exe.parent() {
+        Some(dir) if exe.is_file() => dir.to_path_buf(),
+        _ => PathBuf::new(),
+    };
+    Some((me.modBaseAddr as u64, me.modBaseSize, dir))
 }
 
 #[derive(Default)]
@@ -72,8 +87,11 @@ pub struct Engine {
     pub base: u64,
     pub modsize: u32,
     pub exe: &'static str,
+    pub dir: PathBuf,
+    pub(crate) renderer: Option<&'static RendererBuild>,
     pub(crate) shadow_pages: Vec<u64>,
     pub(crate) shadow_delta: i64,
+    pub(crate) shadow_probe: u64,
 }
 
 impl Engine {
@@ -82,6 +100,7 @@ impl Engine {
             "RainbowSixGame.exe",
             "RainbowSix.exe",
             "RainbowSix_DX11.exe",
+            "RainbowSix_Vulkan.exe",
         ]) else {
             return false;
         };
@@ -99,15 +118,45 @@ impl Engine {
         if h.is_null() {
             return false;
         }
-        let Some((base, size)) = module_info(pid) else {
+        let Some((base, size, dir)) = module_info(pid) else {
             unsafe { CloseHandle(h) };
             return false;
         };
+        let mut info: PROCESS_BASIC_INFORMATION = unsafe { zeroed() };
+        unsafe {
+            NtQueryInformationProcess(
+                h,
+                ProcessBasicInformation,
+                &mut info as *mut PROCESS_BASIC_INFORMATION as *mut c_void,
+                size_of::<PROCESS_BASIC_INFORMATION>() as u32,
+                core::ptr::null_mut(),
+            )
+        };
         self.proc = h;
         self.base = base;
+        IMAGE_KEY.store(base >> 33, Ordering::Relaxed);
+        PEB_KEY.store(info.PebBaseAddress as u64 >> 12, Ordering::Relaxed);
         self.modsize = size;
         self.exe = name;
+        self.dir = dir;
         true
+    }
+
+    pub(crate) fn at(&self, rva: u64) -> u64 {
+        let Some(renderer) = self.renderer else {
+            return self.base.wrapping_add(rva);
+        };
+        renderer
+            .rvas
+            .iter()
+            .find(|&&(dx, _)| dx == rva)
+            .map_or(0, |&(_, alt)| self.base.wrapping_add(alt))
+    }
+
+    pub(crate) fn bytes<'a>(&self, rva: u64, dx: &'a [u8]) -> &'a [u8] {
+        self.renderer
+            .and_then(|renderer| renderer.patches.iter().find(|p| p.rva == rva && p.dx == dx))
+            .map_or(dx, |p| p.alt)
     }
 
     pub fn process_alive(&self) -> bool {
@@ -145,7 +194,7 @@ impl Engine {
         u64::from_le_bytes(b)
     }
 
-    fn read1(&self, addr: u64) -> u8 {
+    fn read_u8(&self, addr: u64) -> u8 {
         let mut b = [0u8; 1];
         self.read_mem(addr, &mut b);
         b[0]
@@ -211,15 +260,7 @@ impl Engine {
         }
         None
     }
-}
 
-fn find_chain(feature: &str, build: &str) -> Option<&'static FeatureChain> {
-    FEATURE_CHAINS
-        .iter()
-        .find(|fc| fc.feature == feature && fc.build == build)
-}
-
-impl Engine {
     fn build_nodes(
         &self,
         address: u64,
@@ -261,6 +302,27 @@ impl Engine {
         }
         node
     }
+
+    fn resolve_ptr_chain(&self, base_offset: u64, offsets: &[u64]) -> u64 {
+        let Some((last, path)) = offsets.split_last() else {
+            return 0;
+        };
+        let ptr = path
+            .iter()
+            .try_fold(self.read_u64(self.at(base_offset)), |p, off| {
+                (p != 0).then(|| self.read_u64(p.wrapping_add(*off)))
+            });
+        match ptr {
+            Some(p) if p != 0 => p.wrapping_add(*last),
+            _ => 0,
+        }
+    }
+}
+
+fn find_chain(feature: &str, build: &str) -> Option<&'static FeatureChain> {
+    FEATURE_CHAINS
+        .iter()
+        .find(|fc| fc.feature == feature && fc.build == build)
 }
 
 fn relabel_event(mp: &mut TNode, extract: &[usize], rm_path: &[usize], rm_idx: usize, label: &str) {
@@ -269,23 +331,6 @@ fn relabel_event(mp: &mut TNode, extract: &[usize], rm_path: &[usize], rm_idx: u
     }
     rm(mp, rm_path, rm_idx);
     set_text(mp, &[5], label);
-}
-
-impl Engine {
-    fn resolve_ptr_chain(&self, base_offset: u64, offsets: &[u64]) -> u64 {
-        let Some((last, path)) = offsets.split_last() else {
-            return 0;
-        };
-        let ptr = path
-            .iter()
-            .try_fold(self.read_u64(self.base + base_offset), |p, off| {
-                (p != 0).then(|| self.read_u64(p.wrapping_add(*off)))
-            });
-        match ptr {
-            Some(p) if p != 0 => p.wrapping_add(*last),
-            _ => 0,
-        }
-    }
 }
 
 fn json_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
@@ -315,16 +360,40 @@ static CAPS: [(&str, &str); 12] = [
     ("disablePrimaryGadget", "SetDisablePrimaryGadget"),
     ("disableSecondaryGadget", "SetDisableSecondaryGadget"),
     ("displayBuild", "SetDisplayBuild"),
-    ("endRound", "EndRound"),
+    ("skip", "Skip"),
     ("endMatch", "EndMatch"),
 ];
 
-static STATE_WRITES: &[(&str, &str, u64, i32, u8)] = &[
-    ("Y1S0_8194013", "EndRound", 0x5880AA8, 0x66C, 5),
-    ("Y1S0_8194013", "EndMatch", 0x5880AA8, 0x66C, 2),
-];
+static STATE_WRITES: &[(&str, &str, u64, i32, u8)] =
+    &[("Y1S0_8194013", "EndMatch", 0x5880AA8, 0x66C, 2)];
 
 static INIT_BYTES: &[(&str, u64, u8)] = &[("Y8S3_62486471", 0x7FCA406, 0)];
+
+static IMAGE_KEY: AtomicU64 = AtomicU64::new(0);
+static PEB_KEY: AtomicU64 = AtomicU64::new(0);
+
+fn image_key() -> u64 {
+    IMAGE_KEY.load(Ordering::Relaxed)
+}
+
+fn peb_key() -> u64 {
+    PEB_KEY.load(Ordering::Relaxed)
+}
+
+#[derive(Clone, Copy)]
+enum Raw<T> {
+    Fixed(T),
+    Keyed(fn(u64) -> T),
+}
+
+impl<T> Raw<T> {
+    fn get(self) -> T {
+        match self {
+            Raw::Fixed(value) => value,
+            Raw::Keyed(value) => value(image_key()),
+        }
+    }
+}
 
 static WATERMARKS: &[(&str, u64, u64, u64, u64)] = &[
     ("Y6S4_37046065", 0x60D353A, 0x8111FF8, 0x13E3, 0x13E9),
@@ -335,8 +404,108 @@ static WATERMARKS: &[(&str, u64, u64, u64, u64)] = &[
     ("Y8S1_55217154", 0x6B2C4F8, 0x8D75F20, 0x14BB, 0x14C0),
 ];
 
-static WATERMARK_OVERLAYS: &[(&str, u64, u64, u64)] =
-    &[("Y8S2_58222837", 0x6DF1EA0, 0x755A398, 0x6D73D98)];
+struct WatermarkOverlay {
+    build: &'static str,
+    flag: u64,
+    flag_bytes: Raw<[u8; 2]>,
+    manager: u64,
+    counter: u64,
+    entries: i32,
+    slot: u64,
+    persistent: u64,
+    dirty: u64,
+}
+
+static WATERMARK_OVERLAYS: &[WatermarkOverlay] = &[
+    WatermarkOverlay {
+        build: "Y8S2_58222837",
+        flag: 0x6DF1EA0,
+        flag_bytes: Raw::Fixed([0x5B, 0x59]),
+        manager: 0x755A398,
+        counter: 0x6D73D98,
+        entries: 0x1598,
+        slot: 0x1584,
+        persistent: 0x950,
+        dirty: 0x38,
+    },
+    WatermarkOverlay {
+        build: "Y8S3_62486471",
+        flag: 0x6BCFF28,
+        flag_bytes: Raw::Fixed([0x30, 0x2F]),
+        manager: 0x742EBC0,
+        counter: 0x69D7848,
+        entries: 0x1660,
+        slot: 0x164C,
+        persistent: 0x968,
+        dirty: 0x38,
+    },
+    WatermarkOverlay {
+        build: "Y8S4_67466841",
+        flag: 0x6DB1E38,
+        flag_bytes: Raw::Keyed(y8s4_watermark),
+        manager: 0x761CC38,
+        counter: 0x6CA2608,
+        entries: 0x1708,
+        slot: 0x16EC,
+        persistent: 0x978,
+        dirty: 0x38,
+    },
+    WatermarkOverlay {
+        build: "Y9S1_69866602",
+        flag: 0x79CC988,
+        flag_bytes: Raw::Keyed(y9s1_watermark),
+        manager: 0x809C168,
+        counter: 0x792A3C8,
+        entries: 0x16F0,
+        slot: 0x16D4,
+        persistent: 0x998,
+        dirty: 0x38,
+    },
+    WatermarkOverlay {
+        build: "Y9S2_72730050",
+        flag: 0x7D662D8,
+        flag_bytes: Raw::Keyed(y9s2_watermark),
+        manager: 0x840F348,
+        counter: 0x7C0D9B8,
+        entries: 0x1700,
+        slot: 0x16E4,
+        persistent: 0x998,
+        dirty: 0x60,
+    },
+    WatermarkOverlay {
+        build: "Y9S3_79429095",
+        flag: 0xBA6E208,
+        flag_bytes: Raw::Keyed(y9s3_watermark),
+        manager: 0xBB7C6E8,
+        counter: 0xB8A8058,
+        entries: 0x17B8,
+        slot: 0x179C,
+        persistent: 0x9B8,
+        dirty: 0x60,
+    },
+    WatermarkOverlay {
+        build: "Y9S4_82873685",
+        flag: 0xD482958,
+        flag_bytes: Raw::Fixed([0x1D, 0x1D]),
+        manager: 0xD51D7A0,
+        counter: 0xD24DED8,
+        entries: 0x1980,
+        slot: 0x1964,
+        persistent: 0xA58,
+        dirty: 0x60,
+    },
+    WatermarkOverlay {
+        build: "Y10S1_87835624",
+        flag: 0xE336418,
+        flag_bytes: Raw::Keyed(y10s1_watermark),
+        manager: 0xE3D47A8,
+        counter: 0xE0F1968,
+        entries: 0x19A0,
+        slot: 0x1984,
+        persistent: 0xB60,
+        dirty: 0x60,
+    },
+];
 
 fn patches_have(feature: &str, build: &str) -> bool {
     PATCHES
@@ -345,8 +514,9 @@ fn patches_have(feature: &str, build: &str) -> bool {
 }
 
 const TREE_NULL: &str = "{\"event\":\"tree\",\"tree\":null}";
+const PLAYLIST_POLL: Duration = Duration::from_millis(100);
 
-static Y5_DISABLE_SLOTS: [&str; 4] = [
+static DISABLE_MODS: [&str; 4] = [
     "disablePrimary",
     "disableSecondary",
     "disablePrimaryGadget",
@@ -359,28 +529,31 @@ static Y5S1_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "deathless",
         0x1842673,
-        &[
-            0xC7, 0x87, 0x68, 0x01, 0x00, 0x00, 0x78, 0x00, 0x00, 0x00, 0x90, 0x90, 0x90, 0x90,
-            0x90,
-        ],
+        &[0xE9, 0xC8, 0x10, 0x8F, 0xFE, 0x90, 0x90, 0x90],
     ),
     (
         "unlimitedEquip",
         0x12984AB,
         &[
-            0xC7, 0x41, 0x54, 0x06, 0x00, 0x00, 0x00, 0x48, 0x8B, 0x49, 0x18, 0x90, 0x90, 0x90,
-            0x90, 0xEB,
+            0x3B, 0xD6, 0x0F, 0x4C, 0xD6, 0x8B, 0xDA, 0x89, 0x51, 0x54, 0x66, 0x90, 0x48, 0x85,
+            0xFF, 0x74,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x17022D4,
+        &[
+            0x48, 0x8B, 0x81, 0x68, 0x03, 0x00, 0x00, 0x46, 0x8D, 0x0C, 0x85, 0x00, 0x00, 0x00,
+            0x00, 0x41, 0x3B, 0x2C, 0x01, 0x41, 0x0F, 0x4C, 0x2C, 0x01, 0x41, 0x3B, 0x2C, 0x01,
         ],
     ),
     ("disableAI", 0x1081B80, &[0xC3]),
-    (
-        "unlimitedAmmo",
-        0x1AB36DB,
-        &[
-            0x44, 0x3B, 0x40, 0x7C, 0x90, 0x48, 0x89, 0x7C, 0x24, 0x50, 0x7E, 0x05, 0x44, 0x89,
-            0x40, 0x7C, 0x90,
-        ],
-    ),
+    ("unlimitedAmmo", 0x1ABB148, &[0x0F, 0x1F, 0x00]),
+    ("unlimitedAmmo", 0x13DF7DB, &[0x00]),
+    ("unlimitedAmmo", 0x13E1EC0, &[0x00]),
+    ("unlimitedAmmo", 0x1AB7BF6, &[0x0F, 0x1F, 0x00]),
+    ("unlimitedAmmo", 0x1AC58B4, &[0xEB]),
+    ("unlimitedAmmo", 0x1AC5A17, &[0x83]),
     ("displayBuild", 0x7386F8, &[0x90, 0x90]),
     ("displayBuild", 0x104E6C, &[0x00]),
     ("displayBuild", 0x738287, &[0xB1, 0x01, 0x90]),
@@ -397,11 +570,8 @@ static Y6S1_TOGGLES: &[(&str, u64, &[u8])] = &[
     ("displayBuild", 0x7121CA, &[0xB0, 0x01, 0x90]),
     (
         "deathless",
-        0x273893,
-        &[
-            0x44, 0x8D, 0x34, 0x25, 0x78, 0x00, 0x00, 0x00, 0x45, 0x89, 0xB4, 0x24, 0x70, 0x01,
-            0x00, 0x00,
-        ],
+        0x27363E,
+        &[0xE9, 0x4D, 0xF7, 0x1D, 0x00, 0x90, 0x90],
     ),
     ("unlimitedAmmo", 0x1386388, &[0x0F, 0x1F, 0x00]),
     (
@@ -423,7 +593,10 @@ static Y6S1_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0x2F6B42D,
-        &[0x48, 0xC7, 0xC6, 0x06, 0x00, 0x00, 0x00],
+        &[
+            0x48, 0x8B, 0x8F, 0x78, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
+            0x39, 0x34, 0x01, 0x66, 0x90,
+        ],
     ),
     ("unlimitedEquip", 0x905731, &[0x83, 0xC0, 0x00]),
     ("unlimitedEquip", 0x4391077, &[0x83, 0xC0, 0x00]),
@@ -434,28 +607,28 @@ static Y6S1_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x1D93F9F,
         &[
-            0xBE, 0x06, 0x00, 0x00, 0x00, 0x48, 0x89, 0xCB, 0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00,
+            0x85, 0xF6, 0x0F, 0x84, 0x5B, 0x01, 0x00, 0x00, 0x48, 0x89, 0xCB, 0x0F, 0x1F, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x238DFBD,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x00,
+            0x8B, 0x71, 0x6C, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x4387D42,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x66, 0x90,
+            0x8B, 0x71, 0x64, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x438A39A,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x44, 0x00,
+            0x8B, 0xB9, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40,
             0x00,
         ],
     ),
@@ -471,11 +644,8 @@ static Y6S1_15500403_TOGGLES: &[(&str, u64, &[u8])] = &[
     ("displayBuild", 0x3D685BA, &[0xB0, 0x01, 0x90]),
     (
         "deathless",
-        0x45BCA23,
-        &[
-            0x44, 0x8D, 0x34, 0x25, 0x78, 0x00, 0x00, 0x00, 0x45, 0x89, 0xB4, 0x24, 0x70, 0x01,
-            0x00, 0x00,
-        ],
+        0x45BC7CE,
+        &[0xE9, 0xB2, 0xD1, 0x38, 0x00, 0x90, 0x90],
     ),
     ("unlimitedAmmo", 0x25A19E3, &[0x0F, 0x1F, 0x00]),
     (
@@ -497,7 +667,10 @@ static Y6S1_15500403_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0x365270D,
-        &[0x48, 0xC7, 0xC6, 0x06, 0x00, 0x00, 0x00],
+        &[
+            0x48, 0x8B, 0x8F, 0x78, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
+            0x39, 0x34, 0x01, 0x66, 0x90,
+        ],
     ),
     ("unlimitedEquip", 0x22F28A1, &[0x83, 0xC0, 0x00]),
     ("unlimitedEquip", 0x5FB307, &[0x83, 0xC0, 0x00]),
@@ -508,28 +681,28 @@ static Y6S1_15500403_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x2D1FE5F,
         &[
-            0xBE, 0x06, 0x00, 0x00, 0x00, 0x48, 0x89, 0xCB, 0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00,
+            0x85, 0xF6, 0x0F, 0x84, 0x5B, 0x01, 0x00, 0x00, 0x48, 0x89, 0xCB, 0x0F, 0x1F, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2E93CFD,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x00,
+            0x8B, 0x71, 0x6C, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x5F1FB2,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x66, 0x90,
+            0x8B, 0x71, 0x64, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x5F460A,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x44, 0x00,
+            0x8B, 0xB9, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40,
             0x00,
         ],
     ),
@@ -545,11 +718,8 @@ static Y6S2_TOGGLES: &[(&str, u64, &[u8])] = &[
     ("displayBuild", 0x2DEC35F, &[0xB0, 0x01, 0x90]),
     (
         "deathless",
-        0x43D8EA7,
-        &[
-            0x0F, 0x1F, 0x00, 0xB8, 0x78, 0x00, 0x00, 0x00, 0x41, 0x89, 0x86, 0x78, 0x01, 0x00,
-            0x00, 0xF3, 0x0F, 0x2A, 0xF0,
-        ],
+        0x43D8E27,
+        &[0xE9, 0xD4, 0xA1, 0xB4, 0xFC, 0x90, 0x90],
     ),
     ("unlimitedAmmo", 0x3354C44, &[0x0F, 0x1F, 0x00]),
     (
@@ -571,7 +741,10 @@ static Y6S2_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0x3C96134,
-        &[0x48, 0xC7, 0xC6, 0x06, 0x00, 0x00, 0x00],
+        &[
+            0x48, 0x8B, 0x8F, 0x78, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
+            0x39, 0x34, 0x01, 0x66, 0x90,
+        ],
     ),
     ("unlimitedEquip", 0x3CA2CC7, &[0x83, 0xC0, 0x00]),
     ("unlimitedEquip", 0x153F2D7, &[0x83, 0xC0, 0x00]),
@@ -582,7 +755,7 @@ static Y6S2_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x3B19BE,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x44,
+            0x8B, 0xB1, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44,
             0x00, 0x00,
         ],
     ),
@@ -590,21 +763,21 @@ static Y6S2_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x2DA976D,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x00,
+            0x8B, 0x71, 0x6C, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x1536592,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x66, 0x90,
+            0x8B, 0x71, 0x64, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x1538A1A,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x44, 0x00,
+            0x8B, 0xB9, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40,
             0x00,
         ],
     ),
@@ -620,11 +793,8 @@ static Y6S2_15701375_TOGGLES: &[(&str, u64, &[u8])] = &[
     ("displayBuild", 0x299776F, &[0xB0, 0x01, 0x90]),
     (
         "deathless",
-        0x39F8127,
-        &[
-            0x0F, 0x1F, 0x00, 0xB8, 0x78, 0x00, 0x00, 0x00, 0x41, 0x89, 0x86, 0x78, 0x01, 0x00,
-            0x00, 0xF3, 0x0F, 0x2A, 0xF0,
-        ],
+        0x39F80A7,
+        &[0xE9, 0x54, 0x7F, 0xF8, 0xFF, 0x90, 0x90],
     ),
     ("unlimitedAmmo", 0x3B2E15C, &[0x0F, 0x1F, 0x00]),
     (
@@ -646,7 +816,10 @@ static Y6S2_15701375_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0x33C61A4,
-        &[0x48, 0xC7, 0xC6, 0x06, 0x00, 0x00, 0x00],
+        &[
+            0x48, 0x8B, 0x8F, 0x78, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
+            0x39, 0x34, 0x01, 0x66, 0x90,
+        ],
     ),
     ("unlimitedEquip", 0x428FA97, &[0x83, 0xC0, 0x00]),
     ("unlimitedEquip", 0x4605C97, &[0x83, 0xC0, 0x00]),
@@ -657,7 +830,7 @@ static Y6S2_15701375_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x256F81E,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x44,
+            0x8B, 0xB1, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44,
             0x00, 0x00,
         ],
     ),
@@ -665,21 +838,21 @@ static Y6S2_15701375_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x33F28D,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x00,
+            0x8B, 0x71, 0x6C, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x45FCF52,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x66, 0x90,
+            0x8B, 0x71, 0x64, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x45FF3DA,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x44, 0x00,
+            0x8B, 0xB9, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40,
             0x00,
         ],
     ),
@@ -695,11 +868,8 @@ static Y6S3_TOGGLES: &[(&str, u64, &[u8])] = &[
     ("displayBuild", 0x1E13EEF, &[0xB0, 0x01, 0x90]),
     (
         "deathless",
-        0xEEACE7,
-        &[
-            0x0F, 0x1F, 0x00, 0xB8, 0x78, 0x00, 0x00, 0x00, 0x41, 0x89, 0x86, 0xBC, 0x01, 0x00,
-            0x00, 0xF3, 0x0F, 0x2A, 0xF0,
-        ],
+        0xEEAC67,
+        &[0xE9, 0x94, 0x53, 0x4B, 0x03, 0x90, 0x90],
     ),
     ("unlimitedAmmo", 0x2D97BD9, &[0x0F, 0x1F, 0x00]),
     (
@@ -721,7 +891,10 @@ static Y6S3_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0x10AEF64,
-        &[0x48, 0xC7, 0xC6, 0x06, 0x00, 0x00, 0x00],
+        &[
+            0x48, 0x8B, 0x8F, 0x78, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
+            0x39, 0x34, 0x01, 0x66, 0x90,
+        ],
     ),
     ("unlimitedEquip", 0x2D57017, &[0x83, 0xC0, 0x00]),
     ("unlimitedEquip", 0x1E84227, &[0x83, 0xC0, 0x00]),
@@ -732,7 +905,7 @@ static Y6S3_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x43C321E,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x44,
+            0x8B, 0xB1, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44,
             0x00, 0x00,
         ],
     ),
@@ -740,21 +913,21 @@ static Y6S3_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x28E910D,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x00,
+            0x8B, 0x71, 0x6C, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0xBA9412,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x66, 0x90,
+            0x8B, 0x71, 0x64, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0xBAB7AA,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x44, 0x00,
+            0x8B, 0xB9, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40,
             0x00,
         ],
     ),
@@ -770,11 +943,8 @@ static Y6S3_32627923_TOGGLES: &[(&str, u64, &[u8])] = &[
     ("displayBuild", 0x1B1EEEF, &[0xB0, 0x01, 0x90]),
     (
         "deathless",
-        0x222607,
-        &[
-            0x0F, 0x1F, 0x00, 0xB8, 0x78, 0x00, 0x00, 0x00, 0x41, 0x89, 0x86, 0x7C, 0x01, 0x00,
-            0x00, 0xF3, 0x0F, 0x2A, 0xF0,
-        ],
+        0x222587,
+        &[0xE9, 0x74, 0xAA, 0x87, 0x01, 0x90, 0x90],
     ),
     ("unlimitedAmmo", 0x1B92CAB, &[0x0F, 0x1F, 0x00]),
     (
@@ -796,7 +966,10 @@ static Y6S3_32627923_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0x1DD6E74,
-        &[0x48, 0xC7, 0xC6, 0x06, 0x00, 0x00, 0x00],
+        &[
+            0x48, 0x8B, 0x8F, 0x78, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
+            0x39, 0x34, 0x01, 0x66, 0x90,
+        ],
     ),
     ("unlimitedEquip", 0x26EC647, &[0x83, 0xC0, 0x00]),
     ("unlimitedEquip", 0x3F1BCC7, &[0x83, 0xC0, 0x00]),
@@ -807,7 +980,7 @@ static Y6S3_32627923_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x1F986EE,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x44,
+            0x8B, 0xB1, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44,
             0x00, 0x00,
         ],
     ),
@@ -815,21 +988,21 @@ static Y6S3_32627923_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x3F8879D,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x00,
+            0x8B, 0x71, 0x6C, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2947D2,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x66, 0x90,
+            0x8B, 0x71, 0x64, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x296ACA,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x44, 0x00,
+            0x8B, 0xB9, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40,
             0x00,
         ],
     ),
@@ -838,11 +1011,8 @@ static Y6S3_32627923_TOGGLES: &[(&str, u64, &[u8])] = &[
 static Y6S4_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "deathless",
-        0x2A16527,
-        &[
-            0x0F, 0x1F, 0x00, 0xB8, 0x78, 0x00, 0x00, 0x00, 0x41, 0x89, 0x87, 0xBC, 0x01, 0x00,
-            0x00, 0xF3, 0x0F, 0x2A, 0xF0,
-        ],
+        0x2A164A7,
+        &[0xE9, 0x54, 0xCB, 0x69, 0x00, 0x90, 0x90],
     ),
     ("unlimitedAmmo", 0x32BE4D9, &[0x0F, 0x1F, 0x00]),
     (
@@ -863,7 +1033,10 @@ static Y6S4_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0x103E814,
-        &[0x48, 0xC7, 0xC6, 0x06, 0x00, 0x00, 0x00],
+        &[
+            0x48, 0x8B, 0x8F, 0x78, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
+            0x39, 0x34, 0x01, 0x66, 0x90,
+        ],
     ),
     ("unlimitedEquip", 0x233393A, &[0x8D, 0x43, 0x00]),
     ("unlimitedEquip", 0x490D9E9, &[0x8D, 0x47, 0x00]),
@@ -874,7 +1047,7 @@ static Y6S4_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x3A48C2E,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x44,
+            0x8B, 0xB1, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44,
             0x00, 0x00,
         ],
     ),
@@ -882,21 +1055,21 @@ static Y6S4_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x2FC77CD,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x00,
+            0x8B, 0x71, 0x6C, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x49058D2,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x66, 0x90,
+            0x8B, 0x71, 0x64, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x49078FA,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x44, 0x00,
+            0x8B, 0xB9, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40,
             0x00,
         ],
     ),
@@ -905,11 +1078,8 @@ static Y6S4_TOGGLES: &[(&str, u64, &[u8])] = &[
 static Y7S1_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "deathless",
-        0x4D9A3E7,
-        &[
-            0x0F, 0x1F, 0x00, 0xB8, 0x78, 0x00, 0x00, 0x00, 0x41, 0x89, 0x85, 0xBC, 0x01, 0x00,
-            0x00, 0xF3, 0x0F, 0x2A, 0xF0,
-        ],
+        0x4D9A367,
+        &[0xE9, 0x94, 0x3C, 0x2B, 0x00, 0x90, 0x90],
     ),
     ("unlimitedAmmo", 0x141E694, &[0x66, 0x90]),
     (
@@ -930,7 +1100,10 @@ static Y7S1_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0x1647675,
-        &[0x48, 0xC7, 0xC6, 0x06, 0x00, 0x00, 0x00],
+        &[
+            0x48, 0x8B, 0x8F, 0x68, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
+            0x39, 0x34, 0x01, 0x66, 0x90,
+        ],
     ),
     ("unlimitedEquip", 0xA742A2, &[0x41, 0x8D, 0x44, 0x24, 0x00]),
     ("unlimitedEquip", 0x2A35829, &[0x8D, 0x47, 0x00]),
@@ -941,70 +1114,70 @@ static Y7S1_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x157180B,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x1573212,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x1ADBAB4,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2A4AC9B,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2A50FE6,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2A53806,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2A69269,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x24D7340,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00,
+            0x8B, 0x51, 0x6C, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x40020B0,
         &[
-            0xB8, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x41, 0x64, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90,
         ],
     ),
     (
         "unlimitedEquip",
         0x4004C4A,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x44, 0x00,
+            0x8B, 0xB1, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40,
             0x00,
         ],
     ),
@@ -1018,11 +1191,8 @@ static Y7S1_TOGGLES: &[(&str, u64, &[u8])] = &[
 static Y7S2_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "deathless",
-        0x1F2E543,
-        &[
-            0x6A, 0x78, 0x58, 0xF3, 0x40, 0x0F, 0x2A, 0xF0, 0x41, 0xC7, 0x85, 0xE8, 0x01, 0x00,
-            0x00, 0x6A, 0x5D, 0x77, 0xCF,
-        ],
+        0x1F2E449,
+        &[0xE9, 0xB2, 0x6B, 0xF8, 0xFF, 0x90, 0x90, 0x90],
     ),
     ("unlimitedAmmo", 0x266E47F, &[0x0F, 0x1F, 0x00]),
     (
@@ -1043,7 +1213,10 @@ static Y7S2_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0x30D1BE5,
-        &[0x48, 0xC7, 0xC6, 0x06, 0x00, 0x00, 0x00],
+        &[
+            0x48, 0x8B, 0x8F, 0x68, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
+            0x39, 0x34, 0x01, 0x66, 0x90,
+        ],
     ),
     ("unlimitedEquip", 0x2617082, &[0x41, 0x8D, 0x44, 0x24, 0x00]),
     ("unlimitedEquip", 0x32F0419, &[0x8D, 0x47, 0x00]),
@@ -1054,70 +1227,70 @@ static Y7S2_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x42E60EE,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x42E7B52,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x1D8BA94,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x407F9D3,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x4085CF6,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x4088676,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x38B8319,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x22763B0,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00,
+            0x8B, 0x51, 0x6C, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x30A41D0,
         &[
-            0xB8, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x41, 0x64, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90,
         ],
     ),
     (
         "unlimitedEquip",
         0x30A6D4A,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x44, 0x00,
+            0x8B, 0xB1, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40,
             0x00,
         ],
     ),
@@ -1131,11 +1304,8 @@ static Y7S2_TOGGLES: &[(&str, u64, &[u8])] = &[
 static Y7S3_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "deathless",
-        0x3CDD73A,
-        &[
-            0x6A, 0x78, 0x58, 0xF3, 0x40, 0x0F, 0x2A, 0xF0, 0x40, 0xC7, 0x86, 0xEC, 0x01, 0x00,
-            0x00, 0xF5, 0x4A, 0xAC, 0xE8,
-        ],
+        0x3CDD5D7,
+        &[0xE9, 0x24, 0xEA, 0xB5, 0x00, 0x90],
     ),
     ("unlimitedAmmo", 0x6B0CB6, &[0x0F, 0x1F, 0x00]),
     (
@@ -1156,7 +1326,10 @@ static Y7S3_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0x2A438F5,
-        &[0x48, 0xC7, 0xC6, 0x06, 0x00, 0x00, 0x00],
+        &[
+            0x48, 0x8B, 0x89, 0x68, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
+            0x39, 0x34, 0x01, 0x66, 0x90,
+        ],
     ),
     ("unlimitedEquip", 0x54888A9, &[0x8D, 0x47, 0x00]),
     ("unlimitedEquip", 0x28BF170, &[0x83, 0x43, 0x44, 0x00]),
@@ -1165,69 +1338,69 @@ static Y7S3_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x3E23D3C,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x3E25806,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x161EC54,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x580E004,
-        &[0xBA, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x00],
+        &[0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00],
     ),
     (
         "unlimitedEquip",
         0x26505F6,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2652F06,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2669FC9,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2685340,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00,
+            0x8B, 0x51, 0x6C, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x54806C0,
         &[
-            0xB8, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x41, 0x64, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90,
         ],
     ),
     (
         "unlimitedEquip",
         0x54821B0,
         &[
-            0xC7, 0x81, 0xC4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xB8, 0x06, 0x00, 0x00,
-            0x00,
+            0x8B, 0x81, 0xC4, 0x00, 0x00, 0x00, 0x83, 0xA1, 0xC4, 0x00, 0x00, 0x00, 0x00, 0x66,
+            0x90,
         ],
     ),
     (
@@ -1238,14 +1411,7 @@ static Y7S3_TOGGLES: &[(&str, u64, &[u8])] = &[
 ];
 
 static Y7S4_TOGGLES: &[(&str, u64, &[u8])] = &[
-    (
-        "deathless",
-        0x1595C9,
-        &[
-            0x6A, 0x78, 0x58, 0xF3, 0x40, 0x0F, 0x2A, 0xF0, 0x41, 0xC7, 0x85, 0xD0, 0x01, 0x00,
-            0x00, 0x9A, 0xB6, 0x02, 0xB4,
-        ],
-    ),
+    ("deathless", 0x159490, &[0xE9, 0x6B, 0x0B, 0x75, 0x01, 0x90]),
     ("unlimitedAmmo", 0x23D1BBC, &[0x0F, 0x1F, 0x00]),
     (
         "unlimitedAmmo",
@@ -1265,7 +1431,10 @@ static Y7S4_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0xD06875,
-        &[0x48, 0xC7, 0xC6, 0x06, 0x00, 0x00, 0x00],
+        &[
+            0x48, 0x8B, 0x89, 0x68, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
+            0x39, 0x34, 0x01, 0x66, 0x90,
+        ],
     ),
     ("unlimitedEquip", 0x504D5C9, &[0x8D, 0x47, 0x00]),
     ("unlimitedEquip", 0x521B880, &[0x83, 0x43, 0x44, 0x00]),
@@ -1274,71 +1443,71 @@ static Y7S4_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x4561219,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x456260E,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0xE294E1,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x5063BBB,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x506AC86,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x506CC96,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x5084FC9,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x91, 0xC4, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x3A931A0,
         &[
-            0xBA, 0x06, 0x00, 0x00, 0x00, 0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00,
+            0x8B, 0x51, 0x6C, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x42AC6E0,
         &[
-            0xB8, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00,
+            0x8B, 0x41, 0x64, 0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90,
         ],
     ),
     (
         "unlimitedEquip",
         0x5046550,
         &[
-            0xC7, 0x81, 0xC4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xB8, 0x06, 0x00, 0x00,
-            0x00,
+            0x8B, 0x81, 0xC4, 0x00, 0x00, 0x00, 0x83, 0xA1, 0xC4, 0x00, 0x00, 0x00, 0x00, 0x66,
+            0x90,
         ],
     ),
     (
@@ -1349,14 +1518,7 @@ static Y7S4_TOGGLES: &[(&str, u64, &[u8])] = &[
 ];
 
 static Y8S1_TOGGLES: &[(&str, u64, &[u8])] = &[
-    (
-        "deathless",
-        0x130B630,
-        &[
-            0x6A, 0x78, 0x58, 0xF3, 0x40, 0x0F, 0x2A, 0xF0, 0x40, 0xC7, 0x85, 0xB8, 0x01, 0x00,
-            0x00, 0x58, 0x07, 0x49, 0xF8,
-        ],
-    ),
+    ("deathless", 0x130B5CC, &[0xE9, 0x2F, 0xEA, 0x8E, 0x02]),
     ("unlimitedAmmo", 0x39D6CF0, &[0x0F, 0x1F, 0x00]),
     (
         "unlimitedAmmo",
@@ -1377,7 +1539,10 @@ static Y8S1_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0x2423B5,
-        &[0x48, 0xC7, 0xC6, 0x06, 0x00, 0x00, 0x00],
+        &[
+            0x48, 0x8B, 0x81, 0x50, 0x03, 0x00, 0x00, 0x39, 0x34, 0x28, 0x0F, 0x4F, 0x34, 0x28,
+            0x39, 0x34, 0x28, 0x66, 0x90,
+        ],
     ),
     ("unlimitedEquip", 0x1A42009, &[0x8D, 0x47, 0x00]),
     ("unlimitedEquip", 0x13E51A0, &[0x0F, 0x1F, 0x00]),
@@ -1386,78 +1551,78 @@ static Y8S1_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x430CE5A,
         &[
-            0xBE, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F,
-            0x40, 0x00,
+            0x8B, 0xBD, 0xC4, 0x00, 0x00, 0x00, 0xBE, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x430EB30,
         &[
-            0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F,
-            0x1F, 0x44, 0x00, 0x00,
+            0x8B, 0xBB, 0xC4, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2688F39,
         &[
-            0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F,
-            0x40, 0x00,
+            0x8B, 0xB5, 0xC4, 0x00, 0x00, 0x00, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2AD8CBB,
         &[
-            0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F,
-            0x40, 0x00,
+            0x8B, 0xB5, 0xC4, 0x00, 0x00, 0x00, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2ADFC23,
         &[
-            0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F,
-            0x1F, 0x44, 0x00, 0x00,
+            0x8B, 0xBD, 0xC4, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2ED2283,
         &[
-            0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F,
-            0x1F, 0x44, 0x00, 0x00,
+            0x8B, 0xBD, 0xC4, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x37AE362,
         &[
-            0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F,
-            0x1F, 0x44, 0x00, 0x00,
+            0x8B, 0xB5, 0xC4, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x2E99D5D,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x90,
+            0x8B, 0x71, 0x6C, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F, 0x1F, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x889E62,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBE, 0x06, 0x00, 0x00, 0x00,
+            0x8B, 0x71, 0x64, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x66, 0x90,
         ],
     ),
     (
         "unlimitedEquip",
         0x88BCE0,
         &[
-            0xC7, 0x81, 0xC4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xB8, 0x06, 0x00, 0x00,
-            0x00,
+            0x8B, 0x81, 0xC4, 0x00, 0x00, 0x00, 0x83, 0xA1, 0xC4, 0x00, 0x00, 0x00, 0x00, 0x66,
+            0x90,
         ],
     ),
     (
@@ -1470,11 +1635,8 @@ static Y8S1_TOGGLES: &[(&str, u64, &[u8])] = &[
 static Y8S2_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "deathless",
-        0x3B9ABD2,
-        &[
-            0x6A, 0x78, 0x58, 0xF3, 0x40, 0x0F, 0x2A, 0xF0, 0x41, 0xC7, 0x85, 0xCC, 0x01, 0x00,
-            0x00, 0x69, 0x01, 0x2F, 0xEB,
-        ],
+        0x3B9AB4E,
+        &[0xE9, 0xAD, 0x54, 0xEA, 0x01, 0x90, 0x90],
     ),
     ("unlimitedAmmo", 0x2C82C1A, &[0x0F, 0x1F, 0x00]),
     (
@@ -1488,7 +1650,7 @@ static Y8S2_TOGGLES: &[(&str, u64, &[u8])] = &[
         &[0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00],
     ),
     ("unlimitedAmmo", 0x2CA33B8, &[0x66, 0x90]),
-    ("unlimitedAmmo", 0x2C9E046, &[0x83]),
+    ("unlimitedAmmo", 0x2C9E046, &[0x82]),
     ("unlimitedAmmo", 0x2C9E225, &[0x0F, 0x1F, 0x00]),
     ("unlimitedAmmo", 0x5688750, &[0xC3]),
     ("disableAI", 0x17DADA0, &[0xC3]),
@@ -1496,7 +1658,10 @@ static Y8S2_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0x1E339D3,
-        &[0x48, 0xC7, 0xC7, 0x06, 0x00, 0x00, 0x00],
+        &[
+            0x48, 0x8B, 0x81, 0x50, 0x03, 0x00, 0x00, 0x42, 0x39, 0x3C, 0x38, 0x42, 0x0F, 0x4F,
+            0x3C, 0x38, 0x42, 0x39, 0x3C, 0x38,
+        ],
     ),
     ("unlimitedEquip", 0x55454B9, &[0x8D, 0x47, 0x00]),
     ("unlimitedEquip", 0x3312173, &[0x0F, 0x1F, 0x00]),
@@ -1504,80 +1669,425 @@ static Y8S2_TOGGLES: &[(&str, u64, &[u8])] = &[
         "unlimitedEquip",
         0x483A48A,
         &[
-            0xBE, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F,
-            0x40, 0x00,
+            0x8B, 0xBD, 0xC8, 0x00, 0x00, 0x00, 0xBE, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x483C14C,
         &[
-            0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F,
-            0x1F, 0x44, 0x00, 0x00,
+            0x8B, 0xBB, 0xC8, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x4806C29,
         &[
-            0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F,
-            0x40, 0x00,
+            0x8B, 0xB5, 0xC8, 0x00, 0x00, 0x00, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x555C3FB,
         &[
-            0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F, 0x1F,
-            0x40, 0x00,
+            0x8B, 0xB5, 0xC8, 0x00, 0x00, 0x00, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x5562D53,
         &[
-            0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F,
-            0x1F, 0x44, 0x00, 0x00,
+            0x8B, 0xBD, 0xC8, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x55658C3,
         &[
-            0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBF, 0x06, 0x00, 0x00, 0x00, 0x0F,
-            0x1F, 0x44, 0x00, 0x00,
+            0x8B, 0xBD, 0xC8, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x557DCD2,
         &[
-            0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x0F,
-            0x1F, 0x44, 0x00, 0x00,
+            0x8B, 0xB5, 0xC8, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x288F99D,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBE, 0x06, 0x00, 0x00, 0x00, 0x90,
+            0x8B, 0x71, 0x70, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F, 0x1F, 0x00,
         ],
     ),
     (
         "unlimitedEquip",
         0x553B5E2,
         &[
-            0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0xBE, 0x06, 0x00, 0x00, 0x00,
+            0x8B, 0x71, 0x68, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x66, 0x90,
         ],
     ),
     (
         "unlimitedEquip",
         0x553D310,
         &[
-            0xC7, 0x81, 0xC8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xB8, 0x06, 0x00, 0x00,
-            0x00,
+            0x8B, 0x81, 0xC8, 0x00, 0x00, 0x00, 0x83, 0xA1, 0xC8, 0x00, 0x00, 0x00, 0x00, 0x66,
+            0x90,
         ],
     ),
+];
+
+static Y8S3_TOGGLES: &[(&str, u64, &[u8])] = &[
+    (
+        "deathless",
+        0x164F2C,
+        &[0xE9, 0xCF, 0xB0, 0xDC, 0x04, 0x90, 0x90],
+    ),
+    ("unlimitedAmmo", 0x379136F, &[0x0F, 0x1F, 0x00]),
+    (
+        "unlimitedAmmo",
+        0x37A18DD,
+        &[0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00],
+    ),
+    (
+        "unlimitedAmmo",
+        0x37A1A41,
+        &[0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00],
+    ),
+    ("unlimitedAmmo", 0x37B801A, &[0x66, 0x90]),
+    ("unlimitedAmmo", 0x37B2337, &[0x82]),
+    ("unlimitedAmmo", 0x37B2524, &[0x66, 0x90]),
+    ("unlimitedAmmo", 0x37C7740, &[0xC3]),
+    ("disableAI", 0x2941270, &[0xC3]),
+    ("endMatch", 0xC99C63, &[0x74, 0x3D, 0xB1, 0x01]),
+    (
+        "unlimitedEquip",
+        0x3E86152,
+        &[
+            0x48, 0x8B, 0x83, 0xD8, 0x01, 0x00, 0x00, 0x42, 0x39, 0x2C, 0x30, 0x42, 0x0F, 0x4F,
+            0x2C, 0x30, 0x42, 0x39, 0x2C, 0x30,
+        ],
+    ),
+    ("unlimitedEquip", 0x3ECFC49, &[0x8D, 0x47, 0x00]),
+    ("unlimitedEquip", 0x3ECFCE0, &[0x0F, 0x1F, 0x00]),
+    ("unlimitedEquip", 0x2EEEBE0, &[0x0F, 0x1F, 0x00]),
+    (
+        "unlimitedEquip",
+        0x411355E,
+        &[
+            0x8B, 0xBD, 0xD0, 0x00, 0x00, 0x00, 0xBE, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x41156E7,
+        &[
+            0x8B, 0xBB, 0xD0, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x9B200C,
+        &[
+            0x8B, 0xB5, 0xD0, 0x00, 0x00, 0x00, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x51FEDDE,
+        &[
+            0x8B, 0xBD, 0xD0, 0x00, 0x00, 0x00, 0xBE, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x5205873,
+        &[
+            0x8B, 0xBB, 0xD0, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x5207AE3,
+        &[
+            0x8B, 0xBB, 0xD0, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x517E13D,
+        &[
+            0x8B, 0x71, 0x78, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F, 0x1F, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x3EC58E2,
+        &[
+            0x8B, 0x71, 0x70, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x66, 0x90,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x3EC7160,
+        &[
+            0x8B, 0x81, 0xC8, 0x00, 0x00, 0x00, 0x83, 0xA1, 0xC8, 0x00, 0x00, 0x00, 0x00, 0x66,
+            0x90,
+        ],
+    ),
+    ("unlimitedEquip", 0x2EEECD9, &[0x8D, 0x47, 0x00]),
+];
+
+static Y8S4_TOGGLES: &[(&str, u64, &[u8])] = &[
+    (
+        "deathless",
+        0x32AF107,
+        &[0xE9, 0xF4, 0x6E, 0xAC, 0xFF, 0x90],
+    ),
+    ("unlimitedAmmo", 0x1247B00, &[0x0F, 0x1F, 0x44, 0x00, 0x00]),
+    (
+        "unlimitedAmmo",
+        0x1257F17,
+        &[0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00],
+    ),
+    (
+        "unlimitedAmmo",
+        0x12580F9,
+        &[0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00],
+    ),
+    ("unlimitedAmmo", 0x126C8D8, &[0x66, 0x90]),
+    ("unlimitedAmmo", 0x1266CC7, &[0x82]),
+    ("unlimitedAmmo", 0x1266E2B, &[0x66, 0x90]),
+    ("unlimitedAmmo", 0x127D8D0, &[0xC3]),
+    ("endMatch", 0x1427F0C, &[0x75, 0x44, 0xB1, 0x01]),
+    (
+        "unlimitedEquip",
+        0x4DE40D0,
+        &[
+            0x48, 0x8B, 0x81, 0xD8, 0x01, 0x00, 0x00, 0x42, 0x39, 0x2C, 0x30, 0x42, 0x0F, 0x4F,
+            0x2C, 0x30, 0x42, 0x39, 0x2C, 0x30,
+        ],
+    ),
+    ("unlimitedEquip", 0x3B154E9, &[0x8D, 0x47, 0x00]),
+    ("unlimitedEquip", 0x3B15580, &[0x0F, 0x1F, 0x00]),
+    ("unlimitedEquip", 0x1330F90, &[0x0F, 0x1F, 0x00]),
+    (
+        "unlimitedEquip",
+        0x2DA10FE,
+        &[
+            0x8B, 0xBD, 0xD0, 0x00, 0x00, 0x00, 0xBE, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x2DA2EBD,
+        &[
+            0x8B, 0xBB, 0xD0, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x29C5439,
+        &[
+            0x8B, 0xB5, 0xD0, 0x00, 0x00, 0x00, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x3B2AE0C,
+        &[
+            0x8B, 0xBD, 0xD0, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x580D653,
+        &[
+            0x8B, 0xBD, 0xD0, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x580F9E3,
+        &[
+            0x8B, 0xBD, 0xD0, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x34C9B3D,
+        &[
+            0x8B, 0x71, 0x78, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F, 0x1F, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0xE0B3B2,
+        &[
+            0x8B, 0x71, 0x70, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x66, 0x90,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0xE0D530,
+        &[
+            0x8B, 0x81, 0xC8, 0x00, 0x00, 0x00, 0x83, 0xA1, 0xC8, 0x00, 0x00, 0x00, 0x00, 0x66,
+            0x90,
+        ],
+    ),
+    ("unlimitedEquip", 0x1331089, &[0x8D, 0x47, 0x00]),
+];
+
+static Y9S1_TOGGLES: &[(&str, u64, &[u8])] = &[
+    ("deathless", 0x5367EAF, &[0xE9, 0x4C, 0x21, 0x7B, 0xFE]),
+    ("unlimitedAmmo", 0x65FE593, &[0x0F, 0x1F, 0x00]),
+    (
+        "unlimitedAmmo",
+        0x661B6B4,
+        &[0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00],
+    ),
+    (
+        "unlimitedAmmo",
+        0x661B728,
+        &[0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00],
+    ),
+    ("unlimitedAmmo", 0x6645DBC, &[0x0F, 0x1F, 0x00]),
+    ("unlimitedAmmo", 0x663D087, &[0x82]),
+    ("unlimitedAmmo", 0x663D12B, &[0x66, 0x90]),
+    ("unlimitedAmmo", 0x6667420, &[0xC3]),
+    ("endMatch", 0x36E91A5, &[0x75, 0x3A, 0xB0, 0x01]),
+    (
+        "unlimitedEquip",
+        0x1E61D92,
+        &[
+            0x48, 0x8B, 0x83, 0xD8, 0x01, 0x00, 0x00, 0x42, 0x39, 0x2C, 0x30, 0x42, 0x0F, 0x4F,
+            0x2C, 0x30, 0x42, 0x39, 0x2C, 0x30,
+        ],
+    ),
+    ("unlimitedEquip", 0x52970F9, &[0x8D, 0x47, 0x00]),
+    ("unlimitedEquip", 0x5297190, &[0x0F, 0x1F, 0x00]),
+    ("unlimitedEquip", 0x377D6D0, &[0x0F, 0x1F, 0x00]),
+    (
+        "unlimitedEquip",
+        0x493029,
+        &[
+            0x8B, 0xB5, 0xD0, 0x00, 0x00, 0x00, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x481E1F3,
+        &[
+            0x8B, 0xBB, 0xD0, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x52B1CB0,
+        &[
+            0x8B, 0xBE, 0xD0, 0x00, 0x00, 0x00, 0xBB, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x52B88A3,
+        &[
+            0x8B, 0xBB, 0xD0, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x66BF041,
+        &[
+            0x8B, 0xB5, 0xD0, 0x00, 0x00, 0x00, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F,
+            0x1F, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x66C119D,
+        &[
+            0x8B, 0xBB, 0xD0, 0x00, 0x00, 0x00, 0x41, 0xBF, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0,
+            0x0F, 0x1F, 0x40, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x13F83CD,
+        &[
+            0x8B, 0x71, 0x78, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x0F, 0x1F, 0x00,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x528C532,
+        &[
+            0x8B, 0x71, 0x70, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x31, 0xC0, 0x66, 0x90,
+        ],
+    ),
+    (
+        "unlimitedEquip",
+        0x528EA40,
+        &[
+            0x8B, 0x81, 0xC8, 0x00, 0x00, 0x00, 0x83, 0xA1, 0xC8, 0x00, 0x00, 0x00, 0x00, 0x66,
+            0x90,
+        ],
+    ),
+    ("unlimitedEquip", 0x377D7C9, &[0x8D, 0x47, 0x00]),
+    ("unlimitedEquip", 0x5D519DA, &[0x66, 0x90]),
+    ("unlimitedEquip", 0x5D5356C, &[0x66, 0x90]),
+];
+
+static Y9S2_TOGGLES: &[(&str, u64, &[u8])] = &[
+    (
+        "deathless",
+        0x520E13A,
+        &[
+            0x48, 0x89, 0xF1, 0xE8, 0x2E, 0xB9, 0x00, 0x00, 0x84, 0xC0, 0x49, 0xBA, 0x00, 0x00,
+            0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x0F, 0x85, 0xAC, 0x3E, 0x88, 0x00, 0x0F, 0x1F,
+            0x40, 0x00,
+        ],
+    ),
+    ("unlimitedAmmo", 0x4C11050, &[0x0F, 0x1F, 0x00]),
+    (
+        "unlimitedAmmo",
+        0x4BFC6B4,
+        &[0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00],
+    ),
+    (
+        "unlimitedAmmo",
+        0x4BFC728,
+        &[0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00],
+    ),
+    ("unlimitedAmmo", 0x4C2414B, &[0x66, 0x90]),
+    ("unlimitedAmmo", 0x4C1CE36, &[0x82]),
+    ("unlimitedAmmo", 0x4C1D34F, &[0x0F, 0x1F, 0x00]),
+    ("unlimitedAmmo", 0x50E7F60, &[0xC3]),
+    ("endMatch", 0x529EAE8, &[0xB1, 0x01]),
 ];
 
 fn shadow_toggles(build: &str) -> &'static [(&'static str, u64, &'static [u8])] {
@@ -1596,17 +2106,21 @@ fn shadow_toggles(build: &str) -> &'static [(&'static str, u64, &'static [u8])] 
         "Y7S4_50497889" => Y7S4_TOGGLES,
         "Y8S1_55217154" => Y8S1_TOGGLES,
         "Y8S2_58222837" => Y8S2_TOGGLES,
+        "Y8S3_62486471" => Y8S3_TOGGLES,
+        "Y8S4_67466841" => Y8S4_TOGGLES,
+        "Y9S1_69866602" => Y9S1_TOGGLES,
+        "Y9S2_72730050" => Y9S2_TOGGLES,
         _ => &[],
     }
 }
 
-const Y5_MIN_PHASE_MS: u32 = 15000;
+const MIN_PHASE_MS: u32 = 15000;
 
-fn y5_plain(v: u32) -> u32 {
+fn plain_u32(v: u32) -> u32 {
     v
 }
 
-fn y5_plain_ptr(q: u64) -> u64 {
+fn plain_u64(q: u64) -> u64 {
     q
 }
 
@@ -2066,14 +2580,6 @@ fn y7s4_enc_item(v: u64) -> u64 {
     v ^ 0xCFA094E994ACCCBE
 }
 
-fn y8s1_dec_gm(x: u64) -> u64 {
-    if x == 0 {
-        0
-    } else {
-        x.wrapping_add(0x10)
-    }
-}
-
 fn y8s1_dec_state(x: u32) -> u32 {
     x.wrapping_sub(0x6E)
         .rotate_left(23)
@@ -2206,157 +2712,1870 @@ fn y8s2_enc_item(v: u64) -> u64 {
         .rotate_left(21)
 }
 
-struct Y5Phase {
+fn shuffle_bytes(v: u64, p: [usize; 8]) -> u64 {
+    let b = v.to_le_bytes();
+    u64::from_le_bytes([
+        b[p[0]], b[p[1]], b[p[2]], b[p[3]], b[p[4]], b[p[5]], b[p[6]], b[p[7]],
+    ])
+}
+
+fn y8s3_dec_state(x: u32) -> u32 {
+    match (x.rotate_left(7) ^ 0x7B).wrapping_sub(0x73) {
+        s @ 6..=8 => s - 1,
+        s => s,
+    }
+}
+
+fn y8s3_enc_handle_uid(uid: u64) -> u64 {
+    (shuffle_bytes(uid, [1, 2, 7, 6, 3, 0, 5, 4]) ^ 0x5ADD222034B277B4).wrapping_add(0x77)
+}
+
+fn y8s3_dec_settings(q: u64) -> u64 {
+    shuffle_bytes(q, [2, 7, 6, 5, 1, 0, 4, 3]).rotate_left(10) ^ 0x4C3D17E661C9DDB5
+}
+
+fn y8s3_dec_settings_count(q: u64) -> u64 {
+    shuffle_bytes(q, [2, 7, 6, 5, 1, 0, 4, 3]).rotate_left(10) ^ 0x4ED7216EB1D75940
+}
+
+fn y8s3_enc_end(v: u32) -> u32 {
+    v.rotate_left(30).wrapping_add(0xDC6D2AF7).rotate_left(7)
+}
+
+fn y8s3_dec_end(x: u32) -> u32 {
+    x.rotate_left(25).wrapping_add(0x2392D509).rotate_left(2)
+}
+
+fn y8s3_enc_duration(v: u32) -> u32 {
+    let b = v.to_le_bytes();
+    u32::from_le_bytes([b[0], b[2], b[3], b[1]]).wrapping_add(0xD54BD509)
+}
+
+fn y8s3_dec_duration(x: u32) -> u32 {
+    let b = x.wrapping_add(0x2AB42AF7).to_le_bytes();
+    u32::from_le_bytes([b[0], b[3], b[1], b[2]])
+}
+
+fn y8s3_dec_list(q: u64) -> u64 {
+    shuffle_bytes(q ^ 0xE56135039E21E2CB, [6, 0, 1, 4, 2, 7, 5, 3]).rotate_left(20)
+}
+
+fn y8s3_dec_count(q: u64) -> u64 {
+    shuffle_bytes(q ^ 0x281726E51D661869, [6, 0, 1, 4, 2, 7, 5, 3]).rotate_left(20)
+}
+
+fn y8s3_dec_handle(q: u64) -> u64 {
+    (q ^ 0xD051F3BC2F545794).rotate_left(19) ^ 0xC263D7F268767A6C
+}
+
+fn y8s3_dec_loadout(q: u64) -> u64 {
+    shuffle_bytes(
+        (q ^ 0xCDD38B44F8D4E59E).rotate_left(17),
+        [1, 5, 7, 4, 0, 2, 3, 6],
+    )
+}
+
+fn y8s3_dec_slot(x: u64) -> u64 {
+    x.wrapping_sub(0x2B).rotate_left(40) ^ 0x0CE65B83A8A2BCFC
+}
+
+fn y8s3_enc_item(v: u64) -> u64 {
+    (v ^ 0xF622D2E61F51A35B).wrapping_add(0x78).rotate_left(45)
+}
+
+fn y8s4_dec_state(x: u32) -> u32 {
+    let b = x.to_le_bytes();
+    match u32::from_le_bytes([b[3], b[1], b[0], b[2]]).wrapping_sub(0x73) ^ 0xA38AE78A {
+        s @ 6..=8 => s - 1,
+        s => s,
+    }
+}
+
+fn y8s4_enc_handle_uid(uid: u64) -> u64 {
+    uid.wrapping_add(0x51)
+}
+
+fn y8s4_enc_object_uid(uid: u64) -> u64 {
+    uid.rotate_left(16) ^ 0xFA4E1F18A6AD1F68
+}
+
+fn y8s4_dec_settings(q: u64) -> u64 {
+    q.wrapping_sub(0x2F)
+}
+
+fn y8s4_dec_settings_count(q: u64) -> u64 {
+    q.wrapping_add(0x39902BAB62789411)
+}
+
+fn y8s4_enc_end(v: u32) -> u32 {
+    (v ^ 0xAEA8A80C).swap_bytes().rotate_right(16)
+}
+
+fn y8s4_dec_end(x: u32) -> u32 {
+    x.swap_bytes().rotate_right(16) ^ 0xAEA8A80C
+}
+
+fn y8s4_enc_duration(v: u32) -> u32 {
+    let key = image_key() as u32;
+    (v ^ key).rotate_left(30) ^ key
+}
+
+fn y8s4_dec_duration(x: u32) -> u32 {
+    let key = image_key() as u32;
+    (x ^ key).rotate_left(2) ^ key
+}
+
+fn y8s4_dec_list(q: u64) -> u64 {
+    q.rotate_left(10).wrapping_add(image_key()) ^ 0x8906AF93079A1E13
+}
+
+fn y8s4_dec_count(q: u64) -> u64 {
+    q.rotate_left(10)
+        .wrapping_add(image_key())
+        .wrapping_sub(0x4EDE4C71EEDB5A5D)
+        ^ 0x09ED303757E1C43E
+}
+
+fn y8s4_dec_handle(q: u64) -> u64 {
+    shuffle_bytes(q.wrapping_add(0x81E5F4A7807F6400), [1, 4, 3, 5, 2, 7, 6, 0]) ^ 0x2653895794D9A795
+}
+
+fn y8s4_dec_loadout(q: u64) -> u64 {
+    shuffle_bytes(
+        shuffle_bytes(q, [1, 5, 6, 3, 2, 4, 0, 7]).rotate_left(5),
+        [3, 5, 6, 1, 2, 0, 4, 7],
+    )
+}
+
+fn y8s4_dec_slot(x: u64) -> u64 {
+    shuffle_bytes(x ^ 0x6C6149FB2C5E2202, [3, 6, 2, 7, 0, 1, 5, 4]).wrapping_sub(0x22)
+}
+
+fn y8s4_enc_item(v: u64) -> u64 {
+    (v.wrapping_sub(image_key()) ^ 0xF41870301A237006).wrapping_add(0x3D)
+}
+
+fn y8s4_countdown(key: u64) -> u8 {
+    0x11u8.wrapping_sub(key as u8)
+}
+
+fn y8s4_watermark(key: u64) -> [u8; 2] {
+    let k = key as u8;
+    [1u8.wrapping_sub(k), k.wrapping_neg()]
+}
+
+fn y9s1_dec_state(x: u32) -> u32 {
+    let s = match (image_key() ^ 0x2A) % 6 {
+        0 => (x ^ 0x6D).wrapping_sub(0x5C).rotate_left(5),
+        1 => (x ^ 0x6D).rotate_left(5).wrapping_sub(0x5C),
+        2 => x.wrapping_sub(0x5C).rotate_left(5) ^ 0x6D,
+        3 => (x.wrapping_sub(0x5C) ^ 0x6D).rotate_left(5),
+        4 => (x.rotate_left(5) ^ 0x6D).wrapping_sub(0x5C),
+        _ => x.rotate_left(5).wrapping_sub(0x5C) ^ 0x6D,
+    };
+    match s {
+        s @ 6..=8 => s - 1,
+        s => s,
+    }
+}
+
+fn y9s1_dec_match_index(b: u8) -> u8 {
+    b ^ 0x96
+}
+
+fn y9s1_dec_match_data(q: u64) -> u64 {
+    shuffle_bytes(q, [0, 3, 6, 2, 1, 7, 5, 4]).rotate_right(11) ^ 0xBB508334FB49A92A
+}
+
+fn y9s1_dec_match_count(q: u64) -> u64 {
+    shuffle_bytes(q, [0, 3, 6, 2, 1, 7, 5, 4]).rotate_right(11) ^ 0x5071489510EEE0DA
+}
+
+fn y9s1_enc_mode(h: u64) -> u64 {
+    const KEY: u64 = 0x432AA8A1228480B3;
+    let base = image_key() << 33;
+    match 0x1C0E18DBFF21E75C_u64.wrapping_sub(image_key()) % 6 {
+        0 => (h ^ KEY).rotate_right(22).wrapping_sub(base),
+        1 => (h.rotate_right(22) ^ KEY).wrapping_sub(base),
+        2 => (h.wrapping_sub(base) ^ KEY).rotate_right(22),
+        3 => (h ^ KEY).wrapping_sub(base).rotate_right(22),
+        4 => h.rotate_right(22).wrapping_sub(base) ^ KEY,
+        _ => h.wrapping_sub(base).rotate_right(22) ^ KEY,
+    }
+}
+
+fn y9s1_enc_map(h: u64) -> u64 {
+    h.wrapping_add(0x58)
+}
+
+fn y9s1_enc_playlist(uid: u64) -> u64 {
+    (shuffle_bytes(uid, [1, 6, 3, 5, 7, 4, 0, 2]) ^ 0xD9612151BA343B04).wrapping_add(0x66)
+}
+
+fn y9s1_dec_match_tod(q: u64) -> u64 {
+    q.wrapping_sub(0x53)
+}
+
+fn y9s1_dec_match_settings(q: u64) -> u64 {
+    const P: [usize; 8] = [1, 5, 3, 0, 7, 4, 2, 6];
+    match (image_key() + 0xB49CD5CA) % 6 {
+        0 => shuffle_bytes(q.wrapping_sub(0x2D), P).wrapping_sub(0x64),
+        1 | 4 => shuffle_bytes(q.wrapping_sub(0x91), P),
+        2 | 3 => shuffle_bytes(q, P).wrapping_sub(0x91),
+        _ => shuffle_bytes(q.wrapping_sub(0x64), P).wrapping_sub(0x2D),
+    }
+}
+
+fn y9s1_dec_match_settings_count(q: u64) -> u64 {
+    const P: [usize; 8] = [1, 5, 3, 0, 7, 4, 2, 6];
+    match (image_key() + 0xB49CD5CA) % 6 {
+        0 => shuffle_bytes(q.wrapping_add(0xFF69F333127EC532), P).wrapping_add(0x56F5E65E89C88417),
+        1 | 4 => shuffle_bytes(q.wrapping_add(0x565FD9919C474949), P),
+        2 | 3 => shuffle_bytes(q, P).wrapping_add(0x565FD9919C474949),
+        _ => shuffle_bytes(q.wrapping_add(0x56F5E65E89C88417), P).wrapping_add(0xFF69F333127EC532),
+    }
+}
+
+fn y9s1_enc_match_settings_count(v: u64) -> u64 {
+    const P: [usize; 8] = [3, 0, 6, 2, 5, 1, 7, 4];
+    match (image_key() + 0xB49CD5CA) % 6 {
+        0 => shuffle_bytes(v.wrapping_sub(0x56F5E65E89C88417), P).wrapping_sub(0xFF69F333127EC532),
+        1 | 4 => shuffle_bytes(v, P).wrapping_sub(0x565FD9919C474949),
+        2 | 3 => shuffle_bytes(v.wrapping_sub(0x565FD9919C474949), P),
+        _ => shuffle_bytes(v.wrapping_sub(0xFF69F333127EC532), P).wrapping_sub(0x56F5E65E89C88417),
+    }
+}
+
+fn y9s1_enc_handle_uid(uid: u64) -> u64 {
+    (uid ^ 0x1CBED4498BB197CF).wrapping_sub(image_key() << 33) ^ 0x2E
+}
+
+fn y9s1_enc_object_uid(uid: u64) -> u64 {
+    uid.wrapping_add(0x4C)
+}
+
+fn y9s1_dec_settings(q: u64) -> u64 {
+    let key = image_key();
+    let high = key << 33;
+    match (0x04B642D1E34B5FF0 ^ key) % 6 {
+        0 => q.wrapping_sub(key).rotate_left(43).wrapping_add(high),
+        1 | 4 => q.wrapping_sub(key).wrapping_add(high).rotate_left(43),
+        2 | 3 => q.rotate_left(43).wrapping_add(high).wrapping_sub(key),
+        _ => q.wrapping_add(high).rotate_left(43).wrapping_sub(key),
+    }
+}
+
+fn y9s1_dec_settings_count(q: u64) -> u64 {
+    let key = image_key();
+    let high = key << 33;
+    match (0x04B642D1E34B5FF0 ^ key) % 6 {
+        0 => q
+            .wrapping_add(0xEC05C8D37E1F3664)
+            .wrapping_sub(key)
+            .rotate_left(43)
+            .wrapping_add(high)
+            .wrapping_add(0xA5EDB65987A04533),
+        1 | 4 => q
+            .wrapping_add(0x91F37F2D05BF7B97)
+            .wrapping_add(high)
+            .wrapping_sub(key)
+            .rotate_left(43),
+        2 | 3 => q
+            .rotate_left(43)
+            .wrapping_add(0x91F37F2D05BF7B97)
+            .wrapping_add(high)
+            .wrapping_sub(key),
+        _ => q
+            .wrapping_add(high)
+            .wrapping_add(0xA5EDB65987A04533)
+            .rotate_left(43)
+            .wrapping_add(0xEC05C8D37E1F3664)
+            .wrapping_sub(key),
+    }
+}
+
+fn y9s1_countdown(key: u64) -> u8 {
+    [0x7E, 0xBA, 0x4B, 0xAB, 0xB4, 0x87][((0x66788E14E052ADB8 ^ key) % 6) as usize]
+}
+
+fn y9s1_unfrozen(key: u64) -> u32 {
+    key as u32 ^ 0x3FEFE9B2
+}
+
+fn y9s1_enc_end(v: u32) -> u32 {
+    let b = v.to_le_bytes();
+    (u32::from_le_bytes([b[0], b[2], b[1], b[3]]) ^ 0x5D4E6117).wrapping_sub(image_key() as u32)
+}
+
+fn y9s1_dec_end(x: u32) -> u32 {
+    let b = (x.wrapping_add(image_key() as u32) ^ 0x5D4E6117).to_le_bytes();
+    u32::from_le_bytes([b[0], b[2], b[1], b[3]])
+}
+
+fn y9s1_enc_duration(v: u32) -> u32 {
+    let key = image_key();
+    let k = key as u32;
+    match 0x086A0851D8CE4398u64.wrapping_add(key) % 6 {
+        0 => v.rotate_left(9).wrapping_sub(k).rotate_left(19),
+        1 | 4 => v.wrapping_sub(k).rotate_left(28),
+        2 | 3 => v.rotate_left(28).wrapping_sub(k),
+        _ => v.rotate_left(19).wrapping_sub(k).rotate_left(9),
+    }
+}
+
+fn y9s1_dec_duration(x: u32) -> u32 {
+    let key = image_key();
+    let k = key as u32;
+    match 0x086A0851D8CE4398u64.wrapping_add(key) % 6 {
+        0 => x.rotate_left(13).wrapping_add(k).rotate_left(23),
+        1 | 4 => x.rotate_left(4).wrapping_add(k),
+        2 | 3 => x.wrapping_add(k).rotate_left(4),
+        _ => x.rotate_left(23).wrapping_add(k).rotate_left(13),
+    }
+}
+
+fn y9s1_dec_list(q: u64) -> u64 {
+    let key = image_key();
+    match 0x79A32FB175E8BB56u64.wrapping_sub(key) % 6 {
+        1 | 4 => q.wrapping_add(key << 34).rotate_left(12),
+        2 | 3 => q.rotate_left(12).wrapping_add(key << 34),
+        _ => q
+            .wrapping_add(key << 33)
+            .rotate_left(12)
+            .wrapping_add(key << 33),
+    }
+}
+
+fn y9s1_dec_count(q: u64) -> u64 {
+    let key = image_key();
+    match 0x79A32FB175E8BB56u64.wrapping_sub(key) % 6 {
+        0 => q
+            .wrapping_add(key << 33)
+            .wrapping_add(0x7DEA1812B9854EB0)
+            .rotate_left(12)
+            .wrapping_add(key << 33)
+            .wrapping_add(0x3D81C43A92E41B3B),
+        1 | 4 => q
+            .wrapping_add(key << 34)
+            .wrapping_add(0xBB6BDC4D4C6969EB)
+            .rotate_left(12),
+        2 | 3 => q
+            .rotate_left(12)
+            .wrapping_add(key << 34)
+            .wrapping_add(0xBB6BDC4D4C6969EB),
+        _ => q
+            .wrapping_add(key << 33)
+            .wrapping_add(0x3D81C43A92E41B3B)
+            .rotate_left(12)
+            .wrapping_add(key << 33)
+            .wrapping_add(0x7DEA1812B9854EB0),
+    }
+}
+
+fn y9s1_dec_handle(q: u64) -> u64 {
+    q ^ (image_key() << 33) ^ 0x767DAF54C4721A3D
+}
+
+fn y9s1_dec_loadout(q: u64) -> u64 {
+    const P: [usize; 8] = [6, 3, 0, 1, 2, 7, 5, 4];
+    const X: u64 = 0x3D3077367397BE10;
+    let key = image_key();
+    match 0x179450143FA7F5F0u64.wrapping_sub(key) % 6 {
+        0 => shuffle_bytes((q ^ X).wrapping_sub(key), P),
+        1 => shuffle_bytes(q ^ X, P).wrapping_sub(key),
+        2 => shuffle_bytes(q.wrapping_sub(key), P) ^ X,
+        3 => shuffle_bytes(q.wrapping_sub(key) ^ X, P),
+        4 => (shuffle_bytes(q, P) ^ X).wrapping_sub(key),
+        _ => shuffle_bytes(q, P).wrapping_sub(key) ^ X,
+    }
+}
+
+fn y9s1_dec_slot(x: u64) -> u64 {
+    const P: [usize; 8] = [2, 6, 5, 0, 1, 3, 4, 7];
+    const X: u64 = 0xC96A5A187A319B3E;
+    match 0xC96A5A18CBD4F122u64.wrapping_add(image_key()) % 6 {
+        0 => shuffle_bytes(x, P).rotate_left(1) ^ X,
+        1 => (shuffle_bytes(x, P) ^ X).rotate_left(1),
+        2 => shuffle_bytes(x.rotate_left(1) ^ X, P),
+        3 => shuffle_bytes(x.rotate_left(1), P) ^ X,
+        4 => shuffle_bytes(x ^ X, P).rotate_left(1),
+        _ => shuffle_bytes((x ^ X).rotate_left(1), P),
+    }
+}
+
+fn y9s1_enc_item(v: u64) -> u64 {
+    const P: [usize; 8] = [2, 4, 3, 0, 1, 5, 6, 7];
+    const X: u64 = 0x6004B93971212784;
+    match (0x6004B939A9DBB76Eu64 ^ image_key()) % 6 {
+        0 => (shuffle_bytes(v, P) ^ X).rotate_left(8),
+        1 => shuffle_bytes(v ^ X, P).rotate_left(8),
+        2 => shuffle_bytes(v.rotate_left(8), P) ^ X,
+        3 => shuffle_bytes(v, P).rotate_left(8) ^ X,
+        4 => shuffle_bytes((v ^ X).rotate_left(8), P),
+        _ => shuffle_bytes(v.rotate_left(8) ^ X, P),
+    }
+}
+
+fn y9s1_watermark(key: u64) -> [u8; 2] {
+    let k = key as u8;
+    if key & 1 == 1 {
+        [k.wrapping_add(0x80), k]
+    } else {
+        [k.wrapping_add(1).rotate_right(1), k.rotate_right(1)]
+    }
+}
+
+fn y9s2_dec_state(x: u32) -> u32 {
+    let s = match !image_key() & 3 {
+        0 => (x ^ 0x510ED45B).rotate_left(28) ^ 0x73C51DA8,
+        1 => (x ^ 0x22CBC9F3).rotate_left(28),
+        _ => x.rotate_left(28) ^ 0x22CBC9F3,
+    };
+    match s {
+        s @ 6..=8 => s - 1,
+        s => s,
+    }
+}
+
+fn y9s2_dec_match_index(b: u8) -> u8 {
+    b.wrapping_sub(0x4B) ^ 4
+}
+
+fn y9s2_dec_match_data(q: u64) -> u64 {
+    let key = image_key();
+    if key & 1 == 0 {
+        q.wrapping_sub(key)
+            .rotate_left(48)
+            .wrapping_add(0xB24B0ADA19084558)
+    } else {
+        q.wrapping_sub(key)
+            .wrapping_add(0xB24B0ADA19084558)
+            .rotate_left(48)
+    }
+}
+
+fn y9s2_dec_match_count(q: u64) -> u64 {
+    let key = image_key();
+    if key & 1 == 0 {
+        q.wrapping_sub(key)
+            .wrapping_add(0x90193C73ED6ADB25)
+            .rotate_left(48)
+            .wrapping_add(0xEB5CA2460323C8AA)
+    } else {
+        q.wrapping_sub(key)
+            .wrapping_add(0x7B75DEB9F08EA3CF)
+            .rotate_left(48)
+    }
+}
+
+fn y9s2_enc_playlist(uid: u64) -> u64 {
+    shuffle_bytes(
+        uid.wrapping_sub(image_key() << 33),
+        [2, 5, 4, 3, 7, 1, 6, 0],
+    )
+}
+
+fn y9s2_enc_mode(h: u64) -> u64 {
+    const KEY: u64 = 0x72B8D855BCF70F49;
+    let key = image_key();
+    match 0x3B43AFAF2207D0D2_u64.wrapping_sub(key) % 3 {
+        0 => (h ^ KEY).wrapping_add(key).rotate_left(35),
+        1 => (h.wrapping_add(key) ^ KEY).rotate_left(35),
+        _ => (h.rotate_left(35) ^ KEY).wrapping_add(key),
+    }
+}
+
+fn y9s2_enc_map(h: u64) -> u64 {
+    const A: u64 = 0x997A438E61922FAB;
+    const B: u64 = 0x6722B80A04C096F3;
+    match image_key().wrapping_add(0x01A7047B9AAD46AA) % 5 {
+        0 => (h ^ B).rotate_left(12).wrapping_sub(A),
+        1 => (h.rotate_left(12) ^ B).wrapping_sub(A),
+        2 => (h.wrapping_sub(A) ^ B).rotate_left(12),
+        3 => (h ^ B).wrapping_sub(A).rotate_left(12),
+        _ => h.rotate_left(12).wrapping_sub(A) ^ B,
+    }
+}
+
+fn y9s2_dec_match_tod(q: u64) -> u64 {
+    const P: u64 = 0xC32EB3E79DCDB02E;
+    let key = image_key();
+    let high = key << 33;
+    match 0xD98F382F9950F1E4_u64.wrapping_add(key) % 5 {
+        0 => q.wrapping_add(high).rotate_left(22).wrapping_add(P),
+        1 | 4 => q.wrapping_add(high).wrapping_add(P).rotate_left(22),
+        _ => q.rotate_left(22).wrapping_add(high).wrapping_add(P),
+    }
+}
+
+fn y9s2_dec_match_settings(q: u64) -> u64 {
+    const S: [usize; 8] = [3, 2, 7, 6, 4, 5, 0, 1];
+    const X: u64 = 0x47C294D6F2502EA1;
+    const A: u64 = 0xB8D54BBE97F7FA69;
+    match 0x00E820971716EB48_u64.wrapping_sub(image_key()) % 3 {
+        0 => (shuffle_bytes(q, S) ^ X).wrapping_add(A),
+        1 => shuffle_bytes(q, S).wrapping_add(A) ^ X,
+        _ => shuffle_bytes((q ^ X).wrapping_add(A), S),
+    }
+}
+
+fn y9s2_dec_match_settings_count(q: u64) -> u64 {
+    const S: [usize; 8] = [3, 2, 7, 6, 4, 5, 0, 1];
+    const X: u64 = 0x40B523C7AE08BD14;
+    const A: u64 = 0xB3092B42D7F16326;
+    match 0x00E820971716EB48_u64.wrapping_sub(image_key()) % 3 {
+        0 => (shuffle_bytes(q, S) ^ X).wrapping_add(A),
+        1 => shuffle_bytes(q, S).wrapping_add(A) ^ X,
+        _ => shuffle_bytes((q ^ X).wrapping_add(A), S),
+    }
+}
+
+fn y9s2_enc_match_settings_count(v: u64) -> u64 {
+    const S: [usize; 8] = [6, 7, 1, 0, 4, 5, 3, 2];
+    const X: u64 = 0x40B523C7AE08BD14;
+    const A: u64 = 0xB3092B42D7F16326;
+    match 0x00E820971716EB48_u64.wrapping_sub(image_key()) % 3 {
+        0 => shuffle_bytes(v.wrapping_sub(A) ^ X, S),
+        1 => shuffle_bytes((v ^ X).wrapping_sub(A), S),
+        _ => shuffle_bytes(v, S).wrapping_sub(A) ^ X,
+    }
+}
+
+fn y9s2_enc_handle_uid(uid: u64) -> u64 {
+    shuffle_bytes(uid, [2, 1, 3, 4, 7, 6, 5, 0])
+}
+
+fn y9s2_enc_object_uid(uid: u64) -> u64 {
+    const P: [usize; 8] = [4, 5, 3, 1, 0, 7, 2, 6];
+    const C: u64 = 0x35F4442EA3C85D95;
+    let key = image_key();
+    match 0x457E356A3366571C_u64.wrapping_add(key) % 5 {
+        0 | 3 => shuffle_bytes(uid, P).wrapping_add(C).wrapping_add(key),
+        1 => shuffle_bytes(uid.wrapping_add(key), P).wrapping_add(C),
+        2 => shuffle_bytes(uid.wrapping_add(C), P).wrapping_add(key),
+        _ => shuffle_bytes(uid.wrapping_add(key).wrapping_add(C), P),
+    }
+}
+
+fn y9s2_dec_settings(q: u64) -> u64 {
+    const P: [usize; 8] = [3, 4, 2, 0, 5, 1, 6, 7];
+    const C: u64 = 0xC48CB2896FA84E13;
+    let key = image_key();
+    let ks = key << 33;
+    match (key & 3) ^ 1 {
+        0 => shuffle_bytes(q, P).wrapping_add(C) ^ ks,
+        1 => (shuffle_bytes(q, P) ^ ks).wrapping_add(C),
+        2 => shuffle_bytes(q.wrapping_add(C) ^ ks, P),
+        _ => shuffle_bytes(q.wrapping_add(C), P) ^ ks,
+    }
+}
+
+fn y9s2_dec_settings_count(q: u64) -> u64 {
+    const P: [usize; 8] = [3, 4, 2, 0, 5, 1, 6, 7];
+    const C: u64 = 0xF5B3D4328B8B38C3;
+    let key = image_key();
+    let ks = (key << 33).wrapping_add(0x1427BD32086A1F9F);
+    match (key & 3) ^ 1 {
+        0 => shuffle_bytes(q, P).wrapping_add(C) ^ ks,
+        1 => (shuffle_bytes(q, P) ^ ks).wrapping_add(C),
+        2 => shuffle_bytes(q.wrapping_add(C) ^ ks, P),
+        _ => shuffle_bytes(q.wrapping_add(C), P) ^ ks,
+    }
+}
+
+fn y9s2_live(key: u64) -> u32 {
+    (key as u32).wrapping_sub(0x0CE651B7)
+}
+
+fn y9s2_countdown(key: u64) -> u8 {
+    let k = key as u8;
+    match 0x83BCEB0EF01D1FFAu64.wrapping_sub(key) % 3 {
+        2 => 0,
+        _ => k.wrapping_neg() ^ k,
+    }
+}
+
+fn y9s2_match_over(key: u64) -> u8 {
+    [0x89, 0xB2, 0xC6, 0x35, 0x03][(0x17883E3055DF1BF0u64.wrapping_add(key) % 5) as usize]
+}
+
+fn y9s2_unfrozen(key: u64) -> u32 {
+    const X: u32 = 0x692A8140;
+    let k = key as u32;
+    match !key & 3 {
+        0 => k.wrapping_neg() ^ X,
+        1 => k.wrapping_neg().rotate_left(24) ^ X,
+        2 => X.rotate_left(24).wrapping_sub(k),
+        _ => X.wrapping_sub(k),
+    }
+}
+
+fn y9s2_display(key: u64) -> [u8; 2] {
+    let k = key as u8;
+    if key & 1 == 0 {
+        [
+            (k ^ 1).wrapping_add(0xA8) ^ 0xD9,
+            k.wrapping_add(0xA8) ^ 0xD9,
+        ]
+    } else {
+        [k ^ 0x70, k ^ 0x71]
+    }
+}
+
+fn y9s2_enc_end(v: u32) -> u32 {
+    let mix = |x: u32| {
+        let b = x.to_le_bytes();
+        u32::from_le_bytes([b[0], b[3], b[1], b[2]])
+    };
+    match 0xE64A931BEBB3B8D4u64.wrapping_add(image_key()) % 5 {
+        0 => mix(v).wrapping_add(0x88AD8314) ^ 0x4D,
+        1 => mix(v.wrapping_add(0x88AD8314)) ^ 0x4D,
+        4 => mix(v.wrapping_add(0x88AD8314) ^ 0x4D),
+        _ => (mix(v) ^ 0x4D).wrapping_add(0x88AD8314),
+    }
+}
+
+fn y9s2_dec_end(x: u32) -> u32 {
+    let unmix = |x: u32| {
+        let b = x.to_le_bytes();
+        u32::from_le_bytes([b[0], b[2], b[3], b[1]])
+    };
+    match 0xE64A931BEBB3B8D4u64.wrapping_add(image_key()) % 5 {
+        0 => unmix((x ^ 0x4D).wrapping_sub(0x88AD8314)),
+        1 => unmix(x ^ 0x4D).wrapping_sub(0x88AD8314),
+        4 => (unmix(x) ^ 0x4D).wrapping_sub(0x88AD8314),
+        _ => unmix(x.wrapping_sub(0x88AD8314) ^ 0x4D),
+    }
+}
+
+fn y9s2_enc_duration(v: u32) -> u32 {
+    (v.rotate_left(8) ^ 0x27).rotate_left(2)
+}
+
+fn y9s2_dec_duration(x: u32) -> u32 {
+    (x.rotate_left(30) ^ 0x27).rotate_left(24)
+}
+
+fn y9s2_dec_list(q: u64) -> u64 {
+    const A: u64 = 0xC83F7D5E5EA298A6;
+    const KA: u64 = 0x627706FEA2783C4F;
+    const KB: u64 = 0xD75773E824A09958;
+    match (image_key() & 3) ^ 1 {
+        0 => (q ^ KB).wrapping_sub(A) ^ KA,
+        1 => (q ^ KB ^ KA).wrapping_sub(A),
+        _ => q.wrapping_sub(A) ^ KA ^ KB,
+    }
+}
+
+fn y9s2_dec_count(q: u64) -> u64 {
+    const A: u64 = 0x61212BFA5766DEDC;
+    const KA: u64 = 0x2E74056894A5FEBC;
+    const KB: u64 = 0x1ECA992BF0908650;
+    match (image_key() & 3) ^ 1 {
+        0 => (q ^ KB).wrapping_sub(A) ^ KA,
+        1 => (q ^ KB ^ KA).wrapping_sub(A),
+        _ => q.wrapping_sub(A) ^ KA ^ KB,
+    }
+}
+
+fn y9s2_dec_handle(q: u64) -> u64 {
+    const C: u64 = 0xA43F7333AE432FA0;
+    match 0xA43F7333AE432F8Fu64.wrapping_sub(image_key()) % 6 {
+        0 => q.rotate_left(29).wrapping_add(C).rotate_left(52),
+        1 | 4 => q.rotate_left(17).wrapping_add(C),
+        2 | 3 => q.wrapping_add(C).rotate_left(17),
+        _ => q.rotate_left(52).wrapping_add(C).rotate_left(29),
+    }
+}
+
+fn y9s2_dec_loadout(q: u64) -> u64 {
+    const P: [usize; 8] = [5, 1, 7, 2, 3, 4, 0, 6];
+    if image_key() & 1 == 0 {
+        shuffle_bytes(q.rotate_left(33), P)
+    } else {
+        shuffle_bytes(q, P).rotate_left(33)
+    }
+}
+
+fn y9s2_dec_slot(x: u64) -> u64 {
+    const C: u64 = 0xF12B350ACEAF6746;
+    let key = image_key();
+    match !key & 3 {
+        0 => (x.wrapping_add(0x15AC3822EE841AA6) ^ key).wrapping_add(0xDB7EFCE7E02B4CA0),
+        1 => x.wrapping_add(C) ^ key,
+        _ => (x ^ key).wrapping_add(C),
+    }
+}
+
+fn y9s2_enc_item(v: u64) -> u64 {
+    const C: u64 = 0xC88D39277A4C921D;
+    let key = image_key();
+    let high = key << 33;
+    match 0xFE1BE976624FBF4Eu64.wrapping_add(key) % 5 {
+        0 => (v.wrapping_add(C) ^ 0x7E).wrapping_add(high),
+        1 | 4 => (v ^ 0x7E).wrapping_add(C).wrapping_add(high),
+        _ => v.wrapping_add(C).wrapping_add(high) ^ 0x7E,
+    }
+}
+
+fn y9s2_watermark(key: u64) -> [u8; 2] {
+    let k = key as u8;
+    let off = match (key & 3) ^ 1 {
+        0 => k.rotate_left(5),
+        1 => k.rotate_left(6),
+        _ => k,
+    };
+    [off, off]
+}
+
+fn y9s3_dec_state(x: u32) -> u32 {
+    const X: u32 = 0x9EA34EB5;
+    let swap = |v: u32| {
+        let b = v.to_le_bytes();
+        u32::from_le_bytes([b[0], b[2], b[1], b[3]])
+    };
+    let s = match 0xACB9D87946E15444_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(image_key())
+        % 3
+    {
+        0 => swap(x ^ X).rotate_left(26),
+        1 => swap((x ^ X).rotate_left(26)),
+        _ => swap(x).rotate_left(26) ^ X,
+    };
+    match s {
+        s @ 6..=8 => s - 1,
+        s => s,
+    }
+}
+
+fn y9s3_dec_match_index(b: u8) -> u8 {
+    b.wrapping_sub(0x0C)
+}
+
+fn y9s3_dec_match_data(q: u64) -> u64 {
+    const R: u64 = 0x2AF3082A20A38C69;
+    const D: u64 = 0x0CD9C4DF731EFA1B;
+    match 0x262ACCF553BD7666_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(image_key())
+        % 3
+    {
+        0 => (q ^ R).wrapping_add(D).rotate_left(44),
+        1 => (q ^ R).rotate_left(44).wrapping_add(D),
+        _ => q.wrapping_add(D).rotate_left(44) ^ R,
+    }
+}
+
+fn y9s3_dec_match_count(q: u64) -> u64 {
+    const R: u64 = 0x2002944F32353FDF;
+    const D: u64 = 0xC43C194C51FE9020;
+    match 0x262ACCF553BD7666_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(image_key())
+        % 3
+    {
+        0 => (q ^ R).wrapping_add(D).rotate_left(44),
+        1 => (q ^ R).rotate_left(44).wrapping_add(D),
+        _ => q.wrapping_add(D).rotate_left(44) ^ R,
+    }
+}
+
+fn y9s3_enc_playlist(uid: u64) -> u64 {
+    const X: u64 = 0x4FEC43E2A3738E5D;
+    const A: u64 = 0x8F2EAA554A08268B;
+    if image_key().wrapping_add(peb_key() ^ 0xC0C2E9B7E97BA926) & 1 == 0 {
+        (uid.wrapping_sub(A).wrapping_sub(0x78) ^ X).wrapping_add(0x78)
+    } else {
+        (uid ^ X).wrapping_sub(A)
+    }
+}
+
+fn y9s3_enc_mode(h: u64) -> u64 {
+    const A: u64 = 0x3D55D4A292759E72;
+    const X: u64 = 0x072198F66D468884;
+    match image_key().wrapping_add(peb_key() ^ 0x3A744C54FF3316D3) % 5 {
+        0 => (h ^ X).wrapping_sub(A).rotate_right(27),
+        1 => (h.wrapping_sub(A) ^ X).rotate_right(27),
+        2 => (h.rotate_right(27) ^ X).wrapping_sub(A),
+        3 => (h ^ X).rotate_right(27).wrapping_sub(A),
+        _ => h.wrapping_sub(A).rotate_right(27) ^ X,
+    }
+}
+
+fn y9s3_enc_map(h: u64) -> u64 {
+    match image_key().wrapping_add(peb_key() ^ 0x1B7C1982) % 3 {
+        0 => shuffle_bytes(
+            shuffle_bytes(h, [6, 3, 0, 7, 5, 1, 2, 4]).wrapping_add(0xC),
+            [0, 2, 6, 3, 4, 1, 5, 7],
+        ),
+        1 => shuffle_bytes(h.wrapping_add(0xC), [6, 0, 2, 7, 5, 3, 1, 4]),
+        _ => shuffle_bytes(h, [5, 3, 0, 7, 1, 2, 6, 4]).wrapping_add(0xC),
+    }
+}
+
+fn y9s3_dec_match_tod(q: u64) -> u64 {
+    const A: u64 = 0x867632B4917A6832;
+    const X: u64 = 0x83149A4789B75DCF;
+    match image_key().wrapping_add(peb_key() ^ 0x0562A8F318CD3511) % 5 {
+        0 => (q.wrapping_add(A).wrapping_add(0x56) ^ X).wrapping_sub(0x56),
+        1 | 4 => q.wrapping_add(A) ^ X,
+        _ => (q ^ X).wrapping_add(A),
+    }
+}
+
+fn y9s3_dec_match_settings(q: u64) -> u64 {
+    const S: [usize; 8] = [7, 6, 4, 3, 1, 0, 5, 2];
+    const A: u64 = 0x83E193F85493CA8F;
+    match (image_key() ^ 0x83E193F8E594ED4D_u64.wrapping_sub(peb_key())) % 4 {
+        0 => shuffle_bytes(q.wrapping_add(A).rotate_left(25), S),
+        1 => shuffle_bytes(q.wrapping_add(A), S).rotate_left(25),
+        2 => shuffle_bytes(q.rotate_left(25), S).wrapping_add(A),
+        _ => shuffle_bytes(q.rotate_left(25).wrapping_add(A), S),
+    }
+}
+
+fn y9s3_dec_match_settings_count(q: u64) -> u64 {
+    const S: [usize; 8] = [7, 6, 4, 3, 1, 0, 5, 2];
+    const A: u64 = 0xDAE8ACA774F63A30;
+    match (image_key() ^ 0x83E193F8E594ED4D_u64.wrapping_sub(peb_key())) % 4 {
+        0 => shuffle_bytes(q.wrapping_add(A).rotate_left(25), S),
+        1 => shuffle_bytes(q.wrapping_add(A), S).rotate_left(25),
+        2 => shuffle_bytes(q.rotate_left(25), S).wrapping_add(A),
+        _ => shuffle_bytes(q.rotate_left(25).wrapping_add(A), S),
+    }
+}
+
+fn y9s3_enc_match_settings_count(v: u64) -> u64 {
+    const S: [usize; 8] = [5, 4, 7, 3, 2, 6, 1, 0];
+    const A: u64 = 0xDAE8ACA774F63A30;
+    match (image_key() ^ 0x83E193F8E594ED4D_u64.wrapping_sub(peb_key())) % 4 {
+        0 => shuffle_bytes(v, S).rotate_left(39).wrapping_sub(A),
+        1 => shuffle_bytes(v.rotate_left(39), S).wrapping_sub(A),
+        2 => shuffle_bytes(v.wrapping_sub(A), S).rotate_left(39),
+        _ => shuffle_bytes(v, S).wrapping_sub(A).rotate_left(39),
+    }
+}
+
+fn y9s3_enc_handle_uid(uid: u64) -> u64 {
+    uid.wrapping_add(0x50)
+}
+
+fn y9s3_enc_object_uid(uid: u64) -> u64 {
+    uid.wrapping_add(0x6D)
+}
+
+fn y9s3_dec_settings(q: u64) -> u64 {
+    const P: [usize; 8] = [2, 6, 5, 1, 0, 3, 4, 7];
+    const C: u64 = 0x8DB7E76EA98C875C;
+    const X: u64 = 0x407C6B2778B9DC73;
+    match 0xCDCB8C4935D03133_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(image_key())
+        % 4
+    {
+        0 => shuffle_bytes(q.wrapping_add(C), P) ^ X,
+        1 => shuffle_bytes(q.wrapping_add(C) ^ X, P),
+        2 => (shuffle_bytes(q, P) ^ X).wrapping_add(C),
+        _ => shuffle_bytes(q, P).wrapping_add(C) ^ X,
+    }
+}
+
+fn y9s3_dec_settings_count(q: u64) -> u64 {
+    const P: [usize; 8] = [2, 6, 5, 1, 0, 3, 4, 7];
+    const C: u64 = 0x92A8C81EBA0743E7;
+    const X: u64 = 0x8C3CD5D2DC929DDF;
+    match 0xCDCB8C4935D03133_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(image_key())
+        % 4
+    {
+        0 => shuffle_bytes(q.wrapping_add(C), P) ^ X,
+        1 => shuffle_bytes(q.wrapping_add(C) ^ X, P),
+        2 => (shuffle_bytes(q, P) ^ X).wrapping_add(C),
+        _ => shuffle_bytes(q, P).wrapping_add(C) ^ X,
+    }
+}
+
+fn y9s3_live(key: u64) -> u32 {
+    match 0xDA902D5CD52A04B3_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(key)
+        % 4
+    {
+        0 => 0x56B1D361,
+        1 => 0xA7311B66,
+        2 => 0x61D256B0,
+        _ => 0x58141A03,
+    }
+}
+
+fn y9s3_match_over(key: u64) -> u8 {
+    match (key ^ 0x1CEAE291828B64B6_u64.wrapping_sub(peb_key())) % 6 {
+        1 | 4 | 5 => 0x73,
+        _ => 0x81,
+    }
+}
+
+fn y9s3_unfrozen(key: u64) -> u32 {
+    match 0xEB6180817682070F_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(key)
+        % 6
+    {
+        0 => 0x4D4AC257,
+        1 | 4 => 0x09EDC2F7,
+        2 | 3 => 0xEDF7C209,
+        _ => 0xAB9AC2A9,
+    }
+}
+
+fn y9s3_display(key: u64) -> [u8; 2] {
+    if 0x35EBCDA907D58311_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(key)
+        & 1
+        == 0
+    {
+        [0xE0, 0xE1]
+    } else {
+        [0xF0, 0xF1]
+    }
+}
+
+fn y9s3_enc_end(v: u32) -> u32 {
+    match image_key().wrapping_add(peb_key() ^ 0x33) % 3 {
+        0 => v.rotate_left(29).wrapping_add(0x38).rotate_left(22),
+        1 => v.wrapping_add(0x38).rotate_left(19),
+        _ => v.rotate_left(19).wrapping_add(0x38),
+    }
+}
+
+fn y9s3_dec_end(x: u32) -> u32 {
+    match image_key().wrapping_add(peb_key() ^ 0x33) % 3 {
+        0 => x.rotate_left(10).wrapping_sub(0x38).rotate_left(3),
+        1 => x.rotate_left(13).wrapping_sub(0x38),
+        _ => x.wrapping_sub(0x38).rotate_left(13),
+    }
+}
+
+fn y9s3_enc_duration(v: u32) -> u32 {
+    const X: u32 = 0x6BC543E2;
+    let mix = |x: u32| {
+        let b = x.to_le_bytes();
+        u32::from_le_bytes([b[3], b[1], b[0], b[2]])
+    };
+    match (image_key() ^ 0xE14238B1ECB55C1C_u64.wrapping_sub(peb_key())) % 3 {
+        0 => mix(v.wrapping_add(0x54) ^ X),
+        1 => mix((v ^ X).wrapping_add(0x54)),
+        _ => mix(v).wrapping_add(0x54) ^ X,
+    }
+}
+
+fn y9s3_dec_duration(x: u32) -> u32 {
+    const X: u32 = 0x6BC543E2;
+    let unmix = |x: u32| {
+        let b = x.to_le_bytes();
+        u32::from_le_bytes([b[2], b[1], b[3], b[0]])
+    };
+    match (image_key() ^ 0xE14238B1ECB55C1C_u64.wrapping_sub(peb_key())) % 3 {
+        0 => (unmix(x) ^ X).wrapping_sub(0x54),
+        1 => unmix(x).wrapping_sub(0x54) ^ X,
+        _ => unmix((x ^ X).wrapping_sub(0x54)),
+    }
+}
+
+fn y9s3_dec_list(q: u64) -> u64 {
+    q.wrapping_sub(0x27)
+}
+
+fn y9s3_dec_count(q: u64) -> u64 {
+    q.wrapping_sub(0x0782BA9351CB8531)
+}
+
+fn y9s3_dec_handle(q: u64) -> u64 {
+    const C: u64 = 0xF54BA462DD6E5637;
+    match 0xF54BA462DD6E5625_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(image_key())
+        % 3
+    {
+        0 => q.rotate_left(58).wrapping_add(C).rotate_left(44),
+        1 => q.rotate_left(38).wrapping_add(C),
+        _ => q.wrapping_add(C).rotate_left(38),
+    }
+}
+
+fn y9s3_dec_loadout(q: u64) -> u64 {
+    const P: [usize; 8] = [2, 7, 6, 5, 0, 4, 1, 3];
+    const X: u64 = 0xC97B98A3522B3189;
+    const A: u64 = 0xE1827EDCBDF76B12;
+    if image_key().wrapping_add(peb_key() ^ 0xD7061980370A7B53) & 1 == 0 {
+        shuffle_bytes((q ^ X).wrapping_sub(A), P)
+    } else {
+        shuffle_bytes(q ^ X, P).wrapping_sub(A)
+    }
+}
+
+fn y9s3_dec_slot(x: u64) -> u64 {
+    x.wrapping_sub(0x3B)
+}
+
+fn y9s3_enc_item(v: u64) -> u64 {
+    v.wrapping_add(2)
+}
+
+fn y9s3_watermark(key: u64) -> [u8; 2] {
+    let off = match 0xEDD31127168799D5_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(key)
+        % 4
+    {
+        0 => 0x45,
+        1 => 0x2B,
+        _ => 0x4B,
+    };
+    [off, off]
+}
+
+fn y9s4_dec_state(x: u32) -> u32 {
+    const A: u32 = 0x76B4F312;
+    const X: u32 = 0x9CED3C26;
+    let shuffle = |v: u32| {
+        let b = v.to_le_bytes();
+        u32::from_le_bytes([b[3], b[2], b[0], b[1]])
+    };
+    let s = match 0x0792DF7DF4D5624C_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(image_key())
+        % 4
+    {
+        0 => shuffle(x.wrapping_add(A) ^ X),
+        1 => shuffle(x.wrapping_add(A)) ^ X,
+        2 => shuffle(x ^ X).wrapping_add(A),
+        _ => shuffle((x ^ X).wrapping_add(A)),
+    };
+    match s {
+        s @ 6..=8 => s - 1,
+        s => s,
+    }
+}
+
+fn y9s4_dec_match_index(b: u8) -> u8 {
+    if 0x8829E22D0FD6E77A_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(image_key())
+        & 1
+        == 0
+    {
+        b.rotate_left(3).wrapping_add(0x47)
+    } else {
+        b.wrapping_add(0x47).rotate_left(3)
+    }
+}
+
+fn y9s4_dec_match_data(q: u64) -> u64 {
+    const C: u64 = 0xDBDAEB88B190AA28;
+    const E: u64 = 0x63;
+    match image_key().wrapping_add(peb_key() ^ 0xDBDAEB88B190AAF9) % 5 {
+        0 => q
+            .wrapping_sub(E)
+            .rotate_left(47)
+            .wrapping_add(C)
+            .wrapping_add(E),
+        1 | 4 => q.wrapping_add(C).rotate_left(47),
+        _ => q.rotate_left(47).wrapping_add(C),
+    }
+}
+
+fn y9s4_dec_match_count(q: u64) -> u64 {
+    const C: u64 = 0xA3919662A7597DAB;
+    const E: u64 = 0xE64F730B2C7C7540;
+    match image_key().wrapping_add(peb_key() ^ 0xDBDAEB88B190AAF9) % 5 {
+        0 => q
+            .wrapping_sub(E)
+            .rotate_left(47)
+            .wrapping_add(C)
+            .wrapping_add(E),
+        1 | 4 => q.wrapping_add(C).rotate_left(47),
+        _ => q.rotate_left(47).wrapping_add(C),
+    }
+}
+
+fn y9s4_enc_playlist(uid: u64) -> u64 {
+    const X: u64 = 0x20EBB0E46F0801EB;
+    const A: u64 = 0xE73F9F2F3578320F;
+    match image_key().wrapping_add(peb_key() ^ 0xC7D42FCB5A7033DC) % 6 {
+        0 => uid.wrapping_sub(A).rotate_right(8) ^ X,
+        1 => uid.rotate_right(8).wrapping_sub(A) ^ X,
+        2 => (uid ^ X).wrapping_sub(A).rotate_right(8),
+        3 => (uid.wrapping_sub(A) ^ X).rotate_right(8),
+        4 => (uid.rotate_right(8) ^ X).wrapping_sub(A),
+        _ => (uid ^ X).rotate_right(8).wrapping_sub(A),
+    }
+}
+
+fn y9s4_enc_mode(h: u64) -> u64 {
+    match (image_key() ^ 0x558AFDE1_u64.wrapping_sub(peb_key())) % 3 {
+        0 => shuffle_bytes(
+            shuffle_bytes(h, [3, 2, 0, 4, 1, 6, 7, 5]).rotate_right(46),
+            [0, 4, 7, 2, 6, 3, 5, 1],
+        ),
+        1 => shuffle_bytes(h.rotate_right(46), [3, 1, 5, 0, 7, 4, 6, 2]),
+        _ => shuffle_bytes(h, [2, 7, 0, 6, 4, 5, 1, 3]).rotate_right(46),
+    }
+}
+
+fn y9s4_enc_map(h: u64) -> u64 {
+    h.wrapping_add(0x2C)
+}
+
+fn y9s4_dec_match_tod(q: u64) -> u64 {
+    const S: [usize; 8] = [3, 0, 1, 4, 6, 2, 5, 7];
+    const K: u64 = 0x09FCBBCDC6C3DD1E;
+    match 0x09FCBBCDB390EC42_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(image_key())
+        % 5
+    {
+        0 => (shuffle_bytes(q, S) ^ K).rotate_left(51),
+        1 => shuffle_bytes(q, S).rotate_left(51) ^ K,
+        2 => shuffle_bytes((q ^ K).rotate_left(51), S),
+        3 => shuffle_bytes(q ^ K, S).rotate_left(51),
+        _ => shuffle_bytes(q.rotate_left(51), S) ^ K,
+    }
+}
+
+fn y9s4_dec_match_settings(q: u64) -> u64 {
+    const S: [usize; 8] = [6, 2, 1, 0, 4, 7, 5, 3];
+    const K: u64 = 0x8E29AFEEBA0D05BA;
+    match (image_key() ^ 0x8E29AFEEA4AE4BC7_u64.wrapping_sub(peb_key())) % 5 {
+        0 => shuffle_bytes(q.rotate_left(18) ^ K, S),
+        1 => shuffle_bytes(q.rotate_left(18), S) ^ K,
+        2 => shuffle_bytes(q ^ K, S).rotate_left(18),
+        3 => shuffle_bytes((q ^ K).rotate_left(18), S),
+        _ => shuffle_bytes(q, S).rotate_left(18) ^ K,
+    }
+}
+
+fn y9s4_dec_match_settings_count(q: u64) -> u64 {
+    const S: [usize; 8] = [6, 2, 1, 0, 4, 7, 5, 3];
+    const K: u64 = 0x153B0507AD39709D;
+    match (image_key() ^ 0x8E29AFEEA4AE4BC7_u64.wrapping_sub(peb_key())) % 5 {
+        0 => shuffle_bytes(q.rotate_left(18) ^ K, S),
+        1 => shuffle_bytes(q.rotate_left(18), S) ^ K,
+        2 => shuffle_bytes(q ^ K, S).rotate_left(18),
+        3 => shuffle_bytes((q ^ K).rotate_left(18), S),
+        _ => shuffle_bytes(q, S).rotate_left(18) ^ K,
+    }
+}
+
+fn y9s4_enc_match_settings_count(v: u64) -> u64 {
+    const S: [usize; 8] = [3, 2, 1, 7, 4, 6, 0, 5];
+    const K: u64 = 0x153B0507AD39709D;
+    match (image_key() ^ 0x8E29AFEEA4AE4BC7_u64.wrapping_sub(peb_key())) % 5 {
+        0 => (shuffle_bytes(v, S) ^ K).rotate_right(18),
+        1 => shuffle_bytes(v ^ K, S).rotate_right(18),
+        2 => shuffle_bytes(v.rotate_right(18), S) ^ K,
+        3 => shuffle_bytes(v, S).rotate_right(18) ^ K,
+        _ => shuffle_bytes((v ^ K).rotate_right(18), S),
+    }
+}
+
+fn y9s4_enc_handle_uid(uid: u64) -> u64 {
+    const KEY: u64 = 0xE7CDD05836841AEC;
+    const PI: [usize; 8] = [4, 1, 3, 6, 0, 2, 5, 7];
+    match (image_key() ^ 0xE7CDD0584E71162C_u64.wrapping_sub(peb_key())) % 6 {
+        0 => shuffle_bytes(uid, PI).rotate_right(52).wrapping_sub(KEY),
+        1 => shuffle_bytes(uid.rotate_right(52), PI).wrapping_sub(KEY),
+        2 => shuffle_bytes(uid, PI).wrapping_sub(KEY).rotate_right(52),
+        3 => shuffle_bytes(uid.wrapping_sub(KEY), PI).rotate_right(52),
+        4 => shuffle_bytes(uid.rotate_right(52).wrapping_sub(KEY), PI),
+        _ => shuffle_bytes(uid.wrapping_sub(KEY).rotate_right(52), PI),
+    }
+}
+
+fn y9s4_enc_object_uid(uid: u64) -> u64 {
+    const P: [usize; 8] = [2, 7, 5, 4, 6, 3, 0, 1];
+    match (image_key() ^ 0xD821E972_u64.wrapping_sub(peb_key())) % 3 {
+        0 => shuffle_bytes(uid, P).rotate_right(25).wrapping_add(0x2F),
+        1 => shuffle_bytes(uid.rotate_right(25), P).wrapping_add(0x2F),
+        _ => shuffle_bytes(uid.wrapping_add(0x2F), P).rotate_right(25),
+    }
+}
+
+fn y9s4_dec_settings(q: u64) -> u64 {
+    const K: u64 = 0x3788F649AB28025C;
+    match (image_key() ^ 0x3788F649AB280229_u64.wrapping_sub(peb_key())) % 6 {
+        0 => q.rotate_left(41).wrapping_sub(0x62) ^ K,
+        1 => (q.rotate_left(41) ^ K).wrapping_sub(0x62),
+        2 => (q.wrapping_sub(0x62) ^ K).rotate_left(41),
+        3 => q.wrapping_sub(0x62).rotate_left(41) ^ K,
+        4 => (q ^ K).rotate_left(41).wrapping_sub(0x62),
+        _ => (q ^ K).wrapping_sub(0x62).rotate_left(41),
+    }
+}
+
+fn y9s4_dec_settings_count(q: u64) -> u64 {
+    const A: u64 = 0x161A122651AE07DC;
+    const K: u64 = 0x1B446A2B4C2D1638;
+    match (image_key() ^ 0x3788F649AB280229_u64.wrapping_sub(peb_key())) % 6 {
+        0 => q.rotate_left(41).wrapping_add(A) ^ K,
+        1 => (q.rotate_left(41) ^ K).wrapping_add(A),
+        2 => (q.wrapping_add(A) ^ K).rotate_left(41),
+        3 => q.wrapping_add(A).rotate_left(41) ^ K,
+        4 => (q ^ K).rotate_left(41).wrapping_add(A),
+        _ => (q ^ K).wrapping_add(A).rotate_left(41),
+    }
+}
+
+fn y9s4_running(key: u64) -> u8 {
+    match 0x2C59C2650C5B881B_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(key)
+        % 6
+    {
+        0 | 1 | 3 => 0xCE,
+        _ => 0x0E,
+    }
+}
+
+fn y9s4_countdown(key: u64) -> u8 {
+    match (key ^ 0x04B11FFE3E45E813_u64.wrapping_sub(peb_key())) % 5 {
+        0 => 0x04,
+        1 => 0x07,
+        2 => 0x01,
+        3 => 0xA7,
+        _ => 0x61,
+    }
+}
+
+fn y9s4_match_over(key: u64) -> u8 {
+    match (key ^ 0x8BD6BC139882716D_u64.wrapping_sub(peb_key())) % 6 {
+        0 => 0xDA,
+        1 => 0x8F,
+        2 => 0x04,
+        3 => 0x22,
+        4 => 0xAD,
+        _ => 0xD1,
+    }
+}
+
+fn y9s4_unfrozen(key: u64) -> u32 {
+    match (key ^ 0x7AF9C2C5D41B24F9_u64.wrapping_sub(peb_key())) % 3 {
+        0 | 1 => 0x0F50B41C,
+        _ => 0xCF2C2BE2,
+    }
+}
+
+fn y9s4_display(key: u64) -> [u8; 2] {
+    if key.wrapping_add(peb_key() ^ 0x83F07C7DE7687C1F) & 1 == 0 {
+        [0xEE, 0xE6]
+    } else {
+        [0xF4, 0xEC]
+    }
+}
+
+fn y9s4_enc_end(v: u32) -> u32 {
+    const X: u32 = 0x99B38504;
+    let mix = |x: u32| {
+        let b = x.to_le_bytes();
+        u32::from_le_bytes([b[0], b[2], b[3], b[1]])
+    };
+    match (image_key() ^ 0xA37A2572E162F347_u64.wrapping_sub(peb_key())) % 5 {
+        0 => mix((v ^ X).rotate_left(11)),
+        1 => mix(v.rotate_left(11) ^ X),
+        2 => (mix(v) ^ X).rotate_left(11),
+        3 => mix(v ^ X).rotate_left(11),
+        _ => mix(v.rotate_left(11)) ^ X,
+    }
+}
+
+fn y9s4_dec_end(x: u32) -> u32 {
+    const X: u32 = 0x99B38504;
+    let unmix = |x: u32| {
+        let b = x.to_le_bytes();
+        u32::from_le_bytes([b[0], b[3], b[1], b[2]])
+    };
+    match (image_key() ^ 0xA37A2572E162F347_u64.wrapping_sub(peb_key())) % 5 {
+        0 => unmix(x).rotate_right(11) ^ X,
+        1 => (unmix(x) ^ X).rotate_right(11),
+        2 => unmix(x.rotate_right(11) ^ X),
+        3 => unmix(x.rotate_right(11)) ^ X,
+        _ => unmix(x ^ X).rotate_right(11),
+    }
+}
+
+fn y9s4_enc_duration(v: u32) -> u32 {
+    const X: u32 = 0xFEA2FB5A;
+    if image_key().wrapping_add(peb_key() ^ 0x733868D1B004D5E9) & 1 == 0 {
+        v.rotate_left(16).wrapping_add(0x75) ^ X
+    } else {
+        v.wrapping_add(0x75).rotate_left(16) ^ X
+    }
+}
+
+fn y9s4_dec_duration(x: u32) -> u32 {
+    const X: u32 = 0xFEA2FB5A;
+    if image_key().wrapping_add(peb_key() ^ 0x733868D1B004D5E9) & 1 == 0 {
+        (x ^ X).wrapping_sub(0x75).rotate_left(16)
+    } else {
+        (x ^ X).rotate_left(16).wrapping_sub(0x75)
+    }
+}
+
+fn y9s4_dec_list(q: u64) -> u64 {
+    const P: [usize; 8] = [2, 0, 6, 7, 4, 3, 5, 1];
+    if image_key().wrapping_add(peb_key() ^ 0x936B4A11) & 1 == 0 {
+        shuffle_bytes(q, P).wrapping_sub(0x0B).rotate_left(29)
+    } else {
+        shuffle_bytes(q, P).rotate_left(29).wrapping_sub(0x0B)
+    }
+}
+
+fn y9s4_dec_count(q: u64) -> u64 {
+    const P: [usize; 8] = [2, 0, 6, 7, 4, 3, 5, 1];
+    const C: u64 = 0xCFBF1CBD28ACEF85;
+    if image_key().wrapping_add(peb_key() ^ 0x936B4A11) & 1 == 0 {
+        shuffle_bytes(q, P).wrapping_add(C).rotate_left(29)
+    } else {
+        shuffle_bytes(q, P).rotate_left(29).wrapping_add(C)
+    }
+}
+
+fn y9s4_dec_handle(q: u64) -> u64 {
+    const C: u64 = 0xA5B14930BADAE9BA;
+    const P: [usize; 8] = [2, 1, 6, 7, 0, 3, 5, 4];
+    const S: [usize; 8] = [3, 5, 2, 7, 6, 0, 1, 4];
+    match image_key().wrapping_add(peb_key() ^ 0xA5B14930A4DB25D7) % 5 {
+        0 => shuffle_bytes(
+            shuffle_bytes(q, [2, 4, 1, 6, 3, 0, 7, 5]).wrapping_add(C),
+            [0, 2, 3, 6, 5, 4, 7, 1],
+        ),
+        1 => shuffle_bytes(q, P).wrapping_add(C),
+        2 => shuffle_bytes(q.wrapping_add(C), S),
+        3 => shuffle_bytes(q.wrapping_add(C), P),
+        _ => shuffle_bytes(q, S).wrapping_add(C),
+    }
+}
+
+fn y9s4_dec_loadout(q: u64) -> u64 {
+    const X: u64 = 0x726558D6FC394054;
+    const A: u64 = 0x3F;
+    match 0x726558D6FC394071_u64
+        .wrapping_add(peb_key())
+        .wrapping_sub(image_key())
+        % 5
+    {
+        0 => (q ^ X).rotate_left(38).wrapping_sub(A),
+        1 => (q ^ X).wrapping_sub(A).rotate_left(38),
+        2 => q.rotate_left(38).wrapping_sub(A) ^ X,
+        3 => (q.rotate_left(38) ^ X).wrapping_sub(A),
+        _ => (q.wrapping_sub(A) ^ X).rotate_left(38),
+    }
+}
+
+fn y9s4_dec_slot(x: u64) -> u64 {
+    const P: [usize; 8] = [0, 2, 3, 7, 5, 6, 4, 1];
+    match (image_key() ^ 0xB476645A_u64.wrapping_sub(peb_key())) % 5 {
+        0 => shuffle_bytes(x.rotate_left(17), P).wrapping_sub(0x0D),
+        1 => shuffle_bytes(x.rotate_left(17).wrapping_sub(0x0D), P),
+        2 => shuffle_bytes(x, P).wrapping_sub(0x0D).rotate_left(17),
+        3 => shuffle_bytes(x, P).rotate_left(17).wrapping_sub(0x0D),
+        _ => shuffle_bytes(x.wrapping_sub(0x0D).rotate_left(17), P),
+    }
+}
+
+fn y9s4_enc_item(v: u64) -> u64 {
+    const P: [usize; 8] = [4, 1, 6, 2, 7, 3, 5, 0];
+    const C: u64 = 0xDBA59183391B9179;
+    match (image_key() ^ 0xDBA59183A50E64FE_u64.wrapping_sub(peb_key())) % 5 {
+        0 => shuffle_bytes(v.rotate_left(11), P).wrapping_sub(C),
+        1 => shuffle_bytes(v, P).rotate_left(11).wrapping_sub(C),
+        2 => shuffle_bytes(v.wrapping_sub(C).rotate_left(11), P),
+        3 => shuffle_bytes(v.rotate_left(11).wrapping_sub(C), P),
+        _ => shuffle_bytes(v, P).wrapping_sub(C).rotate_left(11),
+    }
+}
+
+fn y10s1_dec_gm(x: u64) -> u64 {
+    const E: u64 = 0xAECA1949691ED7BA;
+    if x == 0 {
+        0
+    } else {
+        (x ^ E).rotate_right(34) ^ image_key()
+    }
+}
+
+fn y10s1_dec_state(x: u32) -> u32 {
+    const A: u32 = 0x33640A2D;
+    let s = (x ^ A).rotate_right(15) ^ image_key() as u32;
+    match s {
+        s @ 6..=8 => s - 1,
+        s => s,
+    }
+}
+
+fn y10s1_dec_match_index(b: u8) -> u8 {
+    b ^ 0xF2
+}
+
+fn y10s1_dec_match_data(q: u64) -> u64 {
+    const X: u64 = 0x1572AFE6EBE0ABC5;
+    const A: u64 = 0xA80AEF80B690BD78;
+    (q ^ X).wrapping_add(A) ^ image_key()
+}
+
+fn y10s1_dec_match_count(q: u64) -> u64 {
+    const X: u64 = 0x7B25010C967BA8A2;
+    const A: u64 = 0x4B0E646B7F9F21D4;
+    (q ^ X).wrapping_add(A) ^ image_key()
+}
+
+fn y10s1_enc_playlist(uid: u64) -> u64 {
+    uid.wrapping_sub(0x1ECD0A1EE8A45E2D)
+}
+
+fn y10s1_enc_mode(h: u64) -> u64 {
+    const A: u64 = 0x3F136ED72192314F;
+    const B: u64 = 0x3E1FE098FC6608E9;
+    h.wrapping_add(image_key())
+        .wrapping_sub(B)
+        .rotate_right(51)
+        .wrapping_sub(A)
+}
+
+fn y10s1_enc_map(h: u64) -> u64 {
+    const A: u64 = 0x4045C32F05F4E395;
+    const X: u64 = 0xE42A899F;
+    (h.wrapping_sub(image_key()).rotate_right(17) ^ X).wrapping_sub(A)
+}
+
+fn y10s1_dec_match_tod(q: u64) -> u64 {
+    const X1: u64 = 0x4E15A877;
+    const A: u64 = 0x058635B11251B425;
+    const X2: u64 = 0xB3507B0DC889BDB2;
+    ((q ^ X1).wrapping_add(A) ^ X2).wrapping_add(image_key())
+}
+
+fn y10s1_dec_match_settings(q: u64) -> u64 {
+    const A: u64 = 0xF879DC0D4F5DC4A9;
+    const X: u64 = 0x275463E3;
+    (q.wrapping_add(A) ^ X)
+        .rotate_left(60)
+        .wrapping_add(image_key())
+}
+
+fn y10s1_dec_match_settings_count(q: u64) -> u64 {
+    const A: u64 = 0xD88EA5D9AAF4E863;
+    const X: u64 = 0x275463E3;
+    (q.wrapping_add(A) ^ X)
+        .rotate_left(60)
+        .wrapping_add(image_key())
+}
+
+fn y10s1_enc_match_settings_count(v: u64) -> u64 {
+    const A: u64 = 0xD88EA5D9AAF4E863;
+    const X: u64 = 0x275463E3;
+    (v.wrapping_sub(image_key()).rotate_right(60) ^ X).wrapping_sub(A)
+}
+
+fn y10s1_enc_handle_uid(uid: u64) -> u64 {
+    const X: u64 = 0x77B5DDB649D95C58;
+    const C: u64 = 0x70C176E014ED2986;
+    (uid.wrapping_add(image_key()) ^ X).wrapping_add(C)
+}
+
+fn y10s1_enc_object_uid(uid: u64) -> u64 {
+    const Y: u64 = 0x2D2E2C2F;
+    const Z: u64 = 0xD8A0CEF2;
+    (uid.wrapping_sub(image_key()) ^ Y).rotate_left(28) ^ Z
+}
+
+fn y10s1_dec_settings(q: u64) -> u64 {
+    const A: u64 = 0xCFDB4FBB8C24EA98;
+    const B: u64 = 0x57F1362FDA847B0D;
+    q.wrapping_add(A)
+        .rotate_left(61)
+        .wrapping_add(B)
+        .wrapping_sub(image_key())
+}
+
+fn y10s1_dec_settings_count(q: u64) -> u64 {
+    const A: u64 = 0xD30C8374D6D9EE0D;
+    const B: u64 = 0xF005EE4C7AFF31A0;
+    q.wrapping_add(A)
+        .rotate_left(61)
+        .wrapping_add(B)
+        .wrapping_sub(image_key())
+}
+
+fn y10s1_live(key: u64) -> u32 {
+    const A: u32 = 0xAAAD54F6;
+    const X: u32 = 0x8DF8588B;
+    (key as u32).wrapping_add(1).rotate_left(5).wrapping_add(A) ^ X
+}
+
+fn y10s1_running(key: u64) -> u8 {
+    (key as u8).wrapping_add(0x2D) ^ 0x20
+}
+
+fn y10s1_match_over(key: u64) -> u8 {
+    (0xA1_u8.wrapping_sub(key as u8) ^ 0x9D).wrapping_add(0x24)
+}
+
+fn y10s1_unfrozen(key: u64) -> u32 {
+    const A: u32 = 0xDAB89D54;
+    const B: u32 = 0x2B81B6B9;
+    (key as u32).wrapping_add(A).rotate_left(1).wrapping_add(B)
+}
+
+fn y10s1_display(key: u64) -> [u8; 2] {
+    let k = key as u8;
+    [
+        k.wrapping_add(0x79).rotate_left(6).wrapping_add(0xAC),
+        k.wrapping_add(0x78).rotate_left(6).wrapping_add(0xAC),
+    ]
+}
+
+fn y10s1_enc_end(v: u32) -> u32 {
+    const X: u32 = 0xC9F023AB;
+    const A: u32 = 0x570A4901;
+    (v.wrapping_add(image_key() as u32) ^ X)
+        .rotate_left(15)
+        .wrapping_add(A)
+}
+
+fn y10s1_dec_end(x: u32) -> u32 {
+    const X: u32 = 0xC9F023AB;
+    const A: u32 = 0x570A4901;
+    (x.wrapping_sub(A).rotate_right(15) ^ X).wrapping_sub(image_key() as u32)
+}
+
+fn y10s1_enc_duration(v: u32) -> u32 {
+    const X: u32 = 0x1C6DFE32;
+    (v.wrapping_add(image_key() as u32) ^ X).rotate_left(7)
+}
+
+fn y10s1_dec_duration(x: u32) -> u32 {
+    const X: u32 = 0x1C6DFE32;
+    (x.rotate_right(7) ^ X).wrapping_sub(image_key() as u32)
+}
+
+fn y10s1_dec_list(q: u64) -> u64 {
+    const A: u64 = 0x246F232A8FB9BA7B;
+    q.rotate_left(2).wrapping_sub(A).wrapping_sub(image_key())
+}
+
+fn y10s1_dec_count(q: u64) -> u64 {
+    const A: u64 = 0x65863A663BAB1515;
+    q.rotate_left(2).wrapping_sub(A).wrapping_sub(image_key())
+}
+
+fn y10s1_dec_handle(q: u64) -> u64 {
+    const C: u64 = 0x5DC54BD36AF7670D;
+    const X: u64 = 0x21EA0A139210B0B2;
+    const A: u64 = 0x54310A636376094A;
+    (q.wrapping_sub(C) ^ X)
+        .wrapping_sub(A)
+        .wrapping_sub(image_key())
+}
+
+fn y10s1_dec_loadout(q: u64) -> u64 {
+    const X: u64 = 0xB48D0377;
+    const A: u64 = 0x91666EAE7B3A9148;
+    const Y: u64 = 0x1E8395AB;
+    (q ^ X).wrapping_sub(A) ^ Y ^ image_key()
+}
+
+fn y10s1_dec_slot(x: u64) -> u64 {
+    const C: u64 = 0xE07DD03FA648AEED;
+    const A: u64 = 0x1600D2D268DD95AB;
+    x.wrapping_sub(C).rotate_left(3).wrapping_sub(A) ^ image_key()
+}
+
+fn y10s1_enc_item(v: u64) -> u64 {
+    const X: u64 = 0x0301D044EA875A0D;
+    const C: u64 = 0x957F24CC854119FC;
+    (v.wrapping_add(image_key()) ^ X).wrapping_add(C)
+}
+
+fn y10s1_watermark(key: u64) -> [u8; 2] {
+    let off = (key as u8).wrapping_add(0x2A).rotate_left(1) ^ 0xEA;
+    [off, off]
+}
+
+struct Phase {
     start: u32,
     duration: u32,
     end: u32,
     at: u32,
 }
 
-static Y5_MULTIPLAYER: &[(&str, u64)] = &[
+static MULTIPLAYER_MODES: &[(&str, u64)] = &[
     ("Bomb", 0x138BDF6E),
     ("Bomb - No Prep Phase", 0x25A11B0495),
     ("Hostage", 0xA934BDF6),
     ("Secure Area", 0x76337AA1),
-    ("Warmup", 0x7A956D02F),
+    ("Warmup", WARMUP_MODE),
 ];
-static Y5_TERRORIST_HUNT: &[(&str, u64)] = &[
+static TERRORIST_HUNT_MODES: &[(&str, u64)] = &[
     ("Disarm Bomb", 0x2036D0C6E),
     ("Elimination", 0x58A02A93),
     ("Extract Hostage", 0x67FDB2DB),
     ("Protect Hostage", 0x58A02A91),
 ];
-static Y5_DIFFICULTIES: &[(&str, u64)] = &[
+static DIFFICULTIES: &[(&str, u64)] = &[
     ("Normal", 0xCDE271EC),
     ("Hard", 0xCDE271ED),
     ("Realistic", 0xCDE271EE),
 ];
-const Y5_GYM: u64 = 0x72AFC423;
+const GYM_MODE: u64 = 0x72AFC423;
+const WARMUP_MODE: u64 = 0x7A956D02F;
+const WARMUP_MAPS: &[u64] = &[0x57AC2280B2];
 
-type Y5Event = (&'static str, u64, u64, &'static [usize]);
-type Y5HeadCodec = [fn(u64) -> u64; 2];
+static EVENT_FORGES: &[(u64, &str)] = &[
+    (0x2D1D494EF2, "evn00_stadium_events"),
+    (0x2BCB159A9C, "evn01_floyd_events"),
+    (0x2F83769722, "evn02_cowboy_events"),
+    (0xB3555E074, "evn03_halloween_events"),
+    (0xB3555E074, "evn03_doktorscurse_events"),
+    (0x3E005881AF, "evn04_gangdestruction_events"),
+    (0x3EE107746E, "evn05_stadium2_events"),
+    (0x40DC810C48, "evn06_morpheus_events"),
+    (0x40DC810C48, "evn06_muteprotocol_events"),
+    (0x431BA741C3, "evn07_telly_events"),
+    (0x50183207D0, "evn08_beret_events"),
+    (0x5464BBF809, "evn10_quarant_events"),
+    (0x5617C235CE, "evn11_ballpark_events"),
+    (0x585E25818B, "evn12_toky_events"),
+    (0x5C4B99AE00, "evn14_snow3_events"),
+    (0x5C4B99AE00, "evn14_freezeforall_events"),
+];
+static CLASSIC_EVENT_FORGES: &[(&str, &str)] = &[
+    ("Outbreak", "fury_d01_resort"),
+    ("Rainbow is Magic", "pvp_floyd_events"),
+    ("Showdown", "evn02_cowboy_events"),
+    ("Road To S.I. 2020", "evn00_stadium_events"),
+];
 
-enum Y5Roster {
+type PlaylistEvent = (&'static str, u64, u64, &'static [usize]);
+type HeadCodec = [fn(u64) -> u64; 2];
+
+enum Roster {
     Plain {
         list: i32,
         handle: i32,
     },
     Encoded {
         lists: [u64; 2],
-        dec_head: Y5HeadCodec,
+        dec_head: HeadCodec,
         handles: &'static [u64],
         dec_handle: fn(u64) -> u64,
         session_handles: Option<(u64, [u64; 2], &'static [u64])>,
     },
 }
 
-struct Y5Round {
-    live: (u64, u32),
-    running: (u64, u8),
-    countdown: (u64, u8),
-    match_over: (u64, u8),
+struct RoundProfile {
+    live: (u64, Raw<u32>),
+    running: (u64, Raw<u8>),
+    countdown: (u64, Raw<u8>),
+    match_over: (u64, Raw<u8>),
     now: u64,
     start: u64,
     end: u64,
     duration: u64,
-    infinite_display: Option<(u64, u8, u8)>,
+    freeze: (u64, Raw<u32>),
+    infinite_display: Option<(u64, Raw<[u8; 2]>)>,
     enc_end: fn(u32) -> u32,
     dec_end: fn(u32) -> u32,
     enc_duration: fn(u32) -> u32,
     dec_duration: fn(u32) -> u32,
-    roster: Y5Roster,
+    roster: Roster,
     loadout: i32,
     dec_loadout: Option<fn(u64) -> u64>,
     slots: [i32; 4],
-    slot: Option<Y5Slot>,
+    slot: Option<SlotChain>,
 }
 
-struct Y5Slot {
+struct SlotChain {
     dec: fn(u64) -> u64,
     field: u64,
     item: u64,
     enc_item: fn(u64) -> u64,
 }
 
-struct Y5MatchLayout {
+struct MatchLayout {
+    playlist: u64,
+    mode: u64,
+    map: u64,
     difficulty: u64,
     time_of_day: u64,
     settings: u64,
 }
 
-const Y5_MATCH_LAYOUT: Y5MatchLayout = Y5MatchLayout {
+const Y5_MATCH_LAYOUT: MatchLayout = MatchLayout {
+    playlist: 0x00,
+    mode: 0x08,
+    map: 0x10,
     difficulty: 0x30,
     time_of_day: 0x38,
     settings: 0x48,
 };
 
-const Y7_MATCH_LAYOUT: Y5MatchLayout = Y5MatchLayout {
+const Y7_MATCH_LAYOUT: MatchLayout = MatchLayout {
+    playlist: 0x00,
+    mode: 0x08,
+    map: 0x10,
     difficulty: 0x38,
     time_of_day: 0x40,
     settings: 0x50,
 };
 
-struct Y5Game {
+const Y8S3_MATCH_LAYOUT: MatchLayout = MatchLayout {
+    playlist: 0x00,
+    mode: 0x08,
+    map: 0x10,
+    difficulty: 0x38,
+    time_of_day: 0x40,
+    settings: 0x60,
+};
+
+const Y9S1_MATCH_LAYOUT: MatchLayout = MatchLayout {
+    playlist: 0x68,
+    mode: 0x10,
+    map: 0x48,
+    difficulty: 0x60,
+    time_of_day: 0x28,
+    settings: 0x50,
+};
+
+const Y9S2_MATCH_LAYOUT: MatchLayout = MatchLayout {
+    playlist: 0x10,
+    mode: 0x50,
+    map: 0x38,
+    difficulty: 0x28,
+    time_of_day: 0x00,
+    settings: 0x40,
+};
+
+const Y9S3_MATCH_LAYOUT: MatchLayout = MatchLayout {
+    playlist: 0x10,
+    mode: 0x68,
+    map: 0x18,
+    difficulty: 0x58,
+    time_of_day: 0x20,
+    settings: 0x48,
+};
+
+const Y9S4_MATCH_LAYOUT: MatchLayout = MatchLayout {
+    playlist: 0x20,
+    mode: 0x38,
+    map: 0x68,
+    difficulty: 0x18,
+    time_of_day: 0x58,
+    settings: 0x28,
+};
+
+const Y10S1_MATCH_LAYOUT: MatchLayout = MatchLayout {
+    playlist: 0x18,
+    mode: 0x38,
+    map: 0x30,
+    difficulty: 0x40,
+    time_of_day: 0x20,
+    settings: 0x60,
+};
+
+enum MatchState {
+    Chain(&'static [i32]),
+    Encoded(&'static MatchCodec),
+}
+
+struct MatchCodec {
+    index: (u64, fn(u8) -> u8),
+    entries: (u64, HeadCodec),
+    enc_playlist: fn(u64) -> u64,
+    enc_mode: fn(u64) -> u64,
+    enc_map: fn(u64) -> u64,
+    dec_tod: fn(u64) -> u64,
+    settings: HeadCodec,
+    enc_settings_count: fn(u64) -> u64,
+}
+
+impl MatchState {
+    fn codec(&self) -> Option<&'static MatchCodec> {
+        match *self {
+            MatchState::Chain(_) => None,
+            MatchState::Encoded(codec) => Some(codec),
+        }
+    }
+}
+
+struct GameProfile {
     tag: &'static str,
     game_manager: u64,
     dec_gm: Option<fn(u64) -> u64>,
     state: u64,
     dec_state: Option<fn(u32) -> u32>,
     role: u64,
-    match_state: &'static [i32],
-    match_layout: Y5MatchLayout,
+    match_state: MatchState,
+    match_layout: MatchLayout,
     gamemode: u64,
     settings: u64,
-    dec_settings: Option<Y5HeadCodec>,
+    dec_settings: Option<HeadCodec>,
     time_of_day: u64,
     enc_handle_uid: Option<fn(u64) -> u64>,
-    round: Option<Y5Round>,
+    enc_object_uid: Option<fn(u64) -> u64>,
+    round: RoundProfile,
     maps: &'static [(&'static str, u64)],
     standard_maps: usize,
     thunt_maps: &'static [usize],
-    events: &'static [Y5Event],
+    tdm_maps: &'static [usize],
+    events: &'static [PlaylistEvent],
 }
 
-static Y5S1_GAME: Y5Game = Y5Game {
+static Y5S1_GAME: GameProfile = GameProfile {
     tag: "y5s1",
     game_manager: 0x53A6868,
     dec_gm: None,
     state: 0xF0,
     dec_state: None,
     role: 0x230,
-    match_state: &[0x90],
+    match_state: MatchState::Chain(&[0x90]),
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x3A94168,
     settings: 0x70,
     dec_settings: None,
     time_of_day: 0x20,
     enc_handle_uid: None,
-    round: Some(Y5Round {
-        live: (0x1F4, 1),
-        running: (0x998, 1),
-        countdown: (0x999, 0),
-        match_over: (0x99F, 1),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x1F4, Raw::Fixed(1)),
+        running: (0x998, Raw::Fixed(1)),
+        countdown: (0x999, Raw::Fixed(0)),
+        match_over: (0x99F, Raw::Fixed(1)),
         now: 0x1678,
         start: 0x944,
         end: 0x948,
         duration: 0x950,
+        freeze: (0x94C, Raw::Fixed(0)),
         infinite_display: None,
-        enc_end: y5_plain,
-        dec_end: y5_plain,
-        enc_duration: y5_plain,
-        dec_duration: y5_plain,
-        roster: Y5Roster::Encoded {
+        enc_end: plain_u32,
+        dec_end: plain_u32,
+        enc_duration: plain_u32,
+        dec_duration: plain_u32,
+        roster: Roster::Encoded {
             lists: [0x300, 0x4D8],
-            dec_head: [y5_plain_ptr; 2],
+            dec_head: [plain_u64; 2],
             handles: &[0x98],
-            dec_handle: y5_plain_ptr,
+            dec_handle: plain_u64,
             session_handles: None,
         },
         loadout: 0x40,
         dec_loadout: None,
         slots: Y5_SLOTS,
         slot: None,
-    }),
+    },
     maps: &[
         ("House", 0x331CFEA6),
         ("Oregon", 0x35F2901CF4),
@@ -2386,41 +4605,44 @@ static Y5S1_GAME: Y5Game = Y5Game {
     thunt_maps: &[
         0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
+    tdm_maps: &[],
     events: &[
         ("Grand Larceny", 0x39E871FC8A, 0x4024D5CD3C, &[22]),
         ("Golden Gun", 0x3EA695B452, 0x3F331EF4E2, &[1]),
     ],
 };
 
-static Y5S2_GAME: Y5Game = Y5Game {
+static Y5S2_GAME: GameProfile = GameProfile {
     tag: "y5s2",
     game_manager: 0x603DD10,
     dec_gm: None,
     state: 0x114,
     dec_state: None,
     role: 0x278,
-    match_state: &[0xF8],
+    match_state: MatchState::Chain(&[0xF8]),
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x4C8AD70,
     settings: 0x70,
     dec_settings: None,
     time_of_day: 0x20,
     enc_handle_uid: None,
-    round: Some(Y5Round {
-        live: (0x234, 1),
-        running: (0x5E8, 0),
-        countdown: (0x670, 0),
-        match_over: (0x97C, 1),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x234, Raw::Fixed(1)),
+        running: (0x5E8, Raw::Fixed(0)),
+        countdown: (0x670, Raw::Fixed(0)),
+        match_over: (0x97C, Raw::Fixed(1)),
         now: 0x16C8,
         start: 0xA60,
         end: 0x600,
         duration: 0x970,
+        freeze: (0x96C, Raw::Fixed(0x4E4DD9F6)),
         infinite_display: None,
         enc_end: y5s2_end,
         dec_end: y5s2_end,
         enc_duration: y5s2_duration,
         dec_duration: y5s2_duration,
-        roster: Y5Roster::Plain {
+        roster: Roster::Plain {
             list: 0x3C0,
             handle: 0xA8,
         },
@@ -2428,7 +4650,7 @@ static Y5S2_GAME: Y5Game = Y5Game {
         dec_loadout: None,
         slots: Y5_SLOTS,
         slot: None,
-    }),
+    },
     maps: &[
         ("House", 0x37625C3900),
         ("Oregon", 0x35F2901CF4),
@@ -2458,38 +4680,41 @@ static Y5S2_GAME: Y5Game = Y5Game {
     thunt_maps: &[
         0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
+    tdm_maps: &[],
     events: &[("M.U.T.E. Protocol", 0x41E157DDE5, 0x41E15761D1, &[22])],
 };
 
-static Y5S3_GAME: Y5Game = Y5Game {
+static Y5S3_GAME: GameProfile = GameProfile {
     tag: "y5s3",
     game_manager: 0x6E3FF30,
     dec_gm: None,
     state: 0x50,
     dec_state: None,
     role: 0x308,
-    match_state: &[0x68],
+    match_state: MatchState::Chain(&[0x68]),
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x534D4B0,
     settings: 0x68,
     dec_settings: None,
     time_of_day: 0x40,
     enc_handle_uid: None,
-    round: Some(Y5Round {
-        live: (0x2CC, 1),
-        running: (0x418, 2),
-        countdown: (0x874, 0x5E),
-        match_over: (0xB68, 0x4C),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x2CC, Raw::Fixed(1)),
+        running: (0x418, Raw::Fixed(2)),
+        countdown: (0x874, Raw::Fixed(0x5E)),
+        match_over: (0xB68, Raw::Fixed(0x4C)),
         now: 0x5118,
         start: 0x6BC,
         end: 0x7A4,
         duration: 0x7F0,
+        freeze: (0xBF0, Raw::Fixed(0x365D0F95)),
         infinite_display: None,
         enc_end: y5s3_enc_end,
         dec_end: y5s3_dec_end,
         enc_duration: y5s3_enc_duration,
         dec_duration: y5s3_dec_duration,
-        roster: Y5Roster::Plain {
+        roster: Roster::Plain {
             list: 0x8C0,
             handle: 0xA8,
         },
@@ -2497,7 +4722,7 @@ static Y5S3_GAME: Y5Game = Y5Game {
         dec_loadout: None,
         slots: Y5_SLOTS,
         slot: None,
-    }),
+    },
     maps: &[
         ("Oregon", 0x35F2901CF4),
         ("Hereford Base", 0x2A3A99CB),
@@ -2527,41 +4752,44 @@ static Y5S3_GAME: Y5Game = Y5Game {
     thunt_maps: &[
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
+    tdm_maps: &[],
     events: &[
         ("Golden Gun", 0x3EA695B452, 0x3F331EF4E2, &[12, 21, 15]),
         ("Sugar Fright", 0x45840C11F0, 0x45840EDB69, &[22]),
     ],
 };
 
-static Y5S4_GAME: Y5Game = Y5Game {
+static Y5S4_GAME: GameProfile = GameProfile {
     tag: "y5s4",
     game_manager: 0x6E85930,
     dec_gm: Some(y5s4_dec_gm),
     state: 0xB8,
     dec_state: Some(y5s4_dec_state),
     role: 0x348,
-    match_state: &[0xC8],
+    match_state: MatchState::Chain(&[0xC8]),
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x53A7BA0,
     settings: 0x68,
     dec_settings: None,
     time_of_day: 0x40,
     enc_handle_uid: None,
-    round: Some(Y5Round {
-        live: (0x30C, 1),
-        running: (0x438, 0x12),
-        countdown: (0x9F0, 0x8A),
-        match_over: (0x478, 0x3F),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x30C, Raw::Fixed(1)),
+        running: (0x438, Raw::Fixed(0x12)),
+        countdown: (0x9F0, Raw::Fixed(0x8A)),
+        match_over: (0x478, Raw::Fixed(0x3F)),
         now: 0x51E8,
         start: 0xB88,
         end: 0xA08,
         duration: 0xAE4,
+        freeze: (0xBD0, Raw::Fixed(0x2520D190)),
         infinite_display: None,
         enc_end: y5s4_enc_end,
         dec_end: y5s4_dec_end,
         enc_duration: y5s4_enc_duration,
         dec_duration: y5s4_dec_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x4F8, 0x780],
             dec_head: [y5s4_dec_list; 2],
             handles: &[0x158],
@@ -2572,7 +4800,7 @@ static Y5S4_GAME: Y5Game = Y5Game {
         dec_loadout: None,
         slots: Y5_SLOTS,
         slot: None,
-    }),
+    },
     maps: &[
         ("Oregon", 0x35F2901CF4),
         ("Hereford Base", 0x2A3A99CB),
@@ -2602,38 +4830,41 @@ static Y5S4_GAME: Y5Game = Y5Game {
     thunt_maps: &[
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
+    tdm_maps: &[],
     events: &[("Road To S.I. 2021", 0x483AB3E121, 0x4707B87CF1, &[22])],
 };
 
-static Y6S1_GAME: Y5Game = Y5Game {
+static Y6S1_GAME: GameProfile = GameProfile {
     tag: "y6s1",
     game_manager: 0x70D88C8,
     dec_gm: Some(y6s1_dec_gm),
     state: 0x184,
     dec_state: Some(y6s1_dec_state),
     role: 0x340,
-    match_state: &[0xA0],
+    match_state: MatchState::Chain(&[0xA0]),
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x55444F0,
     settings: 0x68,
     dec_settings: None,
     time_of_day: 0x40,
     enc_handle_uid: None,
-    round: Some(Y5Round {
-        live: (0x304, 1),
-        running: (0x738, 0x96),
-        countdown: (0x9A0, 0x36),
-        match_over: (0xC18, 0xB7),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x304, Raw::Fixed(1)),
+        running: (0x738, Raw::Fixed(0x96)),
+        countdown: (0x9A0, Raw::Fixed(0x36)),
+        match_over: (0xC18, Raw::Fixed(0xB7)),
         now: 0x51C8,
         start: 0xADC,
         end: 0xAC0,
         duration: 0xB70,
-        infinite_display: Some((0xA81, 0x36, 0x2E)),
+        freeze: (0x3BC, Raw::Fixed(0xA3B33AA2)),
+        infinite_display: Some((0xA81, Raw::Fixed([0x36, 0x2E]))),
         enc_end: y6s1_enc_end,
         dec_end: y6s1_dec_end,
         enc_duration: y6s1_enc_duration,
         dec_duration: y6s1_dec_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x420, 0x770],
             dec_head: [y6s1_dec_list; 2],
             handles: &[0xB0],
@@ -2644,7 +4875,7 @@ static Y6S1_GAME: Y5Game = Y5Game {
         dec_loadout: None,
         slots: Y5_SLOTS,
         slot: None,
-    }),
+    },
     maps: &[
         ("Oregon", 0x35F2901CF4),
         ("Hereford Base", 0x2A3A99CB),
@@ -2675,41 +4906,44 @@ static Y6S1_GAME: Y5Game = Y5Game {
     thunt_maps: &[
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
+    tdm_maps: &[],
     events: &[
         ("Rainbow is Magic", 0x4DB61E967D, 0x4DB61E9851, &[22]),
         ("Apocalypse", 0x530F7BDC93, 0x530F7BED20, &[23]),
     ],
 };
 
-static Y6S1_15500403_GAME: Y5Game = Y5Game {
+static Y6S1_15500403_GAME: GameProfile = GameProfile {
     tag: "y6s1",
     game_manager: 0x7106998,
     dec_gm: Some(y6s1_15500403_dec_gm),
     state: 0x170,
     dec_state: Some(y6s1_15500403_dec_state),
     role: 0x338,
-    match_state: &[0x100],
+    match_state: MatchState::Chain(&[0x100]),
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x5520760,
     settings: 0x68,
     dec_settings: None,
     time_of_day: 0x40,
     enc_handle_uid: None,
-    round: Some(Y5Round {
-        live: (0x2FC, 1),
-        running: (0xB10, 2),
-        countdown: (0x3E8, 0x95),
-        match_over: (0xC24, 0xF4),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x2FC, Raw::Fixed(1)),
+        running: (0xB10, Raw::Fixed(2)),
+        countdown: (0x3E8, Raw::Fixed(0x95)),
+        match_over: (0xC24, Raw::Fixed(0xF4)),
         now: 0x51A8,
         start: 0xA70,
         end: 0xAE4,
         duration: 0x9A0,
-        infinite_display: Some((0x3E9, 0x9F, 0x8F)),
+        freeze: (0x8B4, Raw::Fixed(0x195A343E)),
+        infinite_display: Some((0x3E9, Raw::Fixed([0x9F, 0x8F]))),
         enc_end: y6s1_15500403_end,
         dec_end: y6s1_15500403_end,
         enc_duration: y6s1_15500403_duration,
         dec_duration: y6s1_15500403_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x668, 0x418],
             dec_head: [y6s1_15500403_dec_list; 2],
             handles: &[0x180],
@@ -2720,39 +4954,41 @@ static Y6S1_15500403_GAME: Y5Game = Y5Game {
         dec_loadout: None,
         slots: Y5_SLOTS,
         slot: None,
-    }),
+    },
     ..Y6S1_GAME
 };
 
-static Y6S2_GAME: Y5Game = Y5Game {
+static Y6S2_GAME: GameProfile = GameProfile {
     tag: "y6s2",
     game_manager: 0x729A598,
     dec_gm: Some(y6s2_dec_gm),
     state: 0x150,
     dec_state: Some(y6s2_dec_state),
     role: 0x358,
-    match_state: &[0xD0],
+    match_state: MatchState::Chain(&[0xD0]),
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x56FCF90,
     settings: 0x68,
     dec_settings: None,
     time_of_day: 0x40,
     enc_handle_uid: None,
-    round: Some(Y5Round {
-        live: (0x31C, 1),
-        running: (0x488, 0xEE),
-        countdown: (0xA61, 0x42),
-        match_over: (0x800, 0xFF),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x31C, Raw::Fixed(1)),
+        running: (0x488, Raw::Fixed(0xEE)),
+        countdown: (0xA61, Raw::Fixed(0x42)),
+        match_over: (0x800, Raw::Fixed(0xFF)),
         now: 0x6050,
         start: 0x928,
         end: 0x490,
         duration: 0x7D8,
-        infinite_display: Some((0x7F0, 0xD8, 0xD5)),
+        freeze: (0x948, Raw::Fixed(0xDE263BB2)),
+        infinite_display: Some((0x7F0, Raw::Fixed([0xD8, 0xD5]))),
         enc_end: y6s2_enc_end,
         dec_end: y6s2_dec_end,
         enc_duration: y6s2_enc_duration,
         dec_duration: y6s2_dec_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x500, 0xB00],
             dec_head: [y6s2_dec_list; 2],
             handles: &[0x48],
@@ -2763,7 +4999,7 @@ static Y6S2_GAME: Y5Game = Y5Game {
         dec_loadout: None,
         slots: Y5_SLOTS,
         slot: None,
-    }),
+    },
     maps: &[
         ("Oregon", 0x35F2901CF4),
         ("Hereford Base", 0x2A3A99CB),
@@ -2793,38 +5029,41 @@ static Y6S2_GAME: Y5Game = Y5Game {
     thunt_maps: &[
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
+    tdm_maps: &[],
     events: &[("Containment", 0x547CD662FD, 0x54A95068E8, &[22])],
 };
 
-static Y6S2_15701375_GAME: Y5Game = Y5Game {
+static Y6S2_15701375_GAME: GameProfile = GameProfile {
     tag: "y6s2",
     game_manager: 0x72A43C8,
     dec_gm: Some(y6s2_15701375_dec_gm),
     state: 0xE0,
     dec_state: Some(y6s2_15701375_dec_state),
     role: 0x358,
-    match_state: &[0x118],
+    match_state: MatchState::Chain(&[0x118]),
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x5643B20,
     settings: 0x68,
     dec_settings: None,
     time_of_day: 0x40,
     enc_handle_uid: None,
-    round: Some(Y5Round {
-        live: (0x31C, 1),
-        running: (0xC82, 0xA8),
-        countdown: (0x4EC, 0xA4),
-        match_over: (0xC38, 0x91),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x31C, Raw::Fixed(1)),
+        running: (0xC82, Raw::Fixed(0xA8)),
+        countdown: (0x4EC, Raw::Fixed(0xA4)),
+        match_over: (0xC38, Raw::Fixed(0x91)),
         now: 0x6038,
         start: 0x848,
         end: 0x87C,
         duration: 0xCE0,
-        infinite_display: Some((0x490, 0xA3, 0x83)),
+        freeze: (0x844, Raw::Fixed(0x76000)),
+        infinite_display: Some((0x490, Raw::Fixed([0xA3, 0x83]))),
         enc_end: y6s2_15701375_enc_end,
         dec_end: y6s2_15701375_dec_end,
         enc_duration: y6s2_15701375_enc_duration,
         dec_duration: y6s2_15701375_dec_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x928, 0x5B8],
             dec_head: [y6s2_15701375_dec_list; 2],
             handles: &[0x1B0],
@@ -2835,40 +5074,42 @@ static Y6S2_15701375_GAME: Y5Game = Y5Game {
         dec_loadout: None,
         slots: Y5_SLOTS,
         slot: None,
-    }),
+    },
     events: &[],
     ..Y6S2_GAME
 };
 
-static Y6S3_GAME: Y5Game = Y5Game {
+static Y6S3_GAME: GameProfile = GameProfile {
     tag: "y6s3",
     game_manager: 0x75AE938,
     dec_gm: Some(y6s3_dec_gm),
     state: 0x158,
     dec_state: Some(y6s3_dec_state),
     role: 0x338,
-    match_state: &[0xD0],
+    match_state: MatchState::Chain(&[0xD0]),
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x5B9F930,
     settings: 0x68,
     dec_settings: None,
     time_of_day: 0x40,
     enc_handle_uid: None,
-    round: Some(Y5Round {
-        live: (0x2FC, 1),
-        running: (0xC30, 0xF2),
-        countdown: (0xC33, 0x29),
-        match_over: (0xC2B, 0x8F),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x2FC, Raw::Fixed(1)),
+        running: (0xC30, Raw::Fixed(0xF2)),
+        countdown: (0xC33, Raw::Fixed(0x29)),
+        match_over: (0xC2B, Raw::Fixed(0x8F)),
         now: 0x5B28,
         start: 0xBC4,
         end: 0xBFC,
         duration: 0xBDC,
-        infinite_display: Some((0xC2C, 0x99, 0x19)),
+        freeze: (0xBB4, Raw::Fixed(0xD24ED01E)),
+        infinite_display: Some((0xC2C, Raw::Fixed([0x99, 0x19]))),
         enc_end: y6s3_enc_end,
         dec_end: y6s3_dec_end,
         enc_duration: y6s3_enc_duration,
         dec_duration: y6s3_dec_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x660, 0x9A8],
             dec_head: [y6s3_dec_list; 2],
             handles: &[0x70],
@@ -2879,7 +5120,7 @@ static Y6S3_GAME: Y5Game = Y5Game {
         dec_loadout: None,
         slots: Y5_SLOTS,
         slot: None,
-    }),
+    },
     maps: &[
         ("Oregon", 0x35F2901CF4),
         ("Hereford Base", 0x2A3A99CB),
@@ -2910,41 +5151,44 @@ static Y6S3_GAME: Y5Game = Y5Game {
     thunt_maps: &[
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
+    tdm_maps: &[],
     events: &[
         ("Showdown", 0x30B6346015, 0x4DB61E9852, &[22]),
         ("Doktor's Curse", 0x55CDE1F7AE, 0x55CDE1FAB7, &[23]),
     ],
 };
 
-static Y6S3_32627923_GAME: Y5Game = Y5Game {
+static Y6S3_32627923_GAME: GameProfile = GameProfile {
     tag: "y6s3",
     game_manager: 0x72C3B28,
     dec_gm: Some(y6s3_32627923_dec_gm),
     state: 0x15C,
     dec_state: Some(y6s3_32627923_dec_state),
     role: 0x338,
-    match_state: &[0xD0],
+    match_state: MatchState::Chain(&[0xD0]),
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x5959F00,
     settings: 0x68,
     dec_settings: None,
     time_of_day: 0x40,
     enc_handle_uid: None,
-    round: Some(Y5Round {
-        live: (0x2FC, 1),
-        running: (0xC28, 0x82),
-        countdown: (0xC2A, 0x4B),
-        match_over: (0xC35, 0x41),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x2FC, Raw::Fixed(1)),
+        running: (0xC28, Raw::Fixed(0x82)),
+        countdown: (0xC2A, Raw::Fixed(0x4B)),
+        match_over: (0xC35, Raw::Fixed(0x41)),
         now: 0x5B28,
         start: 0xBB0,
         end: 0xC08,
         duration: 0xBD0,
-        infinite_display: Some((0xC2F, 0x18, 0x19)),
+        freeze: (0xBA8, Raw::Fixed(0xE603AB21)),
+        infinite_display: Some((0xC2F, Raw::Fixed([0x18, 0x19]))),
         enc_end: y6s3_32627923_end,
         dec_end: y6s3_32627923_end,
         enc_duration: y6s3_32627923_enc_duration,
         dec_duration: y6s3_32627923_dec_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x428, 0x858],
             dec_head: [y6s3_32627923_dec_list; 2],
             handles: &[0x50],
@@ -2955,40 +5199,42 @@ static Y6S3_32627923_GAME: Y5Game = Y5Game {
         dec_loadout: None,
         slots: Y5_SLOTS,
         slot: None,
-    }),
+    },
     events: &[("Showdown", 0x30B6346015, 0x4DB61E9852, &[22])],
     ..Y6S3_GAME
 };
 
-static Y6S4_GAME: Y5Game = Y5Game {
+static Y6S4_GAME: GameProfile = GameProfile {
     tag: "y6s4",
     game_manager: 0x790A308,
     dec_gm: Some(y6s4_dec_gm),
     state: 0x158,
     dec_state: Some(y6s4_dec_state),
     role: 0x380,
-    match_state: &[0x28, 0x50, 0x48],
+    match_state: MatchState::Chain(&[0x28, 0x50, 0x48]),
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x56C33E0,
     settings: 0x68,
     dec_settings: None,
     time_of_day: 0x40,
     enc_handle_uid: None,
-    round: Some(Y5Round {
-        live: (0x344, 1),
-        running: (0xD5C, 0x54),
-        countdown: (0xD5D, 0x48),
-        match_over: (0xD54, 0x75),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x344, Raw::Fixed(1)),
+        running: (0xD5C, Raw::Fixed(0x54)),
+        countdown: (0xD5D, Raw::Fixed(0x48)),
+        match_over: (0xD54, Raw::Fixed(0x75)),
         now: 0x5D58,
         start: 0xCF0,
         end: 0xCF4,
         duration: 0xCFC,
-        infinite_display: Some((0xD52, 0x2C, 0x28)),
+        freeze: (0xD2C, Raw::Fixed(0x197E7E42)),
+        infinite_display: Some((0xD52, Raw::Fixed([0x2C, 0x28]))),
         enc_end: y6s4_enc_end,
         dec_end: y6s4_dec_end,
         enc_duration: y6s4_enc_duration,
         dec_duration: y6s4_dec_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x540, 0x8E8],
             dec_head: [y6s4_dec_list; 2],
             handles: &[0x908],
@@ -2999,7 +5245,7 @@ static Y6S4_GAME: Y5Game = Y5Game {
         dec_loadout: None,
         slots: Y5_SLOTS,
         slot: None,
-    }),
+    },
     maps: &[
         ("Oregon", 0x35F2901CF4),
         ("Hereford Base", 0x2A3A99CB),
@@ -3031,6 +5277,7 @@ static Y6S4_GAME: Y5Game = Y5Game {
     thunt_maps: &[
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
+    tdm_maps: &[16, 13, 18],
     events: &[
         ("Snow Brawl", 0x5797ECFED9, 0x4A9198FBF7, &[22]),
         ("Road To S.I. 2022", 0x57490FFCEA, 0x4DA02B54A4, &[23]),
@@ -3038,35 +5285,37 @@ static Y6S4_GAME: Y5Game = Y5Game {
     ],
 };
 
-static Y7S1_GAME: Y5Game = Y5Game {
+static Y7S1_GAME: GameProfile = GameProfile {
     tag: "y7s1",
     game_manager: 0x7C91C48,
     dec_gm: Some(y7s1_dec_gm),
     state: 0x15C,
     dec_state: Some(y7s1_dec_state),
     role: 0x380,
-    match_state: &[0x70],
+    match_state: MatchState::Chain(&[0x70]),
     match_layout: Y7_MATCH_LAYOUT,
     gamemode: 0x64CB688,
     settings: 0x68,
     dec_settings: None,
     time_of_day: 0x40,
     enc_handle_uid: None,
-    round: Some(Y5Round {
-        live: (0x344, 1),
-        running: (0xD64, 0xF3),
-        countdown: (0xD67, 0x95),
-        match_over: (0xD5C, 0xE4),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x344, Raw::Fixed(1)),
+        running: (0xD64, Raw::Fixed(0xF3)),
+        countdown: (0xD67, Raw::Fixed(0x95)),
+        match_over: (0xD5C, Raw::Fixed(0xE4)),
         now: 0x6040,
         start: 0xD14,
         end: 0xCD8,
         duration: 0xD0C,
-        infinite_display: Some((0xD62, 0xA9, 0xA8)),
+        freeze: (0xD50, Raw::Fixed(0x570004F)),
+        infinite_display: Some((0xD62, Raw::Fixed([0xA9, 0xA8]))),
         enc_end: y7s1_enc_end,
         dec_end: y7s1_dec_end,
         enc_duration: y7s1_enc_duration,
         dec_duration: y7s1_dec_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x650, 0xA40],
             dec_head: [y7s1_dec_list; 2],
             handles: &[0x910],
@@ -3077,7 +5326,7 @@ static Y7S1_GAME: Y5Game = Y5Game {
         dec_loadout: None,
         slots: Y5_SLOTS,
         slot: None,
-    }),
+    },
     maps: &[
         ("Oregon", 0x35F2901CF4),
         ("Hereford Base", 0x2A3A99CB),
@@ -3108,38 +5357,41 @@ static Y7S1_GAME: Y5Game = Y5Game {
     thunt_maps: &[
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
     ],
+    tdm_maps: &[13, 15, 16, 18, 22],
     events: &[("Rengoku", 0x585B44DA5C, 0x585B4583CD, &[23])],
 };
 
-static Y7S2_GAME: Y5Game = Y5Game {
+static Y7S2_GAME: GameProfile = GameProfile {
     tag: "y7s2",
     game_manager: 0x81F7A60,
     dec_gm: Some(y7s2_dec_gm),
     state: 0x15C,
     dec_state: Some(y7s2_dec_state),
     role: 0x380,
-    match_state: &[0xE0],
+    match_state: MatchState::Chain(&[0xE0]),
     match_layout: Y7_MATCH_LAYOUT,
     gamemode: 0x61C55C8,
     settings: 0x68,
     dec_settings: None,
     time_of_day: 0x40,
     enc_handle_uid: None,
-    round: Some(Y5Round {
-        live: (0x344, 1),
-        running: (0xD7D, 0x68),
-        countdown: (0xD83, 0x75),
-        match_over: (0xD76, 0x2A),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x344, Raw::Fixed(1)),
+        running: (0xD7D, Raw::Fixed(0x68)),
+        countdown: (0xD83, Raw::Fixed(0x75)),
+        match_over: (0xD76, Raw::Fixed(0x2A)),
         now: 0x64C8,
         start: 0xD14,
         end: 0xD00,
         duration: 0xD08,
-        infinite_display: Some((0xD7B, 0x0B, 0x6B)),
+        freeze: (0xD6C, Raw::Fixed(0xE)),
+        infinite_display: Some((0xD7B, Raw::Fixed([0x0B, 0x6B]))),
         enc_end: y7s2_enc_end,
         dec_end: y7s2_dec_end,
         enc_duration: y7s2_enc_duration,
         dec_duration: y7s2_dec_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x500, 0xA08],
             dec_head: [y7s2_dec_list; 2],
             handles: &[0x3F8, 0x110],
@@ -3150,7 +5402,7 @@ static Y7S2_GAME: Y5Game = Y5Game {
         dec_loadout: None,
         slots: Y5_SLOTS,
         slot: None,
-    }),
+    },
     maps: &[
         ("Oregon", 0x35F2901CF4),
         ("Hereford Base", 0x2A3A99CB),
@@ -3175,44 +5427,48 @@ static Y7S2_GAME: Y5Game = Y5Game {
         ("Outback", 0x546CF2DD4F),
         ("House", 0x37625C3900),
         ("Emerald Plains", 0x550CA6FED4),
+        ("Close Quarter", 0x57AC2280B2),
         ("M.U.T.E. Protocol", 0x40DC810C48),
     ],
-    standard_maps: 23,
+    standard_maps: 24,
     thunt_maps: &[
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
     ],
-    events: &[("M.U.T.E. Protocol", 0x59E5A4411F, 0x58CE8D5DB2, &[23])],
+    tdm_maps: &[13, 14, 15, 16, 18, 22, 23],
+    events: &[("M.U.T.E. Protocol", 0x59E5A4411F, 0x58CE8D5DB2, &[24])],
 };
 
-static Y7S3_GAME: Y5Game = Y5Game {
+static Y7S3_GAME: GameProfile = GameProfile {
     tag: "y7s3",
     game_manager: 0x7E00080,
     dec_gm: Some(y7s3_dec_gm),
     state: 0x158,
     dec_state: Some(y7s3_dec_state),
     role: 0x390,
-    match_state: &[0xE8],
+    match_state: MatchState::Chain(&[0xE8]),
     match_layout: Y7_MATCH_LAYOUT,
     gamemode: 0x655DAC8,
     settings: 0x68,
     dec_settings: None,
     time_of_day: 0x40,
     enc_handle_uid: Some(y7s3_enc_handle_uid),
-    round: Some(Y5Round {
-        live: (0x344, 1),
-        running: (0xED1, 0x36),
-        countdown: (0xEC4, 0xFB),
-        match_over: (0xEC9, 0xEA),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x344, Raw::Fixed(1)),
+        running: (0xED1, Raw::Fixed(0x36)),
+        countdown: (0xEC4, Raw::Fixed(0xFB)),
+        match_over: (0xEC9, Raw::Fixed(0xEA)),
         now: 0x66F8,
         start: 0xE48,
         end: 0xE84,
         duration: 0xE4C,
-        infinite_display: Some((0xEC7, 0xFC, 0xF4)),
+        freeze: (0xE90, Raw::Fixed(6)),
+        infinite_display: Some((0xEC7, Raw::Fixed([0xFC, 0xF4]))),
         enc_end: y7s3_enc_end,
         dec_end: y7s3_dec_end,
         enc_duration: y7s3_enc_duration,
         dec_duration: y7s3_dec_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x5F0, 0x958],
             dec_head: [y7s3_dec_list; 2],
             handles: &[0x370, 0x88],
@@ -3222,13 +5478,13 @@ static Y7S3_GAME: Y5Game = Y5Game {
         loadout: 0x38,
         dec_loadout: None,
         slots: Y5_SLOTS,
-        slot: Some(Y5Slot {
+        slot: Some(SlotChain {
             dec: y7s3_dec_slot,
             field: 0x20,
             item: 0x20,
             enc_item: y7s3_enc_item,
         }),
-    }),
+    },
     maps: &[
         ("Oregon", 0x35F2901CF4),
         ("Hereford Base", 0x2A3A99CB),
@@ -3254,48 +5510,52 @@ static Y7S3_GAME: Y5Game = Y5Game {
         ("House", 0x37625C3900),
         ("Emerald Plains", 0x550CA6FED4),
         ("Stadium Bravo", 0x3EE107746E),
+        ("Close Quarter", 0x57AC2280B2),
         ("Fort Truth", 0x2F83769722),
         ("Doktor's Curse", 0xB3555E074),
     ],
-    standard_maps: 24,
+    standard_maps: 25,
     thunt_maps: &[
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
     ],
+    tdm_maps: &[13, 14, 15, 16, 18, 22, 23, 24],
     events: &[
-        ("Snipers", 0x5A4EE6FC73, 0x5A4EE6FC65, &[2, 24, 9]),
-        ("Doktor's Curse", 0x55CDE1F7AE, 0x55CDE1FAB7, &[25]),
+        ("Snipers", 0x5A4EE6FC73, 0x5A4EE6FC65, &[2, 25, 9]),
+        ("Doktor's Curse", 0x55CDE1F7AE, 0x55CDE1FAB7, &[26]),
     ],
 };
 
-static Y7S4_GAME: Y5Game = Y5Game {
+static Y7S4_GAME: GameProfile = GameProfile {
     tag: "y7s4",
     game_manager: 0x7D00580,
     dec_gm: Some(y7s4_dec_gm),
     state: 0x15C,
     dec_state: Some(y7s4_dec_state),
     role: 0x390,
-    match_state: &[0x100],
+    match_state: MatchState::Chain(&[0x100]),
     match_layout: Y7_MATCH_LAYOUT,
     gamemode: 0x68EB5E0,
     settings: 0x68,
     dec_settings: None,
     time_of_day: 0x40,
     enc_handle_uid: Some(y7s4_enc_handle_uid),
-    round: Some(Y5Round {
-        live: (0x344, 1),
-        running: (0xEC8, 0x2A),
-        countdown: (0xECF, 0xCF),
-        match_over: (0xEC9, 0x9D),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x344, Raw::Fixed(1)),
+        running: (0xEC8, Raw::Fixed(0x2A)),
+        countdown: (0xECF, Raw::Fixed(0xCF)),
+        match_over: (0xEC9, Raw::Fixed(0x9D)),
         now: 0x66F8,
         start: 0xEAC,
         end: 0xEA4,
         duration: 0xEA8,
-        infinite_display: Some((0xED2, 0xCE, 0xAD)),
+        freeze: (0xE9C, Raw::Fixed(0x2970F3CF)),
+        infinite_display: Some((0xED2, Raw::Fixed([0xCE, 0xAD]))),
         enc_end: y7s4_enc_end,
         dec_end: y7s4_dec_end,
         enc_duration: y7s4_enc_duration,
         dec_duration: y7s4_dec_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x678, 0xA40],
             dec_head: [y7s4_dec_list, y7s4_dec_count],
             handles: &[0x110, 0x450],
@@ -3305,13 +5565,13 @@ static Y7S4_GAME: Y5Game = Y5Game {
         loadout: 0x38,
         dec_loadout: None,
         slots: [0x88, 0x70, 0x58, 0x40],
-        slot: Some(Y5Slot {
+        slot: Some(SlotChain {
             dec: y7s4_dec_slot,
             field: 0x20,
             item: 0x18,
             enc_item: y7s4_enc_item,
         }),
-    }),
+    },
     maps: &[
         ("Oregon", 0x35F2901CF4),
         ("Hereford Base", 0x2A3A99CB),
@@ -3338,44 +5598,48 @@ static Y7S4_GAME: Y5Game = Y5Game {
         ("Emerald Plains", 0x550CA6FED4),
         ("Stadium Bravo", 0x3EE107746E),
         ("Nighthaven Labs", 0x58260EEFB3),
+        ("Close Quarter", 0x57AC2280B2),
         ("Snow Brawl", 0x5617C235CE),
     ],
-    standard_maps: 25,
+    standard_maps: 26,
     thunt_maps: &[
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24,
     ],
-    events: &[("Snow Brawl", 0x5797ECFED9, 0x4A9198FBF7, &[25])],
+    tdm_maps: &[13, 14, 15, 16, 18, 22, 23, 24, 25],
+    events: &[("Snow Brawl", 0x5797ECFED9, 0x4A9198FBF7, &[26])],
 };
 
-static Y8S1_GAME: Y5Game = Y5Game {
+static Y8S1_GAME: GameProfile = GameProfile {
     tag: "y8s1",
     game_manager: 0x7927E10,
-    dec_gm: Some(y8s1_dec_gm),
+    dec_gm: Some(y7s4_dec_gm),
     state: 0x1C4,
     dec_state: Some(y8s1_dec_state),
     role: 0x3B8,
-    match_state: &[0x60],
+    match_state: MatchState::Chain(&[0x60]),
     match_layout: Y7_MATCH_LAYOUT,
     gamemode: 0x6585BB0,
     settings: 0x70,
     dec_settings: Some([y8s1_dec_settings, y8s1_dec_settings_count]),
     time_of_day: 0x40,
     enc_handle_uid: Some(y8s1_enc_handle_uid),
-    round: Some(Y5Round {
-        live: (0x1B8, 0xCFBCDB01),
-        running: (0xF57, 0x17),
-        countdown: (0xF4E, 0x86),
-        match_over: (0xF4F, 0x76),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x1B8, Raw::Fixed(0xCFBCDB01)),
+        running: (0xF57, Raw::Fixed(0x17)),
+        countdown: (0xF4E, Raw::Fixed(0x86)),
+        match_over: (0xF4F, Raw::Fixed(0x76)),
         now: 0x5F08,
         start: 0xEEC,
         end: 0xEF4,
         duration: 0xF48,
-        infinite_display: Some((0xF4C, 0xA3, 0x93)),
+        freeze: (0xF28, Raw::Fixed(0x63)),
+        infinite_display: Some((0xF4C, Raw::Fixed([0xA3, 0x93]))),
         enc_end: y8s1_enc_end,
         dec_end: y8s1_dec_end,
         enc_duration: y8s1_enc_duration,
         dec_duration: y8s1_dec_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x440, 0x908],
             dec_head: [y8s1_dec_list, y8s1_dec_count],
             handles: &[0x4D0, 0x1A0],
@@ -3385,13 +5649,13 @@ static Y8S1_GAME: Y5Game = Y5Game {
         loadout: 0x18,
         dec_loadout: Some(y8s1_dec_loadout),
         slots: [0x08, 0x48, 0x20, 0x80],
-        slot: Some(Y5Slot {
+        slot: Some(SlotChain {
             dec: y8s1_dec_slot,
             field: 0x28,
             item: 0x30,
             enc_item: y8s1_enc_item,
         }),
-    }),
+    },
     maps: &[
         ("Oregon", 0x35F2901CF4),
         ("Hereford Base", 0x2A3A99CB),
@@ -3418,44 +5682,48 @@ static Y8S1_GAME: Y5Game = Y5Game {
         ("Emerald Plains", 0x550CA6FED4),
         ("Stadium Bravo", 0x3EE107746E),
         ("Nighthaven Labs", 0x58260EEFB3),
+        ("Close Quarter", 0x57AC2280B2),
         ("Rainbow is Magic", 0x2BCB159A9C),
     ],
-    standard_maps: 25,
+    standard_maps: 26,
     thunt_maps: &[
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24,
     ],
-    events: &[("Rainbow is Magic", 0x5B55A9D54B, 0x4DB61E9851, &[25])],
+    tdm_maps: &[13, 14, 15, 16, 18, 22, 23, 24, 25],
+    events: &[("Rainbow is Magic", 0x5B55A9D54B, 0x4DB61E9851, &[26])],
 };
 
-static Y8S2_GAME: Y5Game = Y5Game {
+static Y8S2_GAME: GameProfile = GameProfile {
     tag: "y8s2",
     game_manager: 0x70BD170,
     dec_gm: Some(y8s2_dec_gm),
     state: 0x1C0,
     dec_state: Some(y8s2_dec_state),
     role: 0x3B8,
-    match_state: &[0x70],
+    match_state: MatchState::Chain(&[0x70]),
     match_layout: Y7_MATCH_LAYOUT,
     gamemode: 0x6745B80,
     settings: 0x60,
     dec_settings: Some([y8s2_dec_settings, y8s2_dec_settings_count]),
     time_of_day: 0x20,
     enc_handle_uid: Some(y8s2_enc_handle_uid),
-    round: Some(Y5Round {
-        live: (0x1C4, 0x7A43955D),
-        running: (0xF60, 0x21),
-        countdown: (0xF69, 0x59),
-        match_over: (0xF62, 0x9A),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x1C4, Raw::Fixed(0x7A43955D)),
+        running: (0xF60, Raw::Fixed(0x21)),
+        countdown: (0xF69, Raw::Fixed(0x59)),
+        match_over: (0xF62, Raw::Fixed(0x9A)),
         now: 0x5F30,
         start: 0xEE0,
         end: 0xEE4,
         duration: 0xF14,
-        infinite_display: Some((0xF65, 0xEE, 0x0E)),
+        freeze: (0xEE8, Raw::Fixed(0xC36095E0)),
+        infinite_display: Some((0xF65, Raw::Fixed([0xEE, 0x0E]))),
         enc_end: y8s2_enc_end,
         dec_end: y8s2_dec_end,
         enc_duration: y8s2_enc_duration,
         dec_duration: y8s2_dec_duration,
-        roster: Y5Roster::Encoded {
+        roster: Roster::Encoded {
             lists: [0x9F0, 0x428],
             dec_head: [y8s2_dec_list, y8s2_dec_count],
             handles: &[0xA0, 0x3D8],
@@ -3465,13 +5733,13 @@ static Y8S2_GAME: Y5Game = Y5Game {
         loadout: 0x28,
         dec_loadout: Some(y8s2_dec_loadout),
         slots: [0x40, 0x80, 0x60, 0x70],
-        slot: Some(Y5Slot {
+        slot: Some(SlotChain {
             dec: y8s2_dec_slot,
             field: 0x10,
             item: 0x18,
             enc_item: y8s2_enc_item,
         }),
-    }),
+    },
     maps: &[
         ("Oregon", 0x35F2901CF4),
         ("Hereford Base", 0x2A3A99CB),
@@ -3498,16 +5766,659 @@ static Y8S2_GAME: Y5Game = Y5Game {
         ("Emerald Plains", 0x550CA6FED4),
         ("Stadium Bravo", 0x3EE107746E),
         ("Nighthaven Labs", 0x58260EEFB3),
+        ("Close Quarter", 0x57AC2280B2),
+        ("Rainbow is Magic", 0x2BCB159A9C),
         ("Rengoku", 0x585E25818B),
     ],
-    standard_maps: 25,
+    standard_maps: 26,
     thunt_maps: &[
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24,
     ],
-    events: &[("Rengoku", 0x585B44DA5C, 0x585B4583CD, &[25])],
+    tdm_maps: &[6, 13, 14, 15, 16, 18, 22, 23, 24, 25],
+    events: &[
+        ("Rainbow is Magic", 0x5B55A9D54B, 0x4DB61E9851, &[26]),
+        ("Rengoku", 0x585B44DA5C, 0x585B4583CD, &[27]),
+    ],
 };
 
-fn y5_game(build: &str) -> Option<&'static Y5Game> {
+static Y8S3_GAME: GameProfile = GameProfile {
+    tag: "y8s3",
+    game_manager: 0x711F310,
+    dec_gm: Some(y8s2_dec_gm),
+    state: 0x1B8,
+    dec_state: Some(y8s3_dec_state),
+    role: 0x3B8,
+    match_state: MatchState::Chain(&[0x88]),
+    match_layout: Y8S3_MATCH_LAYOUT,
+    gamemode: 0x65EDB30,
+    settings: 0x68,
+    dec_settings: Some([y8s3_dec_settings, y8s3_dec_settings_count]),
+    time_of_day: 0x80,
+    enc_handle_uid: Some(y8s3_enc_handle_uid),
+    enc_object_uid: None,
+    round: RoundProfile {
+        live: (0x1C0, Raw::Fixed(0x157B2A4B)),
+        running: (0xF6C, Raw::Fixed(0x92)),
+        countdown: (0xF77, Raw::Fixed(0x42)),
+        match_over: (0xF73, Raw::Fixed(0x7D)),
+        now: 0x5F40,
+        start: 0xF0C,
+        end: 0xF54,
+        duration: 0xF48,
+        freeze: (0xF44, Raw::Fixed(0xABC32425)),
+        infinite_display: Some((0xF76, Raw::Fixed([0xFF, 0xBF]))),
+        enc_end: y8s3_enc_end,
+        dec_end: y8s3_dec_end,
+        enc_duration: y8s3_enc_duration,
+        dec_duration: y8s3_dec_duration,
+        roster: Roster::Encoded {
+            lists: [0xB20, 0x510],
+            dec_head: [y8s3_dec_list, y8s3_dec_count],
+            handles: &[0xA8, 0x3E0],
+            dec_handle: y8s3_dec_handle,
+            session_handles: None,
+        },
+        loadout: 0x18,
+        dec_loadout: Some(y8s3_dec_loadout),
+        slots: [0x80, 0x78, 0x40, 0x50],
+        slot: Some(SlotChain {
+            dec: y8s3_dec_slot,
+            field: 0x18,
+            item: 0x38,
+            enc_item: y8s3_enc_item,
+        }),
+    },
+    maps: &[
+        ("Oregon", 0x35F2901CF4),
+        ("Hereford Base", 0x2A3A99CB),
+        ("Hereford Base - Rework", 0x1DCA7A2258),
+        ("Club House", 0x31E6DF85),
+        ("Presidential Plane", 0x9B858528),
+        ("Yacht", 0x6961015C),
+        ("Consulate", 0x584B31FC7D),
+        ("Bank", 0x52C53F0506),
+        ("Kanal", 0x570932C9),
+        ("Chalet", 0x3C7E4A5A5D),
+        ("Bartlett University", 0xA0C50B9A),
+        ("Kafe Dostoyevsky", 0x522587EA),
+        ("Border", 0x473DCA77EF),
+        ("Favela", 0x4CCD9FE066),
+        ("Skyscraper", 0x4053835E1E),
+        ("Coastline", 0x9CCC3D997),
+        ("Theme Park", 0x2E8679C826),
+        ("Tower", 0xC7C6E5654),
+        ("Villa", 0x14839B2B18),
+        ("Fortress", 0x1D61EAFB8F),
+        ("Outback", 0x546CF2DD4F),
+        ("House", 0x37625C3900),
+        ("Emerald Plains", 0x550CA6FED4),
+        ("Stadium Bravo", 0x3EE107746E),
+        ("Nighthaven Labs", 0x58260EEFB3),
+        ("Close Quarter", 0x57AC2280B2),
+        ("Doktor's Curse", 0xB3555E074),
+    ],
+    standard_maps: 26,
+    thunt_maps: &[
+        0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24,
+    ],
+    tdm_maps: &[6, 13, 14, 15, 16, 18, 22, 23, 24, 25],
+    events: &[("Doktor's Curse", 0x55CDE1F7AE, 0x55CDE1FAB7, &[26])],
+};
+
+static Y8S4_GAME: GameProfile = GameProfile {
+    tag: "y8s4",
+    game_manager: 0x7306460,
+    dec_gm: Some(y8s2_dec_gm),
+    state: 0x1B8,
+    dec_state: Some(y8s4_dec_state),
+    role: 0x3B8,
+    match_state: MatchState::Chain(&[0x68]),
+    match_layout: Y8S3_MATCH_LAYOUT,
+    gamemode: 0x68736C8,
+    settings: 0xD0,
+    dec_settings: Some([y8s4_dec_settings, y8s4_dec_settings_count]),
+    time_of_day: 0x70,
+    enc_handle_uid: Some(y8s4_enc_handle_uid),
+    enc_object_uid: Some(y8s4_enc_object_uid),
+    round: RoundProfile {
+        live: (0x1C0, Raw::Fixed(0x59)),
+        running: (0x10C4, Raw::Fixed(0x93)),
+        countdown: (0x10C7, Raw::Keyed(y8s4_countdown)),
+        match_over: (0x10C8, Raw::Fixed(0x04)),
+        now: 0x60F0,
+        start: 0x104C,
+        end: 0x106C,
+        duration: 0x10BC,
+        freeze: (0x1068, Raw::Fixed(0x24)),
+        infinite_display: Some((0x10C6, Raw::Fixed([0xDC, 0xDA]))),
+        enc_end: y8s4_enc_end,
+        dec_end: y8s4_dec_end,
+        enc_duration: y8s4_enc_duration,
+        dec_duration: y8s4_dec_duration,
+        roster: Roster::Encoded {
+            lists: [0xC10, 0x878],
+            dec_head: [y8s4_dec_list, y8s4_dec_count],
+            handles: &[0xB0, 0x3E0],
+            dec_handle: y8s4_dec_handle,
+            session_handles: None,
+        },
+        loadout: 0x18,
+        dec_loadout: Some(y8s4_dec_loadout),
+        slots: [0x10, 0x00, 0x18, 0x50],
+        slot: Some(SlotChain {
+            dec: y8s4_dec_slot,
+            field: 0x28,
+            item: 0x28,
+            enc_item: y8s4_enc_item,
+        }),
+    },
+    maps: &[
+        ("Oregon", 0x35F2901CF4),
+        ("Hereford Base - Rework", 0x1DCA7A2258),
+        ("Club House", 0x31E6DF85),
+        ("Presidential Plane", 0x9B858528),
+        ("Yacht", 0x6961015C),
+        ("Consulate", 0x584B31FC7D),
+        ("Bank", 0x52C53F0506),
+        ("Kanal", 0x570932C9),
+        ("Chalet", 0x3C7E4A5A5D),
+        ("Bartlett University", 0xA0C50B9A),
+        ("Kafe Dostoyevsky", 0x522587EA),
+        ("Border", 0x473DCA77EF),
+        ("Favela", 0x4CCD9FE066),
+        ("Skyscraper", 0x4053835E1E),
+        ("Coastline", 0x9CCC3D997),
+        ("Theme Park", 0x2E8679C826),
+        ("Tower", 0xC7C6E5654),
+        ("Villa", 0x14839B2B18),
+        ("Fortress", 0x1D61EAFB8F),
+        ("Outback", 0x546CF2DD4F),
+        ("House", 0x37625C3900),
+        ("Emerald Plains", 0x550CA6FED4),
+        ("Stadium Bravo", 0x3EE107746E),
+        ("Nighthaven Labs", 0x58260EEFB3),
+        ("Lair", 0x5A5AF8ECF7),
+        ("Close Quarter", 0x57AC2280B2),
+        ("Freeze For All", 0x5C4B99AE00),
+    ],
+    standard_maps: 26,
+    thunt_maps: &[],
+    tdm_maps: &[5, 12, 13, 14, 15, 17, 21, 25, 23, 24, 22],
+    events: &[("Freeze For All", 0x5C895B9F5C, 0x5C895BA04D, &[26])],
+};
+
+static Y9S1_MATCH: MatchCodec = MatchCodec {
+    index: (0xBC, y9s1_dec_match_index),
+    entries: (0xC0, [y9s1_dec_match_data, y9s1_dec_match_count]),
+    enc_playlist: y9s1_enc_playlist,
+    enc_mode: y9s1_enc_mode,
+    enc_map: y9s1_enc_map,
+    dec_tod: y9s1_dec_match_tod,
+    settings: [y9s1_dec_match_settings, y9s1_dec_match_settings_count],
+    enc_settings_count: y9s1_enc_match_settings_count,
+};
+
+static Y9S1_GAME: GameProfile = GameProfile {
+    tag: "y9s1",
+    game_manager: 0x7F25C00,
+    dec_gm: Some(y8s2_dec_gm),
+    state: 0x1CC,
+    dec_state: Some(y9s1_dec_state),
+    role: 0x3C0,
+    match_state: MatchState::Encoded(&Y9S1_MATCH),
+    match_layout: Y9S1_MATCH_LAYOUT,
+    gamemode: 0x741FE48,
+    settings: 0x98,
+    dec_settings: Some([y9s1_dec_settings, y9s1_dec_settings_count]),
+    time_of_day: 0xB0,
+    enc_handle_uid: Some(y9s1_enc_handle_uid),
+    enc_object_uid: Some(y9s1_enc_object_uid),
+    round: RoundProfile {
+        live: (0x1C8, Raw::Fixed(0x215F8540)),
+        running: (0x1142, Raw::Fixed(0x49)),
+        countdown: (0x1139, Raw::Keyed(y9s1_countdown)),
+        match_over: (0x1141, Raw::Fixed(0x61)),
+        now: 0x5C10,
+        start: 0x10B4,
+        end: 0x10C8,
+        duration: 0x1128,
+        freeze: (0x10B0, Raw::Keyed(y9s1_unfrozen)),
+        infinite_display: Some((0x113B, Raw::Fixed([0x6C, 0x7C]))),
+        enc_end: y9s1_enc_end,
+        dec_end: y9s1_dec_end,
+        enc_duration: y9s1_enc_duration,
+        dec_duration: y9s1_dec_duration,
+        roster: Roster::Encoded {
+            lists: [0xC08, 0x408],
+            dec_head: [y9s1_dec_list, y9s1_dec_count],
+            handles: &[0xC0, 0x3F8],
+            dec_handle: y9s1_dec_handle,
+            session_handles: None,
+        },
+        loadout: 0x30,
+        dec_loadout: Some(y9s1_dec_loadout),
+        slots: [0x98, 0x48, 0x90, 0x28],
+        slot: Some(SlotChain {
+            dec: y9s1_dec_slot,
+            field: 0x28,
+            item: 0x20,
+            enc_item: y9s1_enc_item,
+        }),
+    },
+    maps: &[
+        ("Oregon", 0x35F2901CF4),
+        ("Hereford Base - Rework", 0x1DCA7A2258),
+        ("Club House", 0x31E6DF85),
+        ("Presidential Plane", 0x9B858528),
+        ("Yacht", 0x6961015C),
+        ("Consulate", 0x584B31FC7D),
+        ("Bank", 0x52C53F0506),
+        ("Kanal", 0x570932C9),
+        ("Chalet", 0x3C7E4A5A5D),
+        ("Bartlett University", 0xA0C50B9A),
+        ("Kafe Dostoyevsky", 0x522587EA),
+        ("Border", 0x473DCA77EF),
+        ("Favela", 0x4CCD9FE066),
+        ("Skyscraper", 0x4053835E1E),
+        ("Coastline", 0x9CCC3D997),
+        ("Theme Park", 0x2E8679C826),
+        ("Tower", 0xC7C6E5654),
+        ("Villa", 0x14839B2B18),
+        ("Fortress", 0x1D61EAFB8F),
+        ("Outback", 0x546CF2DD4F),
+        ("House", 0x37625C3900),
+        ("Emerald Plains", 0x550CA6FED4),
+        ("Stadium Bravo", 0x3EE107746E),
+        ("Nighthaven Labs", 0x58260EEFB3),
+        ("Lair", 0x5A5AF8ECF7),
+        ("Close Quarter", 0x57AC2280B2),
+        ("Containment", 0x5464BBF809),
+    ],
+    standard_maps: 26,
+    thunt_maps: &[],
+    tdm_maps: &[5, 12, 13, 14, 15, 17, 21, 25, 23, 24],
+    events: &[("Containment", 0x547CD662FD, 0x54A95068E8, &[26])],
+};
+
+static Y9S2_MATCH: MatchCodec = MatchCodec {
+    index: (0x15D, y9s2_dec_match_index),
+    entries: (0x160, [y9s2_dec_match_data, y9s2_dec_match_count]),
+    enc_playlist: y9s2_enc_playlist,
+    enc_mode: y9s2_enc_mode,
+    enc_map: y9s2_enc_map,
+    dec_tod: y9s2_dec_match_tod,
+    settings: [y9s2_dec_match_settings, y9s2_dec_match_settings_count],
+    enc_settings_count: y9s2_enc_match_settings_count,
+};
+
+static Y9S2_GAME: GameProfile = GameProfile {
+    tag: "y9s2",
+    game_manager: 0x81F9118,
+    dec_gm: Some(y7s4_dec_gm),
+    state: 0x1CC,
+    dec_state: Some(y9s2_dec_state),
+    role: 0x3C0,
+    match_state: MatchState::Encoded(&Y9S2_MATCH),
+    match_layout: Y9S2_MATCH_LAYOUT,
+    gamemode: 0x76BA838,
+    settings: 0x48,
+    dec_settings: Some([y9s2_dec_settings, y9s2_dec_settings_count]),
+    time_of_day: 0xD0,
+    enc_handle_uid: Some(y9s2_enc_handle_uid),
+    enc_object_uid: Some(y9s2_enc_object_uid),
+    round: RoundProfile {
+        live: (0x1C8, Raw::Keyed(y9s2_live)),
+        running: (0x1141, Raw::Fixed(0x80)),
+        countdown: (0x114D, Raw::Keyed(y9s2_countdown)),
+        match_over: (0x114B, Raw::Keyed(y9s2_match_over)),
+        now: 0x5C30,
+        start: 0x1118,
+        end: 0x1120,
+        duration: 0x10C4,
+        freeze: (0x1104, Raw::Keyed(y9s2_unfrozen)),
+        infinite_display: Some((0x1142, Raw::Keyed(y9s2_display))),
+        enc_end: y9s2_enc_end,
+        dec_end: y9s2_dec_end,
+        enc_duration: y9s2_enc_duration,
+        dec_duration: y9s2_dec_duration,
+        roster: Roster::Encoded {
+            lists: [0xAF0, 0x4A8],
+            dec_head: [y9s2_dec_list, y9s2_dec_count],
+            handles: &[0xB8, 0x3F0],
+            dec_handle: y9s2_dec_handle,
+            session_handles: None,
+        },
+        loadout: 0x20,
+        dec_loadout: Some(y9s2_dec_loadout),
+        slots: [0x38, 0x68, 0x08, 0xA0],
+        slot: Some(SlotChain {
+            dec: y9s2_dec_slot,
+            field: 0x10,
+            item: 0x30,
+            enc_item: y9s2_enc_item,
+        }),
+    },
+    maps: &[
+        ("Oregon", 0x35F2901CF4),
+        ("Hereford Base - Rework", 0x1DCA7A2258),
+        ("Club House", 0x31E6DF85),
+        ("Presidential Plane", 0x9B858528),
+        ("Yacht", 0x6961015C),
+        ("Consulate", 0x584B31FC7D),
+        ("Bank", 0x52C53F0506),
+        ("Kanal", 0x570932C9),
+        ("Chalet", 0x3C7E4A5A5D),
+        ("Bartlett University", 0xA0C50B9A),
+        ("Kafe Dostoyevsky", 0x522587EA),
+        ("Border", 0x473DCA77EF),
+        ("Favela", 0x4CCD9FE066),
+        ("Skyscraper", 0x4053835E1E),
+        ("Coastline", 0x9CCC3D997),
+        ("Theme Park", 0x2E8679C826),
+        ("Tower", 0xC7C6E5654),
+        ("Villa", 0x14839B2B18),
+        ("Fortress", 0x1D61EAFB8F),
+        ("Outback", 0x546CF2DD4F),
+        ("House", 0x37625C3900),
+        ("Emerald Plains", 0x550CA6FED4),
+        ("Stadium Bravo", 0x3EE107746E),
+        ("Stadium Bravo - Rework", 0x5D7B68A718),
+        ("Nighthaven Labs", 0x58260EEFB3),
+        ("Lair", 0x5A5AF8ECF7),
+        ("Stadium Alpha", 0x5E5E235604),
+        ("Close Quarter", 0x57AC2280B2),
+        ("M.U.T.E. Protocol", 0x40DC810C48),
+    ],
+    standard_maps: 28,
+    thunt_maps: &[],
+    tdm_maps: &[5, 25, 13, 27, 15, 17, 24, 26, 11, 2],
+    events: &[("M.U.T.E. Protocol", 0x59E5A4411F, 0x58CE8D5DB2, &[28])],
+};
+
+static Y9S3_MATCH: MatchCodec = MatchCodec {
+    index: (0x14C, y9s3_dec_match_index),
+    entries: (0x150, [y9s3_dec_match_data, y9s3_dec_match_count]),
+    enc_playlist: y9s3_enc_playlist,
+    enc_mode: y9s3_enc_mode,
+    enc_map: y9s3_enc_map,
+    dec_tod: y9s3_dec_match_tod,
+    settings: [y9s3_dec_match_settings, y9s3_dec_match_settings_count],
+    enc_settings_count: y9s3_enc_match_settings_count,
+};
+
+static Y9S3_GAME: GameProfile = GameProfile {
+    tag: "y9s3",
+    game_manager: 0xBA92A88,
+    dec_gm: Some(y7s4_dec_gm),
+    state: 0x1CC,
+    dec_state: Some(y9s3_dec_state),
+    role: 0x3C8,
+    match_state: MatchState::Encoded(&Y9S3_MATCH),
+    match_layout: Y9S3_MATCH_LAYOUT,
+    gamemode: 0xB178588,
+    settings: 0xD0,
+    dec_settings: Some([y9s3_dec_settings, y9s3_dec_settings_count]),
+    time_of_day: 0x80,
+    enc_handle_uid: Some(y9s3_enc_handle_uid),
+    enc_object_uid: Some(y9s3_enc_object_uid),
+    round: RoundProfile {
+        live: (0x1C8, Raw::Keyed(y9s3_live)),
+        running: (0x10A0, Raw::Fixed(0x5E)),
+        countdown: (0x109D, Raw::Fixed(0xC9)),
+        match_over: (0x109C, Raw::Keyed(y9s3_match_over)),
+        now: 0x1DEC8,
+        start: 0x106C,
+        end: 0x103C,
+        duration: 0x107C,
+        freeze: (0x1064, Raw::Keyed(y9s3_unfrozen)),
+        infinite_display: Some((0x109A, Raw::Keyed(y9s3_display))),
+        enc_end: y9s3_enc_end,
+        dec_end: y9s3_dec_end,
+        enc_duration: y9s3_enc_duration,
+        dec_duration: y9s3_dec_duration,
+        roster: Roster::Encoded {
+            lists: [0xCE8, 0x8F0],
+            dec_head: [y9s3_dec_list, y9s3_dec_count],
+            handles: &[0x88, 0x3C0],
+            dec_handle: y9s3_dec_handle,
+            session_handles: None,
+        },
+        loadout: 0x28,
+        dec_loadout: Some(y9s3_dec_loadout),
+        slots: [0x10, 0x80, 0x00, 0x88],
+        slot: Some(SlotChain {
+            dec: y9s3_dec_slot,
+            field: 0x10,
+            item: 0x20,
+            enc_item: y9s3_enc_item,
+        }),
+    },
+    maps: &[
+        ("Oregon", 0x35F2901CF4),
+        ("Hereford Base - Rework", 0x1DCA7A2258),
+        ("Club House", 0x31E6DF85),
+        ("Presidential Plane", 0x9B858528),
+        ("Yacht", 0x6961015C),
+        ("Consulate", 0x584B31FC7D),
+        ("Bank", 0x52C53F0506),
+        ("Kanal", 0x570932C9),
+        ("Chalet", 0x3C7E4A5A5D),
+        ("Bartlett University", 0xA0C50B9A),
+        ("Kafe Dostoyevsky", 0x522587EA),
+        ("Border", 0x473DCA77EF),
+        ("Favela", 0x4CCD9FE066),
+        ("Skyscraper", 0x4053835E1E),
+        ("Coastline", 0x9CCC3D997),
+        ("Theme Park", 0x2E8679C826),
+        ("Tower", 0xC7C6E5654),
+        ("Villa", 0x14839B2B18),
+        ("Fortress", 0x1D61EAFB8F),
+        ("Outback", 0x546CF2DD4F),
+        ("House", 0x37625C3900),
+        ("Emerald Plains", 0x550CA6FED4),
+        ("Stadium Bravo", 0x3EE107746E),
+        ("Stadium Bravo - Rework", 0x5D7B68A718),
+        ("Nighthaven Labs", 0x58260EEFB3),
+        ("Lair", 0x5A5AF8ECF7),
+        ("Stadium Alpha", 0x5E5E235604),
+        ("Close Quarter", 0x57AC2280B2),
+        ("Doktor's Curse", 0xB3555E074),
+    ],
+    standard_maps: 28,
+    thunt_maps: &[],
+    tdm_maps: &[5, 25, 13, 27, 15, 17, 24, 26, 11, 2],
+    events: &[("Doktor's Curse", 0x55CDE1F7AE, 0x55CDE1FAB7, &[28])],
+};
+
+static Y9S4_MATCH: MatchCodec = MatchCodec {
+    index: (0x135, y9s4_dec_match_index),
+    entries: (0x138, [y9s4_dec_match_data, y9s4_dec_match_count]),
+    enc_playlist: y9s4_enc_playlist,
+    enc_mode: y9s4_enc_mode,
+    enc_map: y9s4_enc_map,
+    dec_tod: y9s4_dec_match_tod,
+    settings: [y9s4_dec_match_settings, y9s4_dec_match_settings_count],
+    enc_settings_count: y9s4_enc_match_settings_count,
+};
+
+static Y9S4_GAME: GameProfile = GameProfile {
+    tag: "y9s4",
+    game_manager: 0xD4A6668,
+    dec_gm: Some(y8s2_dec_gm),
+    state: 0x1C4,
+    dec_state: Some(y9s4_dec_state),
+    role: 0x3C8,
+    match_state: MatchState::Encoded(&Y9S4_MATCH),
+    match_layout: Y9S4_MATCH_LAYOUT,
+    gamemode: 0xC9B9F88,
+    settings: 0xD0,
+    dec_settings: Some([y9s4_dec_settings, y9s4_dec_settings_count]),
+    time_of_day: 0x28,
+    enc_handle_uid: Some(y9s4_enc_handle_uid),
+    enc_object_uid: Some(y9s4_enc_object_uid),
+    round: RoundProfile {
+        live: (0x1C0, Raw::Fixed(0x57770188)),
+        running: (0x1127, Raw::Keyed(y9s4_running)),
+        countdown: (0x112C, Raw::Keyed(y9s4_countdown)),
+        match_over: (0x1128, Raw::Keyed(y9s4_match_over)),
+        now: 0x1DFA8,
+        start: 0x1118,
+        end: 0x10D8,
+        duration: 0x10E0,
+        freeze: (0x10AC, Raw::Keyed(y9s4_unfrozen)),
+        infinite_display: Some((0x1133, Raw::Keyed(y9s4_display))),
+        enc_end: y9s4_enc_end,
+        dec_end: y9s4_dec_end,
+        enc_duration: y9s4_enc_duration,
+        dec_duration: y9s4_dec_duration,
+        roster: Roster::Encoded {
+            lists: [0xCD0, 0x8A0],
+            dec_head: [y9s4_dec_list, y9s4_dec_count],
+            handles: &[0xE8, 0x428],
+            dec_handle: y9s4_dec_handle,
+            session_handles: None,
+        },
+        loadout: 0x30,
+        dec_loadout: Some(y9s4_dec_loadout),
+        slots: [0x50, 0x90, 0x00, 0x78],
+        slot: Some(SlotChain {
+            dec: y9s4_dec_slot,
+            field: 0x20,
+            item: 0x28,
+            enc_item: y9s4_enc_item,
+        }),
+    },
+    maps: &[
+        ("Oregon", 0x35F2901CF4),
+        ("Hereford Base - Rework", 0x1DCA7A2258),
+        ("Club House", 0x31E6DF85),
+        ("Presidential Plane", 0x9B858528),
+        ("Yacht", 0x6961015C),
+        ("Consulate", 0x584B31FC7D),
+        ("Bank", 0x52C53F0506),
+        ("Kanal", 0x570932C9),
+        ("Chalet", 0x3C7E4A5A5D),
+        ("Bartlett University", 0xA0C50B9A),
+        ("Kafe Dostoyevsky", 0x522587EA),
+        ("Border", 0x473DCA77EF),
+        ("Favela", 0x4CCD9FE066),
+        ("Skyscraper", 0x4053835E1E),
+        ("Coastline", 0x9CCC3D997),
+        ("Theme Park", 0x2E8679C826),
+        ("Tower", 0xC7C6E5654),
+        ("Villa", 0x14839B2B18),
+        ("Fortress", 0x1D61EAFB8F),
+        ("Outback", 0x546CF2DD4F),
+        ("House", 0x37625C3900),
+        ("Emerald Plains", 0x550CA6FED4),
+        ("Stadium Bravo", 0x3EE107746E),
+        ("Stadium Bravo - Rework", 0x5D7B68A718),
+        ("Nighthaven Labs", 0x58260EEFB3),
+        ("Lair", 0x5A5AF8ECF7),
+        ("Stadium Alpha", 0x5E5E235604),
+        ("Close Quarter", 0x57AC2280B2),
+        ("Freeze For All", 0x5C4B99AE00),
+    ],
+    standard_maps: 28,
+    thunt_maps: &[],
+    tdm_maps: &[5, 25, 13, 27, 15, 17, 24, 26, 11, 2],
+    events: &[("Freeze For All", 0x5C895B9F5C, 0x5C895BA04D, &[28])],
+};
+
+static Y10S1_MATCH: MatchCodec = MatchCodec {
+    index: (0xFE, y10s1_dec_match_index),
+    entries: (0x100, [y10s1_dec_match_data, y10s1_dec_match_count]),
+    enc_playlist: y10s1_enc_playlist,
+    enc_mode: y10s1_enc_mode,
+    enc_map: y10s1_enc_map,
+    dec_tod: y10s1_dec_match_tod,
+    settings: [y10s1_dec_match_settings, y10s1_dec_match_settings_count],
+    enc_settings_count: y10s1_enc_match_settings_count,
+};
+
+static Y10S1_GAME: GameProfile = GameProfile {
+    tag: "y10s1",
+    game_manager: 0xE3AEEE0,
+    dec_gm: Some(y10s1_dec_gm),
+    state: 0x1C0,
+    dec_state: Some(y10s1_dec_state),
+    role: 0x3C8,
+    match_state: MatchState::Encoded(&Y10S1_MATCH),
+    match_layout: Y10S1_MATCH_LAYOUT,
+    gamemode: 0xD7A9E10,
+    settings: 0x20,
+    dec_settings: Some([y10s1_dec_settings, y10s1_dec_settings_count]),
+    time_of_day: 0xA8,
+    enc_handle_uid: Some(y10s1_enc_handle_uid),
+    enc_object_uid: Some(y10s1_enc_object_uid),
+    round: RoundProfile {
+        live: (0x1C4, Raw::Keyed(y10s1_live)),
+        running: (0x1143, Raw::Keyed(y10s1_running)),
+        countdown: (0x1142, Raw::Fixed(0xF3)),
+        match_over: (0x113A, Raw::Keyed(y10s1_match_over)),
+        now: 0x1E010,
+        start: 0x1100,
+        end: 0x10B8,
+        duration: 0x1120,
+        freeze: (0x1108, Raw::Keyed(y10s1_unfrozen)),
+        infinite_display: Some((0x1134, Raw::Keyed(y10s1_display))),
+        enc_end: y10s1_enc_end,
+        dec_end: y10s1_dec_end,
+        enc_duration: y10s1_enc_duration,
+        dec_duration: y10s1_dec_duration,
+        roster: Roster::Encoded {
+            lists: [0xDD0, 0xAC8],
+            dec_head: [y10s1_dec_list, y10s1_dec_count],
+            handles: &[0xB0, 0x3E8],
+            dec_handle: y10s1_dec_handle,
+            session_handles: None,
+        },
+        loadout: 0x18,
+        dec_loadout: Some(y10s1_dec_loadout),
+        slots: [0xA0, 0x90, 0x00, 0x40],
+        slot: Some(SlotChain {
+            dec: y10s1_dec_slot,
+            field: 0x18,
+            item: 0x28,
+            enc_item: y10s1_enc_item,
+        }),
+    },
+    maps: &[
+        ("Oregon", 0x35F2901CF4),
+        ("Club House", 0x31E6DF85),
+        ("Presidential Plane", 0x9B858528),
+        ("Yacht", 0x6961015C),
+        ("Consulate", 0x584B31FC7D),
+        ("Bank", 0x52C53F0506),
+        ("Kanal", 0x570932C9),
+        ("Chalet", 0x3C7E4A5A5D),
+        ("Bartlett University", 0xA0C50B9A),
+        ("Kafe Dostoyevsky", 0x522587EA),
+        ("Border", 0x473DCA77EF),
+        ("Favela", 0x4CCD9FE066),
+        ("Skyscraper", 0x4053835E1E),
+        ("Coastline", 0x9CCC3D997),
+        ("Theme Park", 0x2E8679C826),
+        ("Tower", 0xC7C6E5654),
+        ("Villa", 0x14839B2B18),
+        ("Fortress", 0x1D61EAFB8F),
+        ("Outback", 0x546CF2DD4F),
+        ("House", 0x37625C3900),
+        ("Emerald Plains", 0x550CA6FED4),
+        ("Stadium Bravo", 0x3EE107746E),
+        ("Stadium Bravo - Rework", 0x5D7B68A718),
+        ("Nighthaven Labs", 0x58260EEFB3),
+        ("Lair", 0x5A5AF8ECF7),
+        ("Stadium Alpha", 0x5E5E235604),
+        ("Close Quarter", 0x57AC2280B2),
+    ],
+    standard_maps: 27,
+    thunt_maps: &[],
+    tdm_maps: &[4, 24, 12, 26, 14, 16, 23, 25, 10, 1],
+    events: &[],
+};
+
+fn game_profile(build: &str) -> Option<&'static GameProfile> {
     match build {
         "Y5S1_14303219" => Some(&Y5S1_GAME),
         "Y5S2_14664131" => Some(&Y5S2_GAME),
@@ -3526,19 +6437,26 @@ fn y5_game(build: &str) -> Option<&'static Y5Game> {
         "Y7S4_50497889" => Some(&Y7S4_GAME),
         "Y8S1_55217154" => Some(&Y8S1_GAME),
         "Y8S2_58222837" => Some(&Y8S2_GAME),
+        "Y8S3_62486471" => Some(&Y8S3_GAME),
+        "Y8S4_67466841" => Some(&Y8S4_GAME),
+        "Y9S1_69866602" => Some(&Y9S1_GAME),
+        "Y9S2_72730050" => Some(&Y9S2_GAME),
+        "Y9S3_79429095" => Some(&Y9S3_GAME),
+        "Y9S4_82873685" => Some(&Y9S4_GAME),
+        "Y10S1_87835624" => Some(&Y10S1_GAME),
         _ => None,
     }
 }
 
 #[derive(Clone, Copy)]
-struct Y5Pick {
+struct Pick {
     mode: u64,
     map: u64,
     difficulty: u64,
     playlist: u64,
 }
 
-struct Y5Lobby {
+struct Lobby {
     m: u64,
     playlist: u64,
     tod_at: u64,
@@ -3546,7 +6464,7 @@ struct Y5Lobby {
     entries: Vec<u64>,
 }
 
-fn parse_y5_pick(game: &Y5Game, id: &str) -> Option<Y5Pick> {
+fn parse_pick(game: &GameProfile, id: &str) -> Option<Pick> {
     let parts: Vec<&str> = id.split(':').collect();
     if parts.first() != Some(&game.tag) {
         return None;
@@ -3554,7 +6472,7 @@ fn parse_y5_pick(game: &Y5Game, id: &str) -> Option<Y5Pick> {
     let n = |i: usize| parts.get(i)?.parse::<usize>().ok();
     let map = |i: usize| Some(game.maps.get(n(i)?)?.1);
     let plain = |modes: &[(&str, u64)], difficulty: u64| {
-        Some(Y5Pick {
+        Some(Pick {
             mode: modes.get(n(2)?)?.1,
             map: map(3)?,
             difficulty,
@@ -3562,17 +6480,19 @@ fn parse_y5_pick(game: &Y5Game, id: &str) -> Option<Y5Pick> {
         })
     };
     match *parts.get(1)? {
-        "mp" => plain(Y5_MULTIPLAYER, 0),
-        "dev" => Some(Y5Pick {
-            mode: Y5_GYM,
+        "mp" => plain(MULTIPLAYER_MODES, 0),
+        "dev" => Some(Pick {
+            mode: GYM_MODE,
             map: map(2)?,
             difficulty: 0,
             playlist: 0,
         }),
-        "th" => plain(Y5_TERRORIST_HUNT, Y5_DIFFICULTIES.get(n(4)?)?.1),
+        "th" if game.thunt_maps.contains(&n(3)?) => {
+            plain(TERRORIST_HUNT_MODES, DIFFICULTIES.get(n(4)?)?.1)
+        }
         "ev" => {
             let (_, mode, playlist, _) = game.events.get(n(2)?)?;
-            Some(Y5Pick {
+            Some(Pick {
                 mode: *mode,
                 map: map(3)?,
                 difficulty: 0,
@@ -3583,20 +6503,29 @@ fn parse_y5_pick(game: &Y5Game, id: &str) -> Option<Y5Pick> {
     }
 }
 
-fn build_y5_tree_json(game: &Y5Game) -> String {
+fn build_profile_tree_json(game: &GameProfile, installed: impl Fn(u64) -> bool) -> String {
     let tag = game.tag;
-    let maps = |prefix: String| {
+    let maps = |prefix: String, warmup: bool| {
         (0..game.standard_maps)
+            .filter(|&map| warmup || !WARMUP_MAPS.contains(&game.maps[map].1))
             .map(|map| leaf(game.maps[map].0, format!("{prefix}:{map}")))
             .collect::<Vec<_>>()
     };
-    let multiplayer = Y5_MULTIPLAYER
+    let multiplayer = MULTIPLAYER_MODES
         .iter()
         .enumerate()
-        .map(|(m, (name, _))| branch(name, maps(format!("{tag}:mp:{m}"))))
+        .map(|(m, &(name, mode))| match game.tdm_maps {
+            tdm if mode == WARMUP_MODE && !tdm.is_empty() => branch(
+                "Team Deathmatch",
+                tdm.iter()
+                    .map(|&map| leaf(game.maps[map].0, format!("{tag}:mp:{m}:{map}")))
+                    .collect(),
+            ),
+            _ => branch(name, maps(format!("{tag}:mp:{m}"), mode == WARMUP_MODE)),
+        })
         .collect();
-    let gym = maps(format!("{tag}:dev"));
-    let hunt = Y5_TERRORIST_HUNT
+    let gym = maps(format!("{tag}:dev"), false);
+    let hunt = TERRORIST_HUNT_MODES
         .iter()
         .enumerate()
         .map(|(m, (name, _))| {
@@ -3604,7 +6533,7 @@ fn build_y5_tree_json(game: &Y5Game) -> String {
                 .thunt_maps
                 .iter()
                 .map(|&map| {
-                    let levels = Y5_DIFFICULTIES
+                    let levels = DIFFICULTIES
                         .iter()
                         .enumerate()
                         .map(|(d, (level, _))| leaf(level, format!("{tag}:th:{m}:{map}:{d}")))
@@ -3617,12 +6546,17 @@ fn build_y5_tree_json(game: &Y5Game) -> String {
         .collect();
     let mut events: Vec<TNode> = Vec::new();
     for (e, (name, _, _, maps)) in game.events.iter().enumerate() {
-        let leaves = maps
+        let leaves: Vec<TNode> = maps
             .iter()
-            .map(|&map| leaf(game.maps[map].0, format!("{tag}:ev:{e}:{map}")));
+            .filter(|&&map| installed(game.maps[map].1))
+            .map(|&map| leaf(game.maps[map].0, format!("{tag}:ev:{e}:{map}")))
+            .collect();
+        if leaves.is_empty() {
+            continue;
+        }
         match events.iter_mut().find(|node| node.text == *name) {
             Some(group) => group.children.extend(leaves),
-            None => events.push(branch(name, leaves.collect())),
+            None => events.push(branch(name, leaves)),
         }
     }
     for node in &mut events {
@@ -3630,11 +6564,11 @@ fn build_y5_tree_json(game: &Y5Game) -> String {
             node.id = node.children.remove(0).id;
         }
     }
-    let mut roots = vec![
-        branch("Multiplayer", multiplayer),
-        branch("Terrorist Hunt", hunt),
-        branch("Development", gym),
-    ];
+    let mut roots = vec![branch("Multiplayer", multiplayer)];
+    if !game.thunt_maps.is_empty() {
+        roots.push(branch("Terrorist Hunt", hunt));
+    }
+    roots.push(branch("Development", gym));
     if !events.is_empty() {
         roots.push(branch("Events", events));
     }
@@ -3651,18 +6585,16 @@ pub struct Runner {
     unlocked: bool,
     unsupported: bool,
     season: i32,
-    disable_primary: bool,
-    disable_secondary: bool,
     gametype: u64,
-    y5_disable: [bool; Y5_DISABLE_SLOTS.len()],
-    y5_infinite: bool,
-    y5_phase: Option<Y5Phase>,
-    y5_match_end: bool,
-    y5_pick: Option<Y5Pick>,
-    y5_handles: HashMap<u64, u64>,
-    y5_playlists: HashMap<u64, u64>,
-    y5_scanned: u64,
-    y5_lobby: Option<Y5Lobby>,
+    disabled: [bool; DISABLE_MODS.len()],
+    infinite_time: bool,
+    phase: Option<Phase>,
+    match_end: bool,
+    pick: Option<Pick>,
+    handles: HashMap<u64, u64>,
+    playlists: HashMap<u64, u64>,
+    scanned_match: u64,
+    lobby: Option<Lobby>,
     lastsig: String,
     tree_sent: bool,
     scanned: String,
@@ -3684,18 +6616,16 @@ impl Runner {
             unlocked: false,
             unsupported: false,
             season: -1,
-            disable_primary: false,
-            disable_secondary: false,
             gametype: 0,
-            y5_disable: [false; Y5_DISABLE_SLOTS.len()],
-            y5_infinite: false,
-            y5_phase: None,
-            y5_match_end: false,
-            y5_pick: None,
-            y5_handles: HashMap::new(),
-            y5_playlists: HashMap::new(),
-            y5_scanned: 0,
-            y5_lobby: None,
+            disabled: [false; DISABLE_MODS.len()],
+            infinite_time: false,
+            phase: None,
+            match_end: false,
+            pick: None,
+            handles: HashMap::new(),
+            playlists: HashMap::new(),
+            scanned_match: 0,
+            lobby: None,
             lastsig: String::new(),
             tree_sent: false,
             scanned: String::new(),
@@ -3716,15 +6646,32 @@ impl Runner {
                 continue;
             }
             self.eng
-                .write_mem(self.eng.base.wrapping_add(p.addr), p.bytes);
+                .write_mem(self.eng.at(p.addr), self.eng.bytes(p.addr, p.bytes));
         }
     }
 
     fn is_full_feature(&self) -> bool {
-        (0..SEASON_Y5S1).contains(&self.season) || y5_game(self.build).is_some()
+        (0..SEASON_Y5S1).contains(&self.season) || game_profile(self.build).is_some()
     }
 
-    fn y5_deref(&self, start: u64, offsets: &[i32]) -> u64 {
+    fn match_entry(&self, game: &GameProfile, gm: u64) -> u64 {
+        match game.match_state {
+            MatchState::Chain(offsets) => self.deref_chain(gm, offsets),
+            MatchState::Encoded(codec) => {
+                let (at, [dec_data, dec_count]) = codec.entries;
+                let data = dec_data(self.eng.read_u64(gm + at));
+                let count = dec_count(self.eng.read_u64(gm + at + 8)) & 0x3FFF_FFFF;
+                let index = u64::from((codec.index.1)(self.eng.read_u8(gm + codec.index.0)));
+                if data == 0 || index >= count {
+                    0
+                } else {
+                    data + index * 0xA0
+                }
+            }
+        }
+    }
+
+    fn deref_chain(&self, start: u64, offsets: &[i32]) -> u64 {
         let mut a = start;
         for off in offsets {
             if a == 0 {
@@ -3735,97 +6682,89 @@ impl Runner {
         a
     }
 
-    fn y5_container(&self, round: &Y5Round, loadout: u64) -> u64 {
+    fn loadout_container(&self, round: &RoundProfile, loadout: u64) -> u64 {
         match round.dec_loadout {
             Some(dec) if loadout != 0 => dec(self
                 .eng
                 .read_u64(loadout.wrapping_add(round.loadout as u64))),
             Some(_) => 0,
-            None => self.y5_deref(loadout, &[round.loadout]),
+            None => self.deref_chain(loadout, &[round.loadout]),
         }
     }
 
-    fn apply_y5_disable(&self) {
-        if !self.y5_disable.iter().any(|on| *on) {
+    fn apply_disable(&self) {
+        if !self.disabled.iter().any(|on| *on) {
             return;
         }
-        let round = self.y5_round();
-        let containers: Vec<u64> = match (self.season, round) {
-            (_, Some((game, round))) => {
-                let gm = self.y5_gm(game);
-                if !(5..=7).contains(&self.y5_state(game, gm)) {
-                    return;
-                }
-                match round.roster {
-                    Y5Roster::Plain { list, handle } => (-5..5)
-                        .map(|player| {
-                            self.y5_container(
+        let Some((game, round)) = self.round_profile() else {
+            return;
+        };
+        let gm = self.gm(game);
+        if !(5..=7).contains(&self.game_state(game, gm)) {
+            return;
+        }
+        let containers: Vec<u64> = match round.roster {
+            Roster::Plain { list, handle } => (-5..5)
+                .map(|player| {
+                    self.loadout_container(
+                        round,
+                        self.deref_chain(gm, &[list, player * 8, 0x00, handle, 0x00]),
+                    )
+                })
+                .collect(),
+            Roster::Encoded {
+                lists,
+                dec_head,
+                handles,
+                dec_handle,
+                session_handles,
+            } => {
+                let handles = session_handles
+                    .filter(|(config, flags, _)| {
+                        let host = self.eng.read_ptr(self.eng.at(*config));
+                        host != 0 && flags.iter().all(|f| self.eng.read_u8(host + f) != 0)
+                    })
+                    .map_or(handles, |(_, _, session)| session);
+                lists
+                    .iter()
+                    .flat_map(|&at| {
+                        let mut head = [0u8; 16];
+                        self.eng.read_mem(gm + at, &mut head);
+                        let (words, _) = head.as_chunks::<8>();
+                        let data = dec_head[0](u64::from_le_bytes(words[0]));
+                        let count = dec_head[1](u64::from_le_bytes(words[1])) & 0x3FFF_FFFF;
+                        (0..count.min(16)).map(move |i| data + i * 8)
+                    })
+                    .map(|entry| self.deref_chain(entry, &[0x00, 0x00]))
+                    .filter(|&pawn| pawn != 0)
+                    .flat_map(|pawn| {
+                        handles.iter().map(move |at| {
+                            self.loadout_container(
                                 round,
-                                self.y5_deref(gm, &[list, player * 8, 0x00, handle, 0x00]),
+                                self.deref_chain(dec_handle(self.eng.read_u64(pawn + at)), &[0x00]),
                             )
                         })
-                        .collect(),
-                    Y5Roster::Encoded {
-                        lists,
-                        dec_head,
-                        handles,
-                        dec_handle,
-                        session_handles,
-                    } => {
-                        let handles = session_handles
-                            .filter(|(config, flags, _)| {
-                                let host = self.eng.read_ptr(self.eng.base + config);
-                                host != 0 && flags.iter().all(|f| self.eng.read1(host + f) != 0)
-                            })
-                            .map_or(handles, |(_, _, session)| session);
-                        lists
-                            .iter()
-                            .flat_map(|&at| {
-                                let mut head = [0u8; 16];
-                                self.eng.read_mem(gm + at, &mut head);
-                                let (words, _) = head.as_chunks::<8>();
-                                let data = dec_head[0](u64::from_le_bytes(words[0]));
-                                let count = dec_head[1](u64::from_le_bytes(words[1])) & 0x3FFF_FFFF;
-                                (0..count.min(16)).map(move |i| data + i * 8)
-                            })
-                            .map(|entry| self.y5_deref(entry, &[0x00, 0x00]))
-                            .filter(|&pawn| pawn != 0)
-                            .flat_map(|pawn| {
-                                handles.iter().map(move |at| {
-                                    self.y5_container(
-                                        round,
-                                        self.y5_deref(
-                                            dec_handle(self.eng.read_u64(pawn + at)),
-                                            &[0x00],
-                                        ),
-                                    )
-                                })
-                            })
-                            .collect()
-                    }
-                }
+                    })
+                    .collect()
             }
-            _ => return,
         };
-        let round = round.map(|(_, round)| round);
-        let slots = round.map_or(Y5_SLOTS, |round| round.slots);
-        let slot = round.and_then(|round| round.slot.as_ref());
+        let slot = round.slot.as_ref();
         let (item, empty) = slot.map_or((0x18, 0), |slot| (slot.item, (slot.enc_item)(0)));
         for container in containers {
             if container == 0 {
                 continue;
             }
-            for (i, at) in slots.iter().enumerate() {
-                if !self.y5_disable[i] {
+            for (i, at) in round.slots.iter().enumerate() {
+                if !self.disabled[i] {
                     continue;
                 }
-                let child = self.y5_deref(container, &[*at]);
+                let child = self.deref_chain(container, &[*at]);
                 let entry = match slot {
                     Some(slot) if child != 0 => {
-                        self.y5_deref((slot.dec)(self.eng.read_u64(child + slot.field)), &[0x00])
+                        self.deref_chain((slot.dec)(self.eng.read_u64(child + slot.field)), &[0x00])
                     }
                     Some(_) => 0,
-                    None => self.y5_deref(child, &[0x20, 0x00]),
+                    None => self.deref_chain(child, &[0x20, 0x00]),
                 };
                 if entry != 0 {
                     self.eng.write_mem(entry + item, &empty.to_le_bytes());
@@ -3853,10 +6792,50 @@ impl Runner {
     }
 
     fn tree_json(&self) -> String {
-        match (self.season, y5_game(self.build)) {
-            (_, Some(game)) => build_y5_tree_json(game),
-            _ => self.build_tree_json(),
+        match game_profile(self.build) {
+            Some(game) => build_profile_tree_json(game, |map| self.event_installed(map)),
+            None => self.build_tree_json(),
         }
+    }
+
+    fn event_installed(&self, map: u64) -> bool {
+        let mut forges = EVENT_FORGES
+            .iter()
+            .filter(|&&(uid, _)| uid == map)
+            .peekable();
+        forges.peek().is_none() || forges.any(|(_, forge)| self.forge_installed(forge))
+    }
+
+    fn classic_event_installed(&self, event: &str) -> bool {
+        CLASSIC_EVENT_FORGES
+            .iter()
+            .filter(|(name, _)| *name == event)
+            .all(|(_, forge)| self.forge_installed(forge))
+    }
+
+    fn forge_installed(&self, forge: &str) -> bool {
+        self.eng.dir.as_os_str().is_empty()
+            || self
+                .eng
+                .dir
+                .join(format!("datapc64_{forge}.forge"))
+                .is_file()
+    }
+
+    fn briefing_installed(&self, situation: &str) -> bool {
+        let Some(number) = situation.get(..2).and_then(|n| n.parse::<u32>().ok()) else {
+            return true;
+        };
+        let video = format!("training_m{number:02}");
+        self.eng.dir.as_os_str().is_empty()
+            || std::fs::read_dir(self.eng.dir.join("videos")).is_ok_and(|files| {
+                files.flatten().any(|file| {
+                    file.file_name()
+                        .to_string_lossy()
+                        .to_ascii_lowercase()
+                        .starts_with(&video)
+                })
+            })
     }
 
     fn write_chain(&self, feature: &str, bytes: &[u8]) {
@@ -3866,17 +6845,38 @@ impl Runner {
         }
     }
 
-    fn end_round(&self) {
+    fn skip(&mut self) {
         if !self.patched {
             return;
         }
-        if let Some((game, round)) = self.y5_round() {
-            let gm = self.y5_host(game);
-            if self.y5_live(game, round, gm) && self.y5_flag(gm, round.running) {
-                self.y5_time_out(round, gm);
+        if let Some((game, round)) = self.round_profile() {
+            let gm = self.host_gm(game);
+            if gm != 0
+                && (4..=7).contains(&self.game_state(game, gm))
+                && self.eng.read_u32(gm + round.now) != 0
+            {
+                let (offset, unfrozen) = round.freeze;
+                self.eng
+                    .write_mem(gm + offset, &unfrozen.get().to_le_bytes());
+                self.time_out(round, gm);
             }
-        } else if !self.write_state("EndRound") {
-            self.write_chain("EndRound", &[1]);
+        } else if let Some(timer) = self.classic_timer() {
+            let gm = self.classic_gm(timer);
+            if gm != 0
+                && (4..=7).contains(&self.eng.read_u32(gm + timer.state))
+                && self.eng.read_u8(gm + timer.armed) != 0
+            {
+                if timer.freeze != 0 {
+                    self.eng.write_mem(gm + timer.freeze, &[0; 4]);
+                }
+                if self.eng.read_u32(gm + timer.length) == 0 {
+                    self.eng
+                        .write_mem(gm + timer.length, &timer.second.to_le_bytes());
+                }
+                let now = self.eng.read_u32(gm + timer.now);
+                self.eng.write_mem(gm + timer.end, &now.to_le_bytes());
+                self.phase = None;
+            }
         }
     }
 
@@ -3884,11 +6884,11 @@ impl Runner {
         if !self.patched {
             return;
         }
-        if let Some((game, round)) = self.y5_round() {
-            if self.y5_live(game, round, self.y5_host(game)) {
+        if let Some((game, round)) = self.round_profile() {
+            if self.round_live(game, round, self.host_gm(game)) {
                 self.end_match_patch(true);
-                self.y5_match_end = true;
-                self.apply_y5_match_end();
+                self.match_end = true;
+                self.apply_match_end();
             }
         } else if !self.write_state("EndMatch") {
             self.write_chain("EndMatch", &[1]);
@@ -3902,20 +6902,35 @@ impl Runner {
         }
     }
 
-    fn y5_round(&self) -> Option<(&'static Y5Game, &'static Y5Round)> {
-        y5_game(self.build).and_then(|game| game.round.as_ref().map(|round| (game, round)))
+    fn round_profile(&self) -> Option<(&'static GameProfile, &'static RoundProfile)> {
+        game_profile(self.build).map(|game| (game, &game.round))
     }
 
-    fn y5_gm(&self, game: &Y5Game) -> u64 {
-        let at = self.eng.base + game.game_manager;
+    fn classic_timer(&self) -> Option<&'static ClassicTimer> {
+        CLASSIC_TIMERS
+            .iter()
+            .find(|timer| timer.build == self.build)
+    }
+
+    fn classic_gm(&self, timer: &ClassicTimer) -> u64 {
+        let gm = self.eng.read_ptr(self.eng.at(timer.global));
+        if gm != 0 && self.eng.read_u32(gm + timer.role) <= 1 {
+            gm
+        } else {
+            0
+        }
+    }
+
+    fn gm(&self, game: &GameProfile) -> u64 {
+        let at = self.eng.at(game.game_manager);
         match game.dec_gm {
             Some(decode) => decode(self.eng.read_u64(at)),
             None => self.eng.read_ptr(at),
         }
     }
 
-    fn y5_host(&self, game: &Y5Game) -> u64 {
-        let gm = self.y5_gm(game);
+    fn host_gm(&self, game: &GameProfile) -> u64 {
+        let gm = self.gm(game);
         if gm != 0 && self.eng.read_u32(gm + game.role) <= 1 {
             gm
         } else {
@@ -3923,35 +6938,35 @@ impl Runner {
         }
     }
 
-    fn y5_state(&self, game: &Y5Game, gm: u64) -> u32 {
+    fn game_state(&self, game: &GameProfile, gm: u64) -> u32 {
         let raw = self.eng.read_u32(gm + game.state);
         game.dec_state.map_or(raw, |decode| decode(raw))
     }
 
-    fn y5_flag(&self, gm: u64, (offset, value): (u64, u8)) -> bool {
-        self.eng.read1(gm + offset) == value
+    fn has_flag(&self, gm: u64, (offset, value): (u64, Raw<u8>)) -> bool {
+        self.eng.read_u8(gm + offset) == value.get()
     }
 
-    fn y5_live(&self, game: &Y5Game, round: &Y5Round, gm: u64) -> bool {
+    fn round_live(&self, game: &GameProfile, round: &RoundProfile, gm: u64) -> bool {
         gm != 0
-            && self.y5_state(game, gm) == 7
-            && self.eng.read_u32(gm + round.live.0) == round.live.1
+            && self.game_state(game, gm) == 7
+            && self.eng.read_u32(gm + round.live.0) == round.live.1.get()
     }
 
-    fn apply_y5_match_end(&mut self) {
-        let Some((game, round)) = self.y5_round() else {
+    fn apply_match_end(&mut self) {
+        let Some((game, round)) = self.round_profile() else {
             return;
         };
-        let gm = self.y5_host(game);
-        if !self.y5_live(game, round, gm) || self.y5_flag(gm, round.match_over) {
+        let gm = self.host_gm(game);
+        if !self.round_live(game, round, gm) || self.has_flag(gm, round.match_over) {
             self.end_match_patch(false);
-            self.y5_match_end = false;
-        } else if self.y5_flag(gm, round.running) {
-            self.y5_time_out(round, gm);
+            self.match_end = false;
+        } else if self.has_flag(gm, round.running) {
+            self.time_out(round, gm);
         }
     }
 
-    fn y5_time_out(&self, round: &Y5Round, gm: u64) {
+    fn time_out(&self, round: &RoundProfile, gm: u64) {
         let now = self.eng.read_u32(gm + round.now);
         if self.eng.read_u32(gm + round.duration) == (round.enc_duration)(0) {
             self.eng.write_mem(
@@ -3963,11 +6978,15 @@ impl Runner {
             .write_mem(gm + round.end, &(round.enc_end)(now).to_le_bytes());
     }
 
-    fn apply_y5_infinite(&mut self) {
-        let Some((game, round)) = self.y5_round() else {
+    fn apply_infinite(&mut self) {
+        if let Some(timer) = self.classic_timer() {
+            self.apply_classic_infinite(timer);
+            return;
+        }
+        let Some((game, round)) = self.round_profile() else {
             return;
         };
-        let gm = self.y5_host(game);
+        let gm = self.host_gm(game);
         if gm == 0 {
             return;
         }
@@ -3975,27 +6994,27 @@ impl Runner {
         let start = self.eng.read_u32(gm + round.start);
         let duration = self.eng.read_u32(gm + round.duration);
         let now = self.eng.read_u32(gm + round.now);
-        if !self.y5_infinite {
-            if let Some(phase) = self.y5_phase.take() {
+        if !self.infinite_time {
+            if let Some(phase) = self.phase.take() {
                 if phase.start == start && duration == infinite {
                     let end = (round.dec_end)(phase.end).wrapping_add(now.wrapping_sub(phase.at));
                     self.eng
                         .write_mem(gm + round.end, &(round.enc_end)(end).to_le_bytes());
                     self.eng
                         .write_mem(gm + round.duration, &phase.duration.to_le_bytes());
-                    self.y5_infinite_display(round, gm, false);
+                    self.set_infinite_display(round, gm, false);
                 }
             }
             return;
         }
-        let state = self.y5_state(game, gm);
+        let state = self.game_state(game, gm);
         if (state == 5 || state == 7)
-            && self.y5_flag(gm, round.running)
-            && self.y5_flag(gm, round.countdown)
+            && self.has_flag(gm, round.running)
+            && self.has_flag(gm, round.countdown)
             && duration != infinite
-            && (round.dec_duration)(duration) >= Y5_MIN_PHASE_MS
+            && (round.dec_duration)(duration) >= MIN_PHASE_MS
         {
-            self.y5_phase = Some(Y5Phase {
+            self.phase = Some(Phase {
                 start,
                 duration,
                 end: self.eng.read_u32(gm + round.end),
@@ -4005,35 +7024,78 @@ impl Runner {
                 .write_mem(gm + round.duration, &infinite.to_le_bytes());
             self.eng
                 .write_mem(gm + round.end, &(round.enc_end)(now).to_le_bytes());
-            self.y5_infinite_display(round, gm, true);
+            self.set_infinite_display(round, gm, true);
         }
     }
 
-    fn y5_infinite_display(&self, round: &Y5Round, gm: u64, on: bool) {
-        if let Some((offset, enabled, disabled)) = round.infinite_display {
+    fn apply_classic_infinite(&mut self, timer: &ClassicTimer) {
+        let gm = self.classic_gm(timer);
+        if gm == 0 {
+            return;
+        }
+        let start = self.eng.read_u32(gm + timer.start);
+        let length = self.eng.read_u32(gm + timer.length);
+        let now = self.eng.read_u32(gm + timer.now);
+        if let Some(phase) = self.phase.take() {
+            if phase.start == start && length == 0 {
+                let end = now.wrapping_add(phase.end.wrapping_sub(phase.at));
+                self.eng.write_mem(gm + timer.end, &end.to_le_bytes());
+                if self.infinite_time {
+                    self.phase = Some(phase);
+                } else {
+                    self.eng
+                        .write_mem(gm + timer.length, &phase.duration.to_le_bytes());
+                }
+                return;
+            }
+        }
+        if self.infinite_time
+            && (4..=7).contains(&self.eng.read_u32(gm + timer.state))
+            && self.eng.read_u8(gm + timer.armed) != 0
+            && self.eng.read_u8(gm + timer.countup) == 0
+            && (timer.freeze == 0 || self.eng.read_u32(gm + timer.freeze) == 0)
+            && length >= MIN_PHASE_MS / 1000 * timer.second
+        {
+            self.phase = Some(Phase {
+                start,
+                duration: length,
+                end: self.eng.read_u32(gm + timer.end),
+                at: now,
+            });
+            self.eng.write_mem(gm + timer.length, &[0; 4]);
+        }
+    }
+
+    fn set_infinite_display(&self, round: &RoundProfile, gm: u64, on: bool) {
+        if let Some((offset, flags)) = round.infinite_display {
+            let [enabled, disabled] = flags.get();
             self.eng
                 .write_mem(gm + offset, &[if on { enabled } else { disabled }]);
         }
     }
 
-    fn y5_scan(&mut self, game: &Y5Game) {
-        let modes: Vec<u64> = Y5_MULTIPLAYER
+    fn scan_handles(&mut self, game: &GameProfile) {
+        let modes: Vec<u64> = MULTIPLAYER_MODES
             .iter()
-            .chain(Y5_TERRORIST_HUNT)
+            .chain(TERRORIST_HUNT_MODES)
             .map(|m| m.1)
-            .chain([Y5_GYM])
+            .chain([GYM_MODE])
             .chain(game.events.iter().map(|e| e.1))
             .collect();
         let playlists: Vec<u64> = game.events.iter().map(|e| e.2).collect();
+        let objects: HashMap<u64, u64> = playlists
+            .iter()
+            .map(|&uid| (game.enc_object_uid.map_or(uid, |enc| enc(uid)), uid))
+            .collect();
         let stored: HashMap<u64, u64> = game
             .maps
             .iter()
-            .chain(Y5_DIFFICULTIES)
+            .chain(DIFFICULTIES)
             .map(|t| t.1)
             .chain(modes.iter().chain(&playlists).copied())
             .map(|uid| (game.enc_handle_uid.map_or(uid, |enc| enc(uid)), uid))
             .collect();
-        let mut targets: Vec<u64> = stored.keys().chain(&playlists).copied().collect();
+        let mut targets: Vec<u64> = stored.keys().chain(objects.keys()).copied().collect();
         targets.sort_unstable();
         targets.dedup();
         let mut hits = Vec::new();
@@ -4045,16 +7107,16 @@ impl Runner {
             }
         });
         let image = self.eng.base..self.eng.base + self.eng.modsize as u64;
-        let gamemode = self.eng.base + game.gamemode;
-        self.y5_handles.clear();
-        self.y5_playlists.clear();
+        let gamemode = self.eng.at(game.gamemode);
+        self.handles.clear();
+        self.playlists.clear();
         for at in hits {
             let raw = self.eng.read_u64(at);
             let obj = at - 0x10;
             let head = self.eng.read_u64(obj);
             if image.contains(&head) {
-                if playlists.contains(&raw) {
-                    self.y5_playlists.entry(raw).or_insert(obj);
+                if let Some(&uid) = objects.get(&raw) {
+                    self.playlists.entry(uid).or_insert(obj);
                 }
             } else if let Some(&uid) = stored.get(&raw) {
                 if obj % 0x20 == 0
@@ -4063,14 +7125,14 @@ impl Runner {
                     && (head == 0 || (0x10000..0x7FF0_0000_0000).contains(&head))
                     && (!modes.contains(&uid) || self.eng.read_u64(head) == gamemode)
                 {
-                    self.y5_handles.entry(uid).or_insert(obj);
+                    self.handles.entry(uid).or_insert(obj);
                 }
             }
         }
     }
 
-    fn y5_handle(&self, game: &Y5Game, uid: u64) -> u64 {
-        match self.y5_handles.get(&uid) {
+    fn handle(&self, game: &GameProfile, uid: u64) -> u64 {
+        match self.handles.get(&uid) {
             Some(&handle)
                 if self.eng.read_u64(handle + 0x10)
                     == game.enc_handle_uid.map_or(uid, |enc| enc(uid)) =>
@@ -4081,11 +7143,11 @@ impl Runner {
         }
     }
 
-    fn y5_array(&self, at: u64) -> Vec<u64> {
-        self.y5_entries(self.eng.read_u64(at), self.eng.read_u64(at + 8))
+    fn read_array(&self, at: u64) -> Vec<u64> {
+        self.array_entries(self.eng.read_u64(at), self.eng.read_u64(at + 8))
     }
 
-    fn y5_entries(&self, ptr: u64, packed: u64) -> Vec<u64> {
+    fn array_entries(&self, ptr: u64, packed: u64) -> Vec<u64> {
         if ptr == 0 || packed as u32 & 0xC000_0000 != 0xC000_0000 {
             return Vec::new();
         }
@@ -4094,9 +7156,25 @@ impl Runner {
             .collect()
     }
 
-    fn y5_write_settings(&self, at: u64, entries: &[u64]) {
+    fn settings_head(&self, at: u64, codec: Option<&MatchCodec>) -> (u64, u64) {
         let ptr = self.eng.read_u64(at);
         let packed = self.eng.read_u64(at + 8);
+        match codec {
+            Some(codec) => ((codec.settings[0])(ptr), (codec.settings[1])(packed)),
+            None => (ptr, packed),
+        }
+    }
+
+    fn match_tod(&self, game: &GameProfile, m: u64) -> u64 {
+        let at = m + game.match_layout.time_of_day;
+        match game.match_state.codec() {
+            Some(codec) => (codec.dec_tod)(self.eng.read_u64(at)),
+            None => self.eng.read_ptr(at),
+        }
+    }
+
+    fn write_settings(&self, at: u64, entries: &[u64], codec: Option<&MatchCodec>) {
+        let (ptr, packed) = self.settings_head(at, codec);
         let cap = packed >> 32;
         let count = entries.len() as u64;
         if ptr == 0 || packed as u32 & 0xC000_0000 != 0xC000_0000 || count > cap {
@@ -4105,114 +7183,133 @@ impl Runner {
         for (i, entry) in entries.iter().enumerate() {
             self.eng.write_mem(ptr + i as u64 * 8, &entry.to_le_bytes());
         }
-        self.eng
-            .write_mem(at + 8, &(cap << 32 | count | 0xC000_0000).to_le_bytes());
+        let head = cap << 32 | count | 0xC000_0000;
+        let head = codec.map_or(head, |codec| (codec.enc_settings_count)(head));
+        self.eng.write_mem(at + 8, &head.to_le_bytes());
         for i in count..(packed & 0x3FFF_FFFF).min(cap) {
             self.eng.write_mem(ptr + i * 8, &0u64.to_le_bytes());
         }
     }
 
-    fn apply_y5_playlist(&mut self) {
-        let Some(pick) = self.y5_pick else {
+    fn apply_playlist(&mut self) {
+        let Some(pick) = self.pick else {
             return;
         };
-        let Some(game) = y5_game(self.build) else {
+        let Some(game) = game_profile(self.build) else {
             return;
         };
-        let gm = self.y5_host(game);
-        if gm == 0 || self.y5_state(game, gm) != 3 {
+        let gm = self.host_gm(game);
+        if gm == 0 || self.game_state(game, gm) != 3 {
             return;
         }
-        let m = self.y5_deref(gm, game.match_state);
+        let m = self.match_entry(game, gm);
         if m == 0 {
             return;
         }
         let ready = |runner: &Self| {
             [pick.mode, pick.map, pick.difficulty]
                 .iter()
-                .all(|&uid| uid == 0 || runner.y5_handle(game, uid) != 0)
-                && (pick.playlist == 0 || runner.y5_playlists.contains_key(&pick.playlist))
+                .all(|&uid| uid == 0 || runner.handle(game, uid) != 0)
+                && (pick.playlist == 0 || runner.playlists.contains_key(&pick.playlist))
         };
         if !ready(self) {
-            if self.y5_scanned == m {
+            if self.scanned_match == m {
                 return;
             }
-            self.y5_scanned = m;
-            self.y5_scan(game);
+            self.scanned_match = m;
+            self.scan_handles(game);
             if !ready(self) {
                 return;
             }
         }
-        self.eng
-            .write_mem(m + 0x08, &self.y5_handle(game, pick.mode).to_le_bytes());
-        self.eng
-            .write_mem(m + 0x10, &self.y5_handle(game, pick.map).to_le_bytes());
+        let codec = game.match_state.codec();
+        let encode = |handle: u64, field: fn(&MatchCodec) -> fn(u64) -> u64| {
+            codec.map_or(handle, |codec| field(codec)(handle))
+        };
+        let layout = &game.match_layout;
+        let mode = encode(self.handle(game, pick.mode), |codec| codec.enc_mode);
+        let map = encode(self.handle(game, pick.map), |codec| codec.enc_map);
+        self.eng.write_mem(m + layout.mode, &mode.to_le_bytes());
+        self.eng.write_mem(m + layout.map, &map.to_le_bytes());
         if pick.difficulty != 0 {
             self.eng.write_mem(
-                m + game.match_layout.difficulty,
-                &self.y5_handle(game, pick.difficulty).to_le_bytes(),
+                m + layout.difficulty,
+                &self.handle(game, pick.difficulty).to_le_bytes(),
             );
         }
         if pick.playlist == 0 {
-            self.y5_restore(game, m);
+            self.restore_lobby(game, m);
         } else {
-            self.y5_event(game, m, pick.playlist);
+            self.apply_event(game, m, pick.playlist);
         }
     }
 
-    fn y5_event(&mut self, game: &Y5Game, m: u64, playlist: u64) {
-        let tod_at = self.eng.read_ptr(m + game.match_layout.time_of_day);
-        let lobby = match self.y5_lobby.take() {
+    fn apply_event(&mut self, game: &GameProfile, m: u64, playlist: u64) {
+        let codec = game.match_state.codec();
+        let layout = &game.match_layout;
+        let tod_at = self.match_tod(game, m);
+        let lobby = match self.lobby.take() {
             Some(lobby) if lobby.m == m => lobby,
-            _ => Y5Lobby {
-                m,
-                playlist: self.eng.read_u64(m),
-                tod_at,
-                tod: self.eng.read_u64(tod_at),
-                entries: self.y5_array(m + game.match_layout.settings),
-            },
+            _ => {
+                let (ptr, packed) = self.settings_head(m + layout.settings, codec);
+                Lobby {
+                    m,
+                    playlist: self.eng.read_u64(m + layout.playlist),
+                    tod_at,
+                    tod: self.eng.read_u64(tod_at),
+                    entries: self.array_entries(ptr, packed),
+                }
+            }
         };
-        let obj = self.y5_playlists[&playlist];
+        let obj = self.playlists[&playlist];
         let at = obj + game.settings;
         let settings = match game.dec_settings {
             Some([ptr, count]) => {
-                self.y5_entries(ptr(self.eng.read_u64(at)), count(self.eng.read_u64(at + 8)))
+                self.array_entries(ptr(self.eng.read_u64(at)), count(self.eng.read_u64(at + 8)))
             }
-            None => self.y5_array(at),
+            None => self.read_array(at),
         };
-        self.y5_write_settings(
-            m + game.match_layout.settings,
+        self.write_settings(
+            m + layout.settings,
             if settings.is_empty() {
                 &lobby.entries
             } else {
                 &settings
             },
+            codec,
         );
         if tod_at != 0 {
             let tod = self
-                .y5_array(obj + game.time_of_day)
+                .read_array(obj + game.time_of_day)
                 .first()
                 .copied()
                 .unwrap_or(lobby.tod);
             self.eng.write_mem(tod_at, &tod.to_le_bytes());
         }
-        self.eng.write_mem(m, &playlist.to_le_bytes());
-        self.y5_lobby = Some(lobby);
+        let playlist = codec.map_or(playlist, |codec| (codec.enc_playlist)(playlist));
+        self.eng
+            .write_mem(m + layout.playlist, &playlist.to_le_bytes());
+        self.lobby = Some(lobby);
     }
 
-    fn y5_restore(&mut self, game: &Y5Game, m: u64) {
-        let Some(lobby) = self.y5_lobby.take() else {
+    fn restore_lobby(&mut self, game: &GameProfile, m: u64) {
+        let Some(lobby) = self.lobby.take() else {
             return;
         };
         if lobby.m != m {
             return;
         }
-        self.eng.write_mem(m, &lobby.playlist.to_le_bytes());
-        if lobby.tod_at != 0 && self.eng.read_ptr(m + game.match_layout.time_of_day) == lobby.tod_at
-        {
+        let layout = &game.match_layout;
+        self.eng
+            .write_mem(m + layout.playlist, &lobby.playlist.to_le_bytes());
+        if lobby.tod_at != 0 && self.match_tod(game, m) == lobby.tod_at {
             self.eng.write_mem(lobby.tod_at, &lobby.tod.to_le_bytes());
         }
-        self.y5_write_settings(m + game.match_layout.settings, &lobby.entries);
+        self.write_settings(
+            m + layout.settings,
+            &lobby.entries,
+            game.match_state.codec(),
+        );
     }
 
     fn set_watermark(&self, enabled: bool) -> bool {
@@ -4221,9 +7318,8 @@ impl Runner {
         else {
             return self.set_watermark_overlay(enabled);
         };
-        self.eng
-            .write_mem(self.eng.base + flag, &[u8::from(enabled)]);
-        let ui = self.eng.read_ptr(self.eng.base + manager);
+        self.eng.write_mem(self.eng.at(flag), &[u8::from(enabled)]);
+        let ui = self.eng.read_ptr(self.eng.at(manager));
         if ui != 0 {
             self.eng.write_mem(ui + layer, &[u8::from(enabled)]);
             self.eng.write_mem(ui + dirty, &[1]);
@@ -4232,38 +7328,48 @@ impl Runner {
     }
 
     fn set_watermark_overlay(&self, enabled: bool) -> bool {
-        let Some(&(_, flag, manager, counter)) = WATERMARK_OVERLAYS
+        let Some(&WatermarkOverlay {
+            flag,
+            flag_bytes,
+            manager,
+            counter,
+            entries,
+            slot,
+            persistent,
+            dirty,
+            ..
+        }) = WATERMARK_OVERLAYS
             .iter()
-            .find(|(build, ..)| *build == self.build)
+            .find(|overlay| overlay.build == self.build)
         else {
             return false;
         };
+        let [on, off] = flag_bytes.get();
         self.eng
-            .write_mem(self.eng.base + flag, &[if enabled { 0x5B } else { 0x59 }]);
-        let ui = self.eng.read_ptr(self.eng.base + manager);
-        let list = self.y5_deref(ui, &[0x1598, 0]);
-        let data = self.y5_deref(list, &[0x28]);
+            .write_mem(self.eng.at(flag), &[if enabled { on } else { off }]);
+        let ui = self.eng.read_ptr(self.eng.at(manager));
+        let list = self.deref_chain(ui, &[entries, 0]);
+        let data = self.deref_chain(list, &[0x28]);
         if data == 0 {
             return true;
         }
         let head = self.eng.read_u32(list + 0x30);
         let size = head & 0x3FFF_FFFF;
-        let id = self.eng.read_u32(ui + 0x1584);
+        let id = self.eng.read_u32(ui + slot);
         let at = |k: u32| data + u64::from(k) * 0x18;
         if enabled {
-            let object = self.eng.read_ptr(ui + 0x950);
+            let object = self.eng.read_ptr(ui + persistent);
             if id != 0 || object == 0 || size >= self.eng.read_u32(list + 0x34) & 0x3FFF_FFFF {
                 return true;
             }
-            let id = self.eng.read_u32(self.eng.base + counter).wrapping_add(1);
-            self.eng
-                .write_mem(self.eng.base + counter, &id.to_le_bytes());
+            let id = self.eng.read_u32(self.eng.at(counter)).wrapping_add(1);
+            self.eng.write_mem(self.eng.at(counter), &id.to_le_bytes());
             self.eng.write_mem(at(size), &id.to_le_bytes());
             self.eng.write_mem(at(size) + 8, &object.to_le_bytes());
             self.eng.write_mem(at(size) + 0x10, &[0; 4]);
             let refs = self.eng.read_u32(object + 0xC).wrapping_add(1);
             self.eng.write_mem(object + 0xC, &refs.to_le_bytes());
-            self.eng.write_mem(ui + 0x1584, &id.to_le_bytes());
+            self.eng.write_mem(ui + slot, &id.to_le_bytes());
             self.eng.write_mem(
                 list + 0x30,
                 &((head & 0xC000_0000) | (size + 1)).to_le_bytes(),
@@ -4287,49 +7393,36 @@ impl Runner {
                     self.eng.write_mem(object + 0xC, &refs.to_le_bytes());
                 }
             }
-            self.eng.write_mem(ui + 0x1584, &[0; 4]);
+            self.eng.write_mem(ui + slot, &[0; 4]);
         }
-        self.eng.write_mem(list + 0x38, &[1]);
+        self.eng.write_mem(list + dirty, &[1]);
         true
     }
 
     fn write_state(&self, feature: &str) -> bool {
-        for (build, name, global, off, value) in STATE_WRITES {
-            if *build != self.build || *name != feature {
-                continue;
-            }
-            let obj = self.eng.read_ptr(self.eng.base + global);
-            if obj != 0 {
-                self.eng
-                    .write_mem(obj.wrapping_add(*off as i64 as u64), &[*value]);
-            }
-            return true;
+        let Some(&(_, _, global, off, value)) = STATE_WRITES
+            .iter()
+            .find(|(build, name, ..)| *build == self.build && *name == feature)
+        else {
+            return false;
+        };
+        let obj = self.eng.read_ptr(self.eng.at(global));
+        if obj != 0 {
+            self.eng
+                .write_mem(obj.wrapping_add(off as i64 as u64), &[value]);
         }
-        false
+        true
     }
 
     fn apply_weapons(&self) {
-        if self.disable_primary && self.disable_secondary && self.season < SEASON_Y2S3 {
-            self.apply_static("SetEmptySecondary", "enable");
-            self.apply_static("SetDisablePrimaryWeapon", "enable");
-        } else {
-            self.apply_static("SetEmptySecondary", "disable");
-            self.apply_static(
-                "SetDisablePrimaryWeapon",
-                if self.disable_primary {
-                    "enable"
-                } else {
-                    "disable"
-                },
-            );
-            self.apply_static(
-                "SetDisableSecondaryWeapon",
-                if self.disable_secondary {
-                    "enable"
-                } else {
-                    "disable"
-                },
-            );
+        let [primary, secondary, ..] = self.disabled;
+        let empty = primary && secondary && self.season < SEASON_Y2S3;
+        for (feature, on) in [
+            ("SetEmptySecondary", empty),
+            ("SetDisablePrimaryWeapon", primary),
+            ("SetDisableSecondaryWeapon", secondary && !empty),
+        ] {
+            self.apply_static(feature, if on { "enable" } else { "disable" });
         }
     }
 
@@ -4354,27 +7447,19 @@ impl Runner {
         if mod_ == "displayBuild" && self.set_watermark(enabled) {
             return;
         }
-        if self.y5_round().is_some() {
-            if let Some(i) = Y5_DISABLE_SLOTS.iter().position(|n| *n == mod_) {
-                self.y5_disable[i] = enabled;
-                self.apply_y5_disable();
+        if let Some(i) = DISABLE_MODS.iter().position(|n| *n == mod_) {
+            self.disabled[i] = enabled;
+            if self.round_profile().is_some() {
+                self.apply_disable();
                 return;
             }
         }
         match mod_ {
-            "infiniteTime" if self.y5_round().is_some() => {
-                self.y5_infinite = enabled;
-                self.apply_y5_infinite();
+            "infiniteTime" => {
+                self.infinite_time = enabled;
+                self.apply_infinite();
             }
-            "infiniteTime" => self.write_chain("SetInfiniteTime", &[u8::from(!enabled)]),
-            "disablePrimary" => {
-                self.disable_primary = enabled;
-                self.apply_weapons();
-            }
-            "disableSecondary" => {
-                self.disable_secondary = enabled;
-                self.apply_weapons();
-            }
+            "disablePrimary" | "disableSecondary" => self.apply_weapons(),
             _ => {
                 if let Some((_, feature)) = CAPS.iter().find(|(key, _)| *key == mod_) {
                     self.apply_static(feature, if enabled { "enable" } else { "disable" });
@@ -4387,11 +7472,11 @@ impl Runner {
         if !self.patched {
             return;
         }
-        if let Some(game) = y5_game(self.build) {
-            if let Some(pick) = parse_y5_pick(game, id_str) {
-                self.y5_pick = Some(pick);
-                self.y5_scanned = 0;
-                self.apply_y5_playlist();
+        if let Some(game) = game_profile(self.build) {
+            if let Some(pick) = parse_pick(game, id_str) {
+                self.pick = Some(pick);
+                self.scanned_match = 0;
+                self.apply_playlist();
             }
             return;
         }
@@ -4423,7 +7508,7 @@ impl Runner {
     fn is_idle(&self) -> bool {
         IDLE.iter()
             .find(|(b, _)| *b == self.build)
-            .is_none_or(|(_, addr)| self.eng.read1(self.eng.base.wrapping_add(*addr)) != 0)
+            .is_none_or(|(_, addr)| self.eng.read_u8(self.eng.at(*addr)) != 0)
     }
 
     fn apply_event_mode(&self, root: &mut TNode, em: &str) {
@@ -4499,11 +7584,12 @@ impl Runner {
         if let Some(t) = rh.children.get_mut(1) {
             label_terrorist_hunt(t, self.season);
         }
-        if let Some(t) = rh.children.get_mut(3) {
-            label_matchmaking(t);
-        }
         if let Some(t) = rh.children.get_mut(2) {
             label_situation(t, tp.situ_adv);
+            if self.season < SEASON_Y3S4 {
+                t.children
+                    .retain(|situation| self.briefing_installed(&situation.text));
+            }
         }
         if tp.i_vr >= 0 {
             if let Some(t) = rh.children.get_mut(tp.i_vr as usize) {
@@ -4524,7 +7610,14 @@ impl Runner {
             add_original_hereford(&mut rh);
         }
         group_development_nodes(&mut rh, tp.i_gym, tp.i_vr);
-        group_event_nodes(&mut rh, tp.event_mode);
+        group_event_nodes(&mut rh, tp.event_mode, |event| {
+            self.classic_event_installed(event)
+        });
+        for (map, from) in [("Yacht", SEASON_Y1S1), ("Border", SEASON_Y1S2)] {
+            if self.season < from {
+                drop_map(&mut rh, map);
+            }
+        }
         tree_event(&mut rh.children)
     }
 
@@ -4534,20 +7627,21 @@ impl Runner {
     }
 
     fn scan_features(&mut self) {
-        let round = self.y5_round().is_some();
+        let round = self.round_profile().is_some();
+        let classic = self.classic_timer().is_some();
         for (on, (key, feature)) in self.available.iter_mut().zip(CAPS) {
             *on = find_chain(feature, self.build).is_some()
                 || patches_have(feature, self.build)
                 || shadow_toggles(self.build)
                     .iter()
                     .any(|(name, ..)| *name == key)
-                || (round && matches!(key, "infiniteTime" | "endRound"))
-                || (round && Y5_DISABLE_SLOTS.contains(&key))
+                || ((round || classic) && matches!(key, "infiniteTime" | "skip"))
+                || (round && DISABLE_MODS.contains(&key))
                 || (key == "displayBuild"
                     && (WATERMARKS.iter().any(|(build, ..)| *build == self.build)
                         || WATERMARK_OVERLAYS
                             .iter()
-                            .any(|(build, ..)| *build == self.build)))
+                            .any(|overlay| overlay.build == self.build)))
                 || STATE_WRITES
                     .iter()
                     .any(|(b, f, ..)| *b == self.build && *f == feature);
@@ -4559,11 +7653,17 @@ impl Runner {
         let caps: String = CAPS
             .iter()
             .zip(self.available)
+            .filter(|((key, _), _)| match *key {
+                "disableAI" => self.season < SEASON_Y8S4,
+                "displayBuild" => self.season >= SEASON_Y2S4,
+                _ => true,
+            })
             .map(|((key, _), on)| format!("\"{key}\":{},", full && on))
             .collect();
+        let attached = !self.eng.proc.is_null();
         format!(
             "{{\"event\":\"state\",\"attached\":{},\"unlocked\":{},\"unsupported\":{},\"capabilities\":{{{caps}\"fullFeature\":{full}}}}}",
-            !self.eng.proc.is_null(),
+            attached,
             self.unlocked,
             self.unsupported
         )
@@ -4592,20 +7692,32 @@ impl Runner {
         }
         if self.build.is_empty() {
             let num = self.scanned.rsplit_once('_').map_or("", |(_, n)| n);
-            let Some(&(build, season)) = BUILD_SEASONS
+            let Some(&(build, season)) = BUILDS
                 .iter()
                 .find(|(b, _)| b.strip_suffix(num).is_some_and(|p| p.ends_with('_')))
             else {
                 self.unsupported = true;
                 return;
             };
+            let renderers = match self.eng.exe {
+                "RainbowSix_Vulkan.exe" => Some(VULKAN_BUILDS),
+                "RainbowSix_DX11.exe" => Some(DX11_BUILDS),
+                _ => None,
+            };
+            if let Some(renderers) = renderers {
+                let Some(renderer) = renderers.iter().find(|r| r.build == build) else {
+                    self.unsupported = true;
+                    return;
+                };
+                self.eng.renderer = Some(renderer);
+            }
             self.build = build;
             self.season = season;
             self.scan_features();
         }
         if self.pending {
             let idle = match shadow_regions_for_build(self.build) {
-                Some(regions) => self.eng.shadow_delta != 0 || self.eng.shadow_run(regions),
+                Some(regions) => self.eng.shadow_run(regions),
                 None => self.is_idle(),
             };
             if !idle {
@@ -4636,8 +7748,8 @@ impl Runner {
             self.patched = true;
         }
         for (build, offset, value) in INIT_BYTES {
-            if *build == self.build && self.eng.read1(self.eng.base + offset) != *value {
-                self.eng.write_mem(self.eng.base + offset, &[*value]);
+            if *build == self.build && self.eng.read_u8(self.eng.at(*offset)) != *value {
+                self.eng.write_mem(self.eng.at(*offset), &[*value]);
             }
         }
         if !unlock(
@@ -4653,14 +7765,13 @@ impl Runner {
         if !self.unlocked {
             self.apply_static("ApplyOfflinePatch", "always");
         }
-        self.apply_gametype();
-        self.apply_y5_disable();
-        self.apply_y5_playlist();
-        if self.y5_infinite {
-            self.apply_y5_infinite();
+        self.apply_disable();
+        self.apply_playlist();
+        if self.infinite_time {
+            self.apply_infinite();
         }
-        if self.y5_match_end {
-            self.apply_y5_match_end();
+        if self.match_end {
+            self.apply_match_end();
         }
         if !self.tree_sent && self.is_full_feature() {
             let tj = self.tree_json();
@@ -4684,7 +7795,7 @@ impl Runner {
                     self.set_playlist(id);
                 }
             }
-            Some("endRound") => self.end_round(),
+            Some("skip") => self.skip(),
             Some("endMatch") => self.end_match(),
             _ => {}
         }
@@ -4709,14 +7820,20 @@ impl Runner {
             }
         });
         let mut next = Instant::now();
+        let mut poll = Instant::now();
         loop {
-            match rx.recv_timeout(next.saturating_duration_since(Instant::now())) {
+            match rx.recv_timeout(next.min(poll).saturating_duration_since(Instant::now())) {
                 Ok(line) if !line.is_empty() => self.handle_command(&line),
                 Ok(_) | Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => return 0,
             }
-            if Instant::now() >= next {
-                next = Instant::now() + Duration::from_secs(1);
+            let now = Instant::now();
+            if now >= poll {
+                poll = now + PLAYLIST_POLL;
+                self.apply_gametype();
+            }
+            if now >= next {
+                next = now + Duration::from_secs(1);
                 self.tick();
                 self.push_state();
             }
@@ -4735,4 +7852,98 @@ pub fn main_entry() -> i32 {
         }
     }
     2
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+
+    fn key_index(key: &str) -> i32 {
+        let s = key.find('S').unwrap();
+        let end = key.find('_').unwrap();
+        let year: i32 = key[1..s].parse().unwrap();
+        let season: i32 = key[s + 1..end].parse().unwrap();
+        (year - 1) * 4 + season
+    }
+
+    #[test]
+    fn builds_index_matches_key() {
+        for &(key, index) in BUILDS {
+            assert_eq!(key_index(key), index, "{key}");
+        }
+    }
+
+    #[test]
+    fn shadow_toggle_builds_are_shadow_seasons() {
+        for &(build, _) in BUILDS {
+            if !shadow_toggles(build).is_empty() {
+                assert!(
+                    SHADOW_SEASONS.iter().any(|s| s.build == build),
+                    "{build} has toggles but no shadow season"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shadow_toggles_restore_from_a_region() {
+        for season in SHADOW_SEASONS {
+            for &(name, offset, on) in shadow_toggles(season.build) {
+                let region = season
+                    .regions
+                    .iter()
+                    .find(|r| r.offset == offset)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "{} {name} at {offset:#x} has no shadow region",
+                            season.build
+                        )
+                    });
+                assert_eq!(
+                    region.patch.len(),
+                    on.len(),
+                    "{} {name} at {offset:#x}",
+                    season.build
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn renderer_patches_map_an_address() {
+        for build in VULKAN_BUILDS.iter().chain(DX11_BUILDS) {
+            for patch in build.patches {
+                assert!(
+                    build.rvas.iter().any(|&(dx, _)| dx == patch.rva),
+                    "{} renderer patch {:#x} has no address pair",
+                    build.build,
+                    patch.rva
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn patch_branches_share_length() {
+        for patch in PATCHES {
+            if patch.branch != "enable" {
+                continue;
+            }
+            if let Some(disable) = PATCHES.iter().find(|q| {
+                q.feature == patch.feature
+                    && q.build == patch.build
+                    && q.addr == patch.addr
+                    && q.branch == "disable"
+            }) {
+                assert_eq!(
+                    patch.bytes.len(),
+                    disable.bytes.len(),
+                    "{} {} at {:#x}",
+                    patch.build,
+                    patch.feature,
+                    patch.addr
+                );
+            }
+        }
+    }
 }

@@ -78,7 +78,7 @@ fn event_node_names(event_mode: &str) -> &'static [&'static str] {
     }
 }
 
-pub fn group_event_nodes(root: &mut TNode, event_mode: &str) {
+pub fn group_event_nodes(root: &mut TNode, event_mode: &str, installed: impl Fn(&str) -> bool) {
     let names = event_node_names(event_mode);
     if names.is_empty() || root.children.is_empty() {
         return;
@@ -88,14 +88,19 @@ pub fn group_event_nodes(root: &mut TNode, event_mode: &str) {
         ..Default::default()
     };
     for name in names {
-        if let Some(i) = root.children[0]
+        let node = if let Some(i) = root.children[0]
             .children
             .iter()
             .position(|k| k.text == *name)
         {
-            events.children.push(root.children[0].children.remove(i));
+            root.children[0].children.remove(i)
         } else if let Some(i) = root.children.iter().position(|k| k.text == *name) {
-            events.children.push(root.children.remove(i));
+            root.children.remove(i)
+        } else {
+            continue;
+        };
+        if installed(name) {
+            events.children.push(node);
         }
     }
     if !events.children.is_empty() {
@@ -175,22 +180,11 @@ fn sort_gametypes_by_name(nodes: &mut [TNode]) {
 }
 
 fn label_gametypes(mode: &mut TNode) {
-    let name = |text: &str| GAMETYPE_NAMES.iter().find(|(raw, ..)| *raw == text);
-    let mut sides = mode
-        .children
-        .iter()
-        .filter_map(|gametype| name(&gametype.text))
-        .map(|(_, side, _)| side);
-    let mixed = sides
-        .next()
-        .is_some_and(|first| sides.any(|side| side != first));
+    mode.children
+        .retain(|gametype| !gametype.text.to_ascii_uppercase().starts_with("DEFEND"));
     for gametype in &mut mode.children {
-        if let Some((_, side, lighting)) = name(&gametype.text) {
-            gametype.text = if mixed {
-                format!("{side} - {lighting}")
-            } else {
-                lighting.to_string()
-            };
+        if let Some((_, lighting)) = GAMETYPE_NAMES.iter().find(|(raw, _)| *raw == gametype.text) {
+            gametype.text = lighting.to_string();
         }
     }
 }
@@ -218,12 +212,8 @@ pub fn label_multiplayer(node: &mut TNode, season: i32) {
     for gametype in &mut node.children {
         for map in &mut gametype.children {
             map.text = map_display(&map.text);
-            if let Some(k0) = map.children.get_mut(0) {
-                k0.text = "Day".to_string();
-            }
-            if map.children.len() > 1 {
-                map.children[1].text = "Night".to_string();
-            }
+            set_text(map, &[0], "Day");
+            set_text(map, &[1], "Night");
         }
         gametype.children.retain(|map| {
             !matches!(
@@ -293,19 +283,10 @@ pub fn label_situation(node: &mut TNode, advanced_order: bool) {
     }
 }
 
-pub fn label_matchmaking(node: &mut TNode) {
-    node.text = "Matchmaking".to_string();
-    set_text(node, &[0], "Casual");
-    set_text(node, &[0, 0], "Hostage");
-    set_text(node, &[0, 1], "Bomb");
-    set_text(node, &[0, 2], "Secure Area");
-    set_text(node, &[1], "Ranked");
-    set_text(node, &[1, 0], "Hostage");
-    set_text(node, &[1, 1], "Bomb");
-    set_text(node, &[1, 2], "Secure Area");
-    if node.children.len() == 3 {
-        set_text(node, &[2], "Unranked");
-        set_text(node, &[2, 0], "Bomb");
+pub fn drop_map(node: &mut TNode, name: &str) {
+    node.children.retain(|child| child.text != name);
+    for child in &mut node.children {
+        drop_map(child, name);
     }
 }
 

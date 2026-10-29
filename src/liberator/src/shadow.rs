@@ -1,18 +1,20 @@
 use core::ffi::c_void;
+use std::os::windows::ffi::OsStrExt;
+use std::path::{Path, PathBuf};
 
-use windows_sys::s;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows_sys::Win32::System::Memory::{
-    CreateFileMappingW, MapViewOfFile, UnmapViewOfFile, VirtualAllocEx, VirtualFreeEx,
-    VirtualProtectEx, FILE_MAP_WRITE, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_EXECUTE_READWRITE,
-    PAGE_READONLY, PAGE_READWRITE,
+    CreateFileMappingW, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, VirtualAllocEx,
+    VirtualFreeEx, VirtualProtectEx, FILE_MAP_READ, FILE_MAP_WRITE, MEM_COMMIT, MEM_RELEASE,
+    MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_READONLY, PAGE_READWRITE,
 };
 use windows_sys::Win32::System::Threading::{
     CreateRemoteThread, GetExitCodeThread, WaitForSingleObject, LPTHREAD_START_ROUTINE,
 };
+use windows_sys::{s, w};
 
 use crate::runtime::Engine;
 use crate::tables::*;
@@ -90,9 +92,10 @@ impl Engine {
         0
     }
 
-    fn load_shadow(&self, path: &str) -> bool {
+    fn load_shadow(&self, path: &Path) -> bool {
         let wpath: Vec<u8> = path
-            .encode_utf16()
+            .as_os_str()
+            .encode_wide()
             .chain(std::iter::once(0))
             .flat_map(u16::to_le_bytes)
             .collect();
@@ -149,11 +152,11 @@ impl Engine {
     }
 
     pub(crate) fn shadow_write(&self, offset: u64, bytes: &[u8]) {
-        let addr = self.base + offset;
+        let addr = self.at(offset);
         if !self.shadow_pages.contains(&(addr & !0xFFFu64)) {
             return;
         }
-        let mut buf = bytes.to_vec();
+        let mut buf = self.bytes(offset, bytes).to_vec();
         let mod_hi = self.base + self.modsize as u64;
         crate::relocate::relocate(&mut buf, addr, self.base, mod_hi, self.shadow_delta);
         self.write_mem((addr as i64 + self.shadow_delta) as u64, &buf);
@@ -170,15 +173,9 @@ impl Engine {
         };
         let mod_hi = self.base + self.modsize as u64;
 
-        let shadow_base = self.reserve_near(text_base, text_size as u64);
-        if shadow_base == 0 {
-            return false;
-        }
-        let reserved_delta = shadow_base as i64 - text_base as i64;
-
         let mut windows: Vec<(u64, u64)> = Vec::new();
         for r in regions {
-            let page = (self.base + r.offset) & !0xFFFu64;
+            let page = self.at(r.offset) & !0xFFFu64;
             windows.push((page - 0x1000, page + 0x2000));
         }
         windows.sort_by_key(|a| a.0);
@@ -195,7 +192,7 @@ impl Engine {
             merged.push(w);
         }
 
-        let mut committed: Vec<(u64, u64)> = Vec::new();
+        let mut copies: Vec<(u64, u64, Vec<u8>)> = Vec::new();
         for (win_base, win_end) in merged {
             let win_size = (win_end - win_base) as usize;
             let mut buf = vec![0u8; win_size];
@@ -210,11 +207,37 @@ impl Engine {
             if filled != win_size {
                 continue;
             }
+            if buf.chunks(0x1000).any(|page| page.iter().all(|&b| b == 0)) {
+                return false;
+            }
+            copies.push((win_base, win_end, buf));
+        }
+        let probe = copies
+            .iter()
+            .fold(0xCBF2_9CE4_8422_2325u64, |h, (_, _, buf)| {
+                buf.iter()
+                    .fold(h, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01B3))
+            });
+        if probe != self.shadow_probe {
+            self.shadow_probe = probe;
+            return false;
+        }
+
+        let shadow_base = self.reserve_near(text_base, text_size as u64);
+        if shadow_base == 0 {
+            return false;
+        }
+        let reserved_delta = shadow_base as i64 - text_base as i64;
+
+        let mut committed: Vec<(u64, u64)> = Vec::new();
+        for (win_base, win_end, mut buf) in copies {
+            let win_size = buf.len();
             for r in regions {
-                let addr = self.base + r.offset;
-                if addr >= win_base && addr + r.patch.len() as u64 <= win_end {
+                let addr = self.at(r.offset);
+                let patch = self.bytes(r.offset, r.patch);
+                if addr >= win_base && addr + patch.len() as u64 <= win_end {
                     let o = (addr - win_base) as usize;
-                    buf[o..o + r.patch.len()].copy_from_slice(r.patch);
+                    buf[o..o + patch.len()].copy_from_slice(patch);
                 }
             }
             crate::relocate::relocate(&mut buf, win_base, self.base, mod_hi, reserved_delta);
@@ -245,10 +268,6 @@ impl Engine {
         payload[8..16].copy_from_slice(&text_base.to_le_bytes());
         payload[16..24].copy_from_slice(&(text_size as u64).to_le_bytes());
         payload[24..32].copy_from_slice(&shadow_base.to_le_bytes());
-        let name: Vec<u16> = "ShadowRegions"
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
         let map = unsafe {
             CreateFileMappingW(
                 INVALID_HANDLE_VALUE,
@@ -256,7 +275,7 @@ impl Engine {
                 PAGE_READWRITE,
                 0,
                 payload.len() as u32,
-                name.as_ptr(),
+                w!("ShadowRegions"),
             )
         };
         if map.is_null() {
@@ -294,7 +313,7 @@ impl Engine {
         unsafe { UnmapViewOfFile(view) };
         let loaded = existed || shadow_dll_path().is_some_and(|dll| self.load_shadow(&dll));
         unsafe { CloseHandle(map) };
-        if !loaded {
+        if !loaded || (!existed && !shadow_mapping_held()) {
             return self.release_and_fail(shadow_base);
         }
         if existed {
@@ -304,7 +323,7 @@ impl Engine {
         self.shadow_pages.clear();
         self.shadow_delta = active_delta;
         for r in regions {
-            let pa = (self.base + r.offset) & !0xFFFu64;
+            let pa = self.at(r.offset) & !0xFFFu64;
             let covered = committed.iter().any(|&(b, e)| pa >= b && pa < e);
             if covered && !self.shadow_pages.contains(&pa) {
                 self.shadow_pages.push(pa);
@@ -314,10 +333,19 @@ impl Engine {
     }
 }
 
-fn shadow_dll_path() -> Option<String> {
+fn shadow_dll_path() -> Option<PathBuf> {
     let path = std::env::temp_dir().join("Shadow.dll");
     if std::fs::read(&path).ok().as_deref() != Some(SHADOW_DLL) {
         std::fs::write(&path, SHADOW_DLL).ok()?;
     }
-    Some(path.to_string_lossy().into_owned())
+    Some(path)
+}
+
+fn shadow_mapping_held() -> bool {
+    let map = unsafe { OpenFileMappingW(FILE_MAP_READ, 0, w!("ShadowRegions")) };
+    if map.is_null() {
+        return false;
+    }
+    unsafe { CloseHandle(map) };
+    true
 }
