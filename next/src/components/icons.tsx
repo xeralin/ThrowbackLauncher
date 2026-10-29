@@ -72,27 +72,11 @@ export function BookmarkIcon({ filled = false }: { filled?: boolean }) {
   return <StrokeIcon d={BOOKMARK} fill={filled ? "currentColor" : "none"} />;
 }
 
-export function UnlockIcon({
-  filled = false,
-  className,
-}: {
-  filled?: boolean;
-  className: string;
-}) {
+export function UnlockIcon({ className }: { className: string }) {
   return (
     <StrokeIcon className={className}>
-      <rect
-        x="3"
-        y="11"
-        width="13"
-        height="10"
-        rx="1.5"
-        fill={filled ? "currentColor" : "none"}
-      />
-      <path
-        d="M12.5 10V6a3.75 3.75 0 0 1 7.5 0v2"
-        strokeWidth={filled ? 2.5 : 2}
-      />
+      <rect x="3" y="11" width="13" height="10" rx="1.5" fill="currentColor" />
+      <path d="M12.5 10V6a3.75 3.75 0 0 1 7.5 0v2" strokeWidth={2.5} />
     </StrokeIcon>
   );
 }

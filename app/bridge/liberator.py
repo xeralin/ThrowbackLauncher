@@ -1,6 +1,5 @@
 import contextlib
 import json
-import os
 import socket
 import subprocess
 import threading
@@ -15,13 +14,10 @@ from core.constants import (
     IS_WINDOWS,
     LIBERATOR_BIN,
     NO_PROTON,
-    STEAM_DIR,
     UPDATE_API_URL,
 )
 from core.github import RateLimitError, fetch_zip_member, github_asset
-from core.manifest import installed_path
-from core.steam import resolve_proton, running_game_env
-from core.throwbackloader import read_tl_args
+from core.steam import proton_env, resolve_proton, running_game_env
 from layout import RUNTIME_ASSET
 
 _ATTACH_DELAY = 1.5
@@ -96,8 +92,8 @@ class LiberatorController(QObject):
         self._send(cmd="setPlaylist", playlistId=playlist_id)
 
     @Slot()
-    def end_round(self) -> None:
-        self._send(cmd="endRound")
+    def skip(self) -> None:
+        self._send(cmd="skip")
 
     @Slot()
     def end_match(self) -> None:
@@ -131,26 +127,14 @@ class LiberatorController(QObject):
     def _on_tick(self, folders: dict) -> None:
         if not self._active:
             return
-        keys = {
-            name
-            for name in folders
-            if not name.endswith(HM_FOLDER_SUFFIX)
-            and (
-                (path := installed_path(name, False)) is None
-                or "/vulkan" not in read_tl_args(path).split()
-            )
-        }
-        if not keys:
+        keys = {name for name in folders if not name.endswith(HM_FOLDER_SUFFIX)}
+        alive = self._sock is not None or self._proc is not None
+        if not keys or (alive and not (keys & self._attach_keys)):
             self._attach_delay = _ATTACH_DELAY
             self._next_attach = 0.0
-            if self._sock is not None or self._proc is not None:
+            if alive:
                 self._kill()
-            return
-        if not (keys & self._attach_keys) and (self._sock is not None or self._proc is not None):
-            self._attach_delay = _ATTACH_DELAY
-            self._next_attach = 0.0
-            self._kill()
-        if self._sock is None and not self._busy and LIBERATOR_BIN.exists():
+        if keys and self._sock is None and not self._busy and LIBERATOR_BIN.exists():
             if time.monotonic() < self._next_attach:
                 return
             self._busy = True
@@ -170,16 +154,15 @@ class LiberatorController(QObject):
                 env_game = running_game_env()
                 if env_game is None:
                     return
-                prefix = env_game["STEAM_COMPAT_DATA_PATH"]
-                proton = resolve_proton(self._settings, key=Path(prefix).name)
+                prefix = Path(env_game["STEAM_COMPAT_DATA_PATH"])
+                proton = resolve_proton(self._settings, key=prefix.name)
                 if proton is None:
                     self._error_in.emit(NO_PROTON)
                     return
                 argv = [str(proton["binary"]), "run", "Z:" + argv[0].replace("/", "\\"), *argv[1:]]
-                env = dict(os.environ)
-                env["STEAM_COMPAT_DATA_PATH"] = prefix
-                client_install = env_game.get("STEAM_COMPAT_CLIENT_INSTALL_PATH")
-                env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = client_install or str(STEAM_DIR)
+                env = proton_env(prefix)
+                if client_install := env_game.get("STEAM_COMPAT_CLIENT_INSTALL_PATH"):
+                    env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = client_install
             self._proc = subprocess.Popen(
                 argv, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )

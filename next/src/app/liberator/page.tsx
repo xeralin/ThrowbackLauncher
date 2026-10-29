@@ -15,6 +15,7 @@ import {
   columnItem,
   columnItemActive,
   columnItemIdle,
+  columnLabel,
   panel,
 } from "@/components/ui";
 import { SupportedSeasons } from "@/components/SupportedSeasons";
@@ -65,7 +66,7 @@ const PLAYERS_GROUP: Mod[] = [
 ];
 
 const MATCH_GROUP: Mod[] = [
-  { key: "infiniteTime", label: "Infinite Match Time" },
+  { key: "infiniteTime", label: "Infinite Time" },
   { key: "disableAI", label: "Brain-Dead AI" },
   { key: "displayBuild", label: "Display Build Number" },
 ];
@@ -161,7 +162,7 @@ function PlaylistColumns({
                         : columnItemIdle
                   }`}
                 >
-                  <span className="min-w-0 flex-1 truncate-fade">
+                  <span className={`${columnLabel} truncate-fade`}>
                     {node.text}
                   </span>
                   {branch && (
@@ -206,7 +207,7 @@ export default function LiberatorPage() {
     ([...PLAYERS_GROUP, ...MATCH_GROUP, ...LOADOUT_GROUP].some(
       (mod) => caps[mod.key],
     ) ||
-      !!caps.endRound ||
+      !!caps.skip ||
       !!caps.endMatch);
   const [prevPlaylistReady, setPrevPlaylistReady] = useState(playlistReady);
   const focusInTabs = useRef(false);
@@ -297,21 +298,23 @@ export default function LiberatorPage() {
   const renderGroup = (group: Mod[]) => (
     <div className={panel}>
       <div className="p-2">
-        {group.map((mod) => (
-          <ModToggle
-            key={mod.key}
-            label={mod.label}
-            checked={!!mods[mod.key]}
-            disabled={!caps[mod.key]}
-            onToggle={(value) => toggleMod(mod.key, value)}
-          />
-        ))}
+        {group
+          .filter((mod) => mod.key in caps)
+          .map((mod) => (
+            <ModToggle
+              key={mod.key}
+              label={mod.label}
+              checked={!!mods[mod.key]}
+              disabled={!caps[mod.key]}
+              onToggle={(value) => toggleMod(mod.key, value)}
+            />
+          ))}
       </div>
     </div>
   );
 
   return (
-    <div className="flex h-[calc(100dvh_-_var(--topbar-h)_-_2*var(--page-pad))] flex-col">
+    <div className="flex h-(--content-h) flex-col">
       <Tabs
         tabs={tabs}
         active={tab}
@@ -344,25 +347,21 @@ export default function LiberatorPage() {
 
               <div className="flex flex-col gap-4">
                 {renderGroup(LOADOUT_GROUP)}
-                <div className={panel}>
-                  <div className="flex gap-2 p-4">
-                    <Button
-                      variant="secondary"
-                      className="flex-1"
-                      disabled={!caps.endRound}
-                      onClick={lib.endRound}
-                    >
-                      End round
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      className="flex-1"
-                      disabled={!caps.endMatch}
-                      onClick={lib.endMatch}
-                    >
-                      End match
-                    </Button>
-                  </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    disabled={!caps.skip}
+                    onClick={lib.skip}
+                  >
+                    Skip
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={!caps.endMatch}
+                    onClick={lib.endMatch}
+                  >
+                    End match
+                  </Button>
                 </div>
               </div>
             </div>

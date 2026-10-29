@@ -28,7 +28,7 @@ export function LiberatorStatus({
       {problem ? (
         <WarningIcon className={`${size} text-notice-edge`} />
       ) : lib.unlocked ? (
-        <UnlockIcon filled className={`${size} text-success`} />
+        <UnlockIcon className={`${size} text-success`} />
       ) : (
         <StrokeIcon className={`${size} animate-spin text-text`}>
           <circle
