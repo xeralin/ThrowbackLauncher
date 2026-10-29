@@ -45,10 +45,9 @@ def ensure_depotdownloader(reporter: Reporter | None = None, force: bool = False
 def depot_commands(
     download: dict, steam_account: str, target: Path, max_downloads: int
 ) -> list[dict]:
-    depots: list[tuple[int, str, str, bool]] = [
-        (download["depot_ww"], download["manifest_ww"], "Worldwide", False),
-        (download["depot_rus"], download["manifest_rus"], "Russian", True),
-        (download["depot_content"], download["manifest_content"], "Content", False),
+    depots: list[tuple[int, str, str]] = [
+        (download["depot_ww"], download["manifest_ww"], "Worldwide"),
+        (download["depot_content"], download["manifest_content"], "Content"),
     ]
     common = [
         "-app",
@@ -66,9 +65,8 @@ def depot_commands(
         {
             "args": ["-depot", str(depot_id), "-manifest", manifest_id, *common],
             "name": name,
-            "optional": optional,
         }
-        for depot_id, manifest_id, name, optional in depots
+        for depot_id, manifest_id, name in depots
     ]
 
 
