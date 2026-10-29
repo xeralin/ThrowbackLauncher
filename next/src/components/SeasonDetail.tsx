@@ -25,7 +25,8 @@ import {
   type GameArgs,
   type Season,
 } from "@/lib/bridge";
-import { hmInfo, SEASON_INFO } from "@/config/season-info";
+import { SUPPORT } from "@/config/liberator-builds";
+import { SEASON_INFO } from "@/config/season-info";
 import { site } from "@/config/site";
 import { showToast } from "@/lib/toast";
 
@@ -115,7 +116,6 @@ export function SeasonDetail({
     editionState,
     transferring,
     cancelRun,
-    lockedOps,
     shearsCuts,
     protons,
     setModal,
@@ -218,14 +218,18 @@ export function SeasonDetail({
     );
   }
 
+  const dequeueButton = (
+    <Button
+      variant="secondary"
+      onClick={() => dl.dequeue(season.key, hmActive)}
+    >
+      Remove from queue
+    </Button>
+  );
+
   function verifyButton() {
     return queuedEdition ? (
-      <Button
-        variant="secondary"
-        onClick={() => dl.dequeue(season.key, hmActive)}
-      >
-        Remove from queue
-      </Button>
+      dequeueButton
     ) : (
       <Button variant="secondary" disabled={playingSeason} onClick={verify}>
         {downloading ? "Queue verify" : "Verify"}
@@ -251,7 +255,7 @@ export function SeasonDetail({
       {editionState === "paused" && (
         <Button
           variant="secondary"
-          onClick={() => setModal({ kind: "removeDownload", hm: hmActive })}
+          onClick={() => setModal({ kind: "removeDownload" })}
         >
           Remove
         </Button>
@@ -260,6 +264,9 @@ export function SeasonDetail({
   );
 
   const info = SEASON_INFO[season.key];
+  const events = SUPPORT.find(
+    (row) => row.build === season.build,
+  )?.event?.split(" / ");
 
   return (
     <>
@@ -267,7 +274,7 @@ export function SeasonDetail({
         className={
           tab === "info"
             ? "flex flex-col"
-            : "flex h-[max(calc(100dvh_-_var(--topbar-h)_-_2*var(--page-pad)),30rem)] flex-col"
+            : "flex h-[max(var(--content-h),30rem)] flex-col"
         }
       >
         <BackHeading title={seasonTitle(season, hmActive)} onBack={onBack} />
@@ -337,21 +344,13 @@ export function SeasonDetail({
                     )}
                   </Fragment>
                 ) : queuedEdition ? (
-                  <Button
-                    variant="secondary"
-                    onClick={() => dl.dequeue(season.key, hmActive)}
-                  >
-                    Remove from queue
-                  </Button>
+                  dequeueButton
                 ) : (
                   <Fragment key="partial">
                     <Button
                       variant="primary"
                       disabled={editionInstall.partial && playingSeason}
-                      onClick={() => {
-                        if (lockedOps) setModal({ kind: "lockedOperators" });
-                        else openDownloadPrompt();
-                      }}
+                      onClick={openDownloadPrompt}
                     >
                       {editionInstall.partial
                         ? downloading
@@ -365,9 +364,7 @@ export function SeasonDetail({
                       <Button
                         variant="secondary"
                         disabled={playingSeason}
-                        onClick={() =>
-                          setModal({ kind: "removeDownload", hm: hmActive })
-                        }
+                        onClick={() => setModal({ kind: "removeDownload" })}
                       >
                         Remove
                       </Button>
@@ -426,9 +423,7 @@ export function SeasonDetail({
                     type="button"
                     aria-label="Uninstall"
                     disabled={downloadingSeason || playingSeason}
-                    onClick={() =>
-                      setModal({ kind: "uninstall", hm: hmActive })
-                    }
+                    onClick={() => setModal({ kind: "uninstall" })}
                     className={iconButton}
                   >
                     <RemoveIcon />
@@ -444,7 +439,13 @@ export function SeasonDetail({
                 entry={
                   hmActive
                     ? {
-                        ...hmInfo(season.hmBeta),
+                        operators: [],
+                        maps: [],
+                        highlights: [
+                          `R6S **SDK** by [DataCluster0](${site.heatedMetalRepoUrl})`,
+                          `**${season.hmBeta ? "Lua" : "Quarrel"}** scripting language and in-game map editor`,
+                          "Unrestricted **Unlock All** and weapon inspection",
+                        ],
                         release:
                           season.hmBeta && installs.hm.built
                             ? new Date(
@@ -468,7 +469,7 @@ export function SeasonDetail({
                             `Latest \`Unstable.7z\` from [\`#indev-releases\`](${site.heatedMetalDiscordUrl})`,
                         ],
                       }
-                    : info
+                    : { ...info, events }
                 }
                 build={season.build}
                 sizeGb={season.sizeGb}

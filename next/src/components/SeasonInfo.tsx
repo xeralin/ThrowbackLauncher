@@ -99,20 +99,8 @@ export function SeasonInfo({
   sizeGb: number;
 }) {
   const events = entry.events ?? [];
-  const hasCards = entry.operators.length > 0 || entry.maps.length > 0;
   const requirements =
     entry.requirements?.filter((row): row is string => row !== false) ?? [];
-
-  const cards = hasCards && (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))] gap-3">
-      {entry.operators.map((op) => (
-        <OperatorCard key={op.name} op={op} />
-      ))}
-      {entry.maps.map((map) => (
-        <MapCard key={map.name} map={map} />
-      ))}
-    </div>
-  );
 
   const released = (
     <div className={infoTable}>
@@ -139,16 +127,23 @@ export function SeasonInfo({
 
   return (
     <div className="grid items-start gap-4 content:grid-cols-[minmax(0,1fr)_260px]">
-      <div className="flex min-w-0 flex-col gap-3 self-stretch">{cards}</div>
+      <div className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))] gap-3">
+        {entry.operators.map((op) => (
+          <OperatorCard key={op.name} op={op} />
+        ))}
+        {entry.maps.map((map) => (
+          <MapCard key={map.name} map={map} />
+        ))}
+      </div>
       <div className="flex flex-col gap-3">
         {released}
         <InfoList title="Highlights" rows={entry.highlights} />
         {events.length > 0 && (
-          <div className={`flex self-end divide-x divide-border ${panel}`}>
+          <div className={`flex h-8 self-end divide-x divide-border ${panel}`}>
             {events.map((name) => (
               <span
                 key={name}
-                className="whitespace-nowrap px-[0.6rem] py-[0.3rem] font-display text-[0.85rem] font-bold leading-tight text-text"
+                className="content-center whitespace-nowrap px-[0.6rem] font-display text-ui font-bold text-text text-box-cap"
               >
                 {name}
               </span>

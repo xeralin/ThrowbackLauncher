@@ -1,5 +1,3 @@
-import { site } from "@/config/site";
-
 export type InfoOperator = {
   name: string;
   gadgetName: string;
@@ -222,7 +220,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "**Raw Input** option for mouse and keyboard",
       "Faster Blitz with less armor, weaker Scorpion for Ela",
     ],
-    events: ["Outbreak"],
   },
   Y3S2_ParaBellum: {
     release: "Jun 7, 2018",
@@ -269,7 +266,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Consulate buff with a fourth bomb site and safer spawns",
       "Thatcher disables cameras only temporarily",
     ],
-    events: ["Mad House"],
   },
   Y3S4_WindBastion: {
     release: "Dec 4, 2018",
@@ -314,7 +310,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Faster, safer Breach Charges",
       "Mute blocks calls from Dokkaebi",
     ],
-    events: ["Rainbow is Magic"],
   },
   Y4S2_PhantomSight: {
     release: "Jun 11, 2019",
@@ -338,7 +333,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "HUD stays visible when flashed or stunned",
       "Rounds can no longer end in a draw",
     ],
-    events: ["Showdown"],
   },
   Y4S3_EmberRise: {
     release: "Sep 11, 2019",
@@ -362,7 +356,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Shield ADS time raised from 0.4s to 0.6s",
       "Terrorist Hunt without bombers or trap rooms",
     ],
-    events: ["Doktor's Curse", "Money Heist"],
   },
   Y4S4_ShiftingTides: {
     release: "Dec 3, 2019",
@@ -385,7 +378,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Rappel exits need manual confirmation",
       "Jackal gets pings based on footprint age",
     ],
-    events: ["Road To S.I. 2020"],
   },
   Y5S1_VoidEdge: {
     release: "Mar 10, 2020",
@@ -408,7 +400,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Twitch, Lesion and Warden reworked",
       "Barricade debris cleanup for consistent sightlines",
     ],
-    events: ["Grand Larceny", "Golden Gun"],
   },
   Y5S2_SteelWave: {
     release: "Jun 16, 2020",
@@ -432,7 +423,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Concussion no longer rolls the camera or alters sensitivity",
       "ACS12 shotgun switched to slugs",
     ],
-    events: ["M.U.T.E. Protocol"],
   },
   Y5S3_ShadowLegacy: {
     release: "Sep 10, 2020",
@@ -455,7 +445,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "**Ping 2.0** contextual pings, also on cams and after death",
       "DP27 light machine gun for Tachanka",
     ],
-    events: ["Golden Gun", "Sugar Fright"],
   },
   Y5S4_NeonDawn: {
     release: "Dec 1, 2020",
@@ -479,7 +468,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Hibana can fire 2, 4 or 6 X-KAIROS pellets at once",
       "Reinforcements deploy in 4.5s instead of 5.5s",
     ],
-    events: ["Road To S.I. 2021"],
   },
   Y6S1_CrimsonHeist: {
     release: "Mar 16, 2021",
@@ -497,7 +485,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Mute also disables Claymores and Airjabs",
       "Tactical Realism removed from custom games",
     ],
-    events: ["Rainbow is Magic", "Apocalypse"],
   },
   Y6S2_NorthStar: {
     release: "Jun 14, 2021",
@@ -515,7 +502,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Gas from Smoke no longer spreads through walls and floors",
       "Bodies of eliminated operators replaced by icons",
     ],
-    events: ["Containment"],
   },
   Y6S3_CrystalGuard: {
     release: "Sep 7, 2021",
@@ -537,7 +523,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Linear damage drop-off, flat 15% suppressor penalty",
       "Attackers always pick their own spawn location",
     ],
-    events: ["Showdown", "Doktor's Curse"],
   },
   Y6S4_HighCalibre: {
     release: "Nov 30, 2021",
@@ -554,7 +539,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "HUD rework, drone counter and customizable team colors",
       "Finka can revive herself with Adrenal Surge",
     ],
-    events: ["Snow Brawl", "Road To S.I. 2022"],
   },
   Y7S1_DemonVeil: {
     release: "Mar 15, 2022",
@@ -577,7 +561,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "All non-magnifying sights available on most weapons",
       "Outdoor defender cameras lose signal after 10s",
     ],
-    events: ["Rengoku"],
   },
   Y7S2_VectorGlare: {
     release: "Jun 14, 2022",
@@ -594,7 +577,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "**Shooting Range** with recoil and damage lanes",
       "Third secondary weapon option for 9 operators",
     ],
-    events: ["M.U.T.E. Protocol"],
   },
   Y7S3_BrutalSwarm: {
     release: "Sep 6, 2022",
@@ -612,7 +594,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Suppressors no longer reduce damage, more attachment options",
       "Rook armor plates grant Withstand when downed",
     ],
-    events: ["Snipers", "Doktor's Curse"],
   },
   Y7S4_SolarRaid: {
     release: "Dec 6, 2022",
@@ -630,7 +611,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Extended Barrel adds 15% weapon damage",
       "No prep-phase friendly fire, optional in custom games",
     ],
-    events: ["Snow Brawl"],
   },
   Y8S1_CommandingForce: {
     release: "Mar 7, 2023",
@@ -648,7 +628,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Zero triggers the ARGUS pierce manually",
       "Compensator and Muzzle Brake recoil reduction buffed",
     ],
-    events: ["Rainbow is Magic"],
   },
   Y8S2_DreadFactor: {
     release: "May 30, 2023",
@@ -666,7 +645,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Shooting Range aiming lane with moving targets",
       "Host button to randomize teams in custom games",
     ],
-    events: ["Rengoku"],
   },
   Y8S3_HeavyMettle: {
     release: "Aug 29, 2023",
@@ -690,7 +668,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "**Weapon Roulette** arcade mode",
       "Free camera and hideable HUD for spectators",
     ],
-    events: ["Doktor's Curse"],
   },
   Y8S4_DeepFreeze: {
     release: "Dec 6, 2023",
@@ -708,7 +685,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Up to 4 spectators per match, switchable from the lobby",
       "Controller remapping and deadzone customization",
     ],
-    events: ["Freeze For All"],
   },
   Y9S1_DeadlyOmen: {
     release: "Mar 12, 2024",
@@ -725,7 +701,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Slower ADS for all weapons",
       "Attachment rework — Horizontal Grip and new scope zooms",
     ],
-    events: ["Containment"],
   },
   Y9S2_NewBlood: {
     release: "Jun 11, 2024",
@@ -748,7 +723,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Stadium Alpha and Bravo updated, bulletproof glass removed",
       "**Endless Drill** warm-up mode with respawning enemies",
     ],
-    events: ["M.U.T.E. Protocol"],
   },
   Y9S3_TwinShells: {
     release: "Sep 10, 2024",
@@ -766,7 +740,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "1v1 custom game presets — **Short Match** and **Long Match**",
       "**Versus AI 2.0** — defend against AI attackers",
     ],
-    events: ["Doktor's Curse"],
   },
   Y9S4_CollisionPoint: {
     release: "Dec 3, 2024",
@@ -783,7 +756,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Stun Grenades reduced to 2 per operator",
       "Sens can toggle R.O.U. walls, which block thermal sights",
     ],
-    events: ["Freeze For All", "Assault on Hereford"],
   },
   Y10S1_PrepPhase: {
     release: "Mar 4, 2025",
@@ -817,7 +789,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "6v6 **Dual Front** mode with attack and defense at once",
       "Neutral electricity slows instead of damaging, limb damage reduced",
     ],
-    events: ["Showdown", "Rengoku"],
   },
   Y10S3_HighStakes: {
     release: "Sep 2, 2025",
@@ -836,7 +807,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Reaper MK2 machine pistol for Sledge, Oryx, Pulse, Ying and Rook",
       "**Keres Safe Room** data extraction objective for Dual Front",
     ],
-    events: ["M.U.T.E. Protocol", "Doktor's Curse"],
   },
   Y10S4_TenfoldPursuit: {
     release: "Dec 2, 2025",
@@ -854,7 +824,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Mute only jams wireless signals",
       "Hard breachers rebalanced — Ace, Hibana, Thermite and Maverick",
     ],
-    events: ["Freeze For All"],
   },
   Y11S1_SilentHunt: {
     release: "Mar 3, 2026",
@@ -871,7 +840,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Shield operators can no longer push through intact barricades",
       "Faster Skopós with less health and quicker Shell swaps",
     ],
-    events: ["Rainbow is Magic"],
   },
   Y11S2_SystemOverride: {
     release: "Jun 2, 2026",
@@ -890,18 +858,5 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
       "Gridlock makes enemies limp with Trax Stingers",
       "Zofia faster again with less health",
     ],
-    events: ["Rengoku"],
   },
 };
-
-export function hmInfo(beta: boolean): Omit<SeasonInfoEntry, "release"> {
-  return {
-    operators: [],
-    maps: [],
-    highlights: [
-      `R6S **SDK** by [DataCluster0](${site.heatedMetalRepoUrl})`,
-      `**${beta ? "Lua" : "Quarrel"}** scripting language and in-game map editor`,
-      "Unrestricted **Unlock All** and weapon inspection",
-    ],
-  };
-}
