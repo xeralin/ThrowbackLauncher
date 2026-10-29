@@ -4,7 +4,7 @@ import { CardGrid, NavCard } from "@/components/NavCard";
 import { FAQ_PAGES } from "@/config/faq";
 
 const description =
-  "Your guide to downloading, setting up, and playing older Rainbow Six Siege seasons.";
+  "Your guide to downloading and playing older Rainbow Six Siege seasons.";
 
 export const metadata: Metadata = { title: "FAQ", description };
 

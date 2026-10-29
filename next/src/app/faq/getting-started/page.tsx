@@ -18,7 +18,7 @@ function AppliedIcon() {
       aria-label="Unlock All has been applied"
       className="inline-flex align-[-0.2em]"
     >
-      <UnlockIcon filled className="size-[1.22em] text-success" />
+      <UnlockIcon className="size-[1.22em] text-success" />
     </span>
   );
 }
@@ -80,18 +80,6 @@ const faqs: FaqItem[] = [
       <p>
         Since Y8S3 Heavy Mettle, operators are locked by default. Wait until the{" "}
         <Link href="/liberator">Liberator page</Link> shows <AppliedIcon />.
-      </p>
-    ),
-  },
-  {
-    id: "build-support",
-    q: "Why is there a warning next to the Liberator switch?",
-    a: (
-      <p>
-        Your game build is not supported. The Liberator only supports specific
-        game builds. The <strong>Support</strong> tab on the{" "}
-        <Link href="/liberator">Liberator page</Link> lists every supported
-        build.
       </p>
     ),
   },
