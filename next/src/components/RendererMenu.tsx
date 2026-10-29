@@ -3,7 +3,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { buttonVariants } from "@/components/Button";
 import { CHEVRON_DOWN, StrokeIcon } from "@/components/icons";
-import { columnItem, columnItemIdle } from "@/components/ui";
+import { columnItem, columnItemIdle, columnLabel } from "@/components/ui";
 import { usePopoverDismiss } from "@/lib/popover";
 
 export function RendererMenu({
@@ -45,9 +45,7 @@ export function RendererMenu({
         role="menu"
         aria-label="Renderer"
         className={`absolute left-0 top-full z-20 mt-1 grid w-full transition-[grid-template-rows,visibility] duration-200 ease-out-cubic ${
-          open
-            ? "[grid-template-rows:1fr]"
-            : "invisible [grid-template-rows:0fr]"
+          open ? "grid-rows-[1fr]" : "invisible grid-rows-[0fr]"
         }`}
       >
         <span className="flex min-h-0 flex-col overflow-hidden rounded-md bg-surface shadow-lg ring-1 ring-border ring-inset">
@@ -68,7 +66,7 @@ export function RendererMenu({
                     : columnItemIdle
                 }`}
               >
-                {option.label}
+                <span className={columnLabel}>{option.label}</span>
               </button>
             ))}
           </span>

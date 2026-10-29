@@ -14,7 +14,6 @@ _MIME_TYPES = {
     ".html": "text/html",
     ".js": "text/javascript",
     ".css": "text/css",
-    ".svg": "image/svg+xml",
     ".txt": "text/plain",
     ".webp": "image/webp",
     ".woff2": "font/woff2",

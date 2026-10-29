@@ -25,6 +25,8 @@ export const link = "text-link hover:underline";
 export const columnItem =
   "flex w-full items-center gap-1.5 rounded-md border-l-2 border-transparent px-2 py-1 text-left text-ui font-semibold transition-colors";
 
+export const columnLabel = "relative -top-px min-w-0 flex-1";
+
 export const columnItemActive = "bg-surface-2 text-text";
 
 export const columnItemIdle =

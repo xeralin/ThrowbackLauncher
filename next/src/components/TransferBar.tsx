@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { NyanCat, toggleNyan } from "@/components/NyanCat";
 import {
   determinatePercent,
@@ -20,13 +21,13 @@ export function TransferBar({ state }: { state: string }) {
   return (
     <>
       <div
-        className="h-3.5 min-w-0 flex-1 rounded-full border border-border bg-well"
+        className="h-3.75 min-w-0 flex-1 rounded-full border border-border bg-well"
+        style={{ "--progress": `${progress}%` } as CSSProperties}
         onClick={(event) => settings && toggleNyan(event, settings)}
       >
         <div
           data-paused={paused || undefined}
-          className="transfer-fill h-full min-w-3 rounded-full transition-[width] duration-200 ease-out"
-          style={{ width: `${progress}%` }}
+          className="transfer-fill h-full w-(--progress) min-w-3 rounded-full transition-[width] duration-200 ease-out"
         >
           <NyanCat />
         </div>
