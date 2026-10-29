@@ -220,13 +220,11 @@ export function LevelStepper({
   label,
   value,
   levels,
-  suffix,
   onCommit,
 }: {
   label: string;
   value: number;
   levels: number[];
-  suffix: string;
   onCommit: (value: number) => void;
 }) {
   const decrease = useRef<HTMLButtonElement>(null);
@@ -253,8 +251,7 @@ export function LevelStepper({
         <StrokeIcon d={CHEVRON_LEFT} />
       </button>
       <span className="w-[5ch] text-center font-mono text-ui text-text">
-        {value}
-        {suffix}
+        {value}%
       </span>
       <button
         ref={increase}
@@ -357,12 +354,14 @@ export function Stepper({
 }
 
 export function TextSetting({
+  label,
   value,
   onCommit,
   maxLength,
   placeholder,
   sanitize,
 }: {
+  label: string;
   value: string;
   onCommit: (value: string) => void;
   maxLength?: number;
@@ -374,6 +373,7 @@ export function TextSetting({
 
   return (
     <input
+      aria-label={label}
       value={draft}
       maxLength={maxLength}
       placeholder={placeholder}

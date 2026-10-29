@@ -22,26 +22,24 @@ import {
   useLaunch,
   useLibraries,
   usePlatform,
+  useProtons,
   useSettings,
   useShears,
   useUpdateBusy,
   type CheatEngineStatus,
   type SeasonInstalls,
-  type ProtonOption,
   type Season,
   type ShearsKind,
   type ShearsScan,
 } from "@/lib/bridge";
-import { operatorsLocked } from "@/lib/seasons";
 import { showToast } from "@/lib/toast";
 
 type SeasonModal =
   | { kind: "shears" }
-  | { kind: "uninstall"; hm: boolean }
+  | { kind: "uninstall" }
   | { kind: "selectHm"; then: () => void }
   | { kind: "download" }
-  | { kind: "lockedOperators" }
-  | { kind: "removeDownload"; hm: boolean }
+  | { kind: "removeDownload" }
   | { kind: "proton" };
 
 const NO_INSTALL: SeasonInstalls["tb"] = {
@@ -71,7 +69,7 @@ export function useSeasonManage(
   const [modal, setModal] = useState<SeasonModal | null>(null);
   const [dlLibrary, setDlLibrary] = useState("");
   const [argsSaved, setArgsSaved] = useState(0);
-  const [protons, setProtons] = useState<ProtonOption[] | null>(null);
+  const [protons, reloadProtons] = useProtons();
   const [ceStatus, setCeStatus] = useState<CheatEngineStatus | null>(null);
   const [installs, setInstalls] = useState<SeasonInstalls>({
     tb: NO_INSTALL,
@@ -136,13 +134,11 @@ export function useSeasonManage(
   const editionState = activeEdition ? dl.state : "idle";
   const transferring = downloadingEdition || editionState === "paused";
   const cancelRun = verifyingEdition || editionInstall.installed;
-  const lockedOps = !hmActive && operatorsLocked(season.key);
   if (
     (downloadingSeason || playingSeason) &&
     modal !== null &&
     modal.kind !== "download" &&
     modal.kind !== "removeDownload" &&
-    modal.kind !== "lockedOperators" &&
     modal.kind !== "selectHm" &&
     modal.kind !== "proton"
   )
@@ -176,14 +172,6 @@ export function useSeasonManage(
   const activeProton = protons?.some((p) => p.internal === seasonProton)
     ? seasonProton
     : settings?.proton;
-
-  useEffect(() => {
-    if (platform !== "linux" || !settings) return;
-    const load = () => settings.proton_options(setProtons);
-    load();
-    window.addEventListener("focus", load);
-    return () => window.removeEventListener("focus", load);
-  }, [platform, settings]);
 
   useEffect(() => {
     if (!settings) return;
@@ -267,7 +255,7 @@ export function useSeasonManage(
     onBridgeReady((bridge) =>
       bridge.cheatengine?.status(season.key, setCeStatus),
     );
-    settings?.proton_options(setProtons);
+    reloadProtons();
     setModal({ kind: "proton" });
   }
 
@@ -338,20 +326,6 @@ export function useSeasonManage(
         </Modal>
       )}
 
-      {modal?.kind === "lockedOperators" && (
-        <ConfirmModal
-          title="Operators are locked"
-          confirmLabel={editionInstall.partial ? "Verify" : "Download"}
-          note="There is currently no fix."
-          onConfirm={openDownloadPrompt}
-          onCancel={() => setModal(null)}
-        >
-          <p className="text-body text-text-muted">
-            Pick Striker and Sentry once you complete the tutorial.
-          </p>
-        </ConfirmModal>
-      )}
-
       {modal?.kind === "removeDownload" && (
         <ConfirmModal
           title="Remove download"
@@ -359,7 +333,7 @@ export function useSeasonManage(
           confirmOnEnter={false}
           onConfirm={() => {
             setModal(null);
-            dl.deletePartial(season.key, modal.hm);
+            dl.deletePartial(season.key, hmActive);
           }}
           onCancel={() => setModal(null)}
         >
@@ -392,6 +366,7 @@ export function useSeasonManage(
                 <div className="flex flex-col gap-2">
                   <div className="relative">
                     <TextSetting
+                      label="Launch options"
                       value={storedArgs}
                       placeholder="%command%"
                       onCommit={(draft) => {
@@ -462,10 +437,10 @@ export function useSeasonManage(
       {modal?.kind === "uninstall" && (
         <UninstallModal
           season={season}
-          hm={modal.hm}
+          hm={hmActive}
           onClose={() => setModal(null)}
           onDone={() => {
-            const otherInstalled = modal.hm
+            const otherInstalled = hmActive
               ? installs.tb.installed
               : installs.hm.installed;
             refresh();
@@ -495,7 +470,6 @@ export function useSeasonManage(
     editionState,
     transferring,
     cancelRun,
-    lockedOps,
     shearsCuts,
     protons,
     modal,

@@ -33,8 +33,8 @@ import {
   useDownloader,
   useLibraries,
   usePlatform,
+  useProtons,
   useSettings,
-  type ProtonOption,
 } from "@/lib/bridge";
 
 type TabId = "general" | "appearance";
@@ -51,14 +51,10 @@ export default function SettingsPage() {
   const downloading = useDownloader().running;
   const [usernameSaved, setUsernameSaved] = useState(0);
   const [usernameRevert, setUsernameRevert] = useState(0);
-  const [protons, setProtons] = useState<ProtonOption[] | null>(null);
+  const [protons, reloadProtons] = useProtons();
   const [protonOpen, setProtonOpen] = useState(false);
   const [tab, setTab] = useState<TabId>("general");
   const platform = usePlatform();
-
-  useEffect(() => {
-    if (platform === "linux" && settings) settings.proton_options(setProtons);
-  }, [platform, settings]);
 
   useEffect(() => {
     if (!settings) return;
@@ -92,6 +88,7 @@ export default function SettingsPage() {
                   <Row key={`username:${usernameRevert}`} label="Username">
                     <div className="relative w-[230px] min-w-0">
                       <TextSetting
+                        label="Username"
                         value={settings.username}
                         maxLength={settings.username_rules.maxLength}
                         sanitize={(draft) =>
@@ -194,8 +191,11 @@ export default function SettingsPage() {
                         <button
                           type="button"
                           aria-label="Change Proton version"
-                          onClick={() => setProtonOpen(true)}
-                          className="flex h-8 w-[230px] min-w-0 items-center rounded-md border border-border bg-surface-2 px-[0.4rem] text-left transition hover:border-action-edge"
+                          onClick={() => {
+                            reloadProtons();
+                            setProtonOpen(true);
+                          }}
+                          className="flex h-8 w-[230px] min-w-0 items-center rounded-md border border-border bg-surface-2 px-[0.4rem] pt-[1px] text-left transition hover:border-action-edge"
                         >
                           <span className="min-w-0 grow truncate-fade font-mono text-ui text-text">
                             {protons.find((p) => p.internal === settings.proton)
@@ -301,10 +301,10 @@ export default function SettingsPage() {
                     </span>
                     <span className="flex h-8 items-center">
                       <span
-                        className="h-3.5 w-full rounded-full border border-border bg-well"
+                        className="h-3.75 w-full rounded-full border border-border bg-well [--progress:70%]"
                         onClick={(event) => toggleNyan(event, settings)}
                       >
-                        <span className="transfer-fill block h-full w-[70%] rounded-full">
+                        <span className="transfer-fill block h-full w-(--progress) rounded-full">
                           <NyanCat />
                         </span>
                       </span>
@@ -337,7 +337,6 @@ export default function SettingsPage() {
                       label="Scale"
                       value={settings.scale}
                       levels={settings.scale_levels}
-                      suffix="%"
                       onCommit={(value) => settings.set_scale(value)}
                     />
                   </Row>
@@ -379,20 +378,17 @@ export default function SettingsPage() {
       {protonOpen && settings && protons && (
         <Modal title="Proton" onClose={() => setProtonOpen(false)}>
           <div className="flex flex-col gap-2">
-            {protons.map((proton) => {
-              const selected = settings.proton === proton.internal;
-              return (
-                <PickerRow
-                  key={proton.internal}
-                  label={proton.display}
-                  selected={selected}
-                  onSelect={() => {
-                    settings.set_proton(proton.internal);
-                    setProtonOpen(false);
-                  }}
-                />
-              );
-            })}
+            {protons.map((proton) => (
+              <PickerRow
+                key={proton.internal}
+                label={proton.display}
+                selected={settings.proton === proton.internal}
+                onSelect={() => {
+                  settings.set_proton(proton.internal);
+                  setProtonOpen(false);
+                }}
+              />
+            ))}
           </div>
         </Modal>
       )}
