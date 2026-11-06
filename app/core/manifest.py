@@ -54,7 +54,7 @@ def resolve_install(folder_name: str, downloads: list[dict]) -> tuple[dict, bool
     if folder_name.endswith(HM_FOLDER_SUFFIX):
         prefix = folder_name.removesuffix(HM_FOLDER_SUFFIX) + "_"
         for d in downloads:
-            if d["key"].startswith(prefix) and d.get("hm"):
+            if d["key"].startswith(prefix) and "hm_version" in d:
                 return d, True
         return None
     for d in downloads:
@@ -73,10 +73,6 @@ def installed_downloads() -> list[Path]:
 
 def hm_folder_name(key: str) -> str:
     return f"{key.split('_', 1)[0]}{HM_FOLDER_SUFFIX}"
-
-
-def hm_version(download: dict) -> str | None:
-    return download.get("hm", {}).get("version")
 
 
 def edition_folder(key: str, hm: bool) -> str:

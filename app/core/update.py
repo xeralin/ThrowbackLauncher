@@ -44,7 +44,6 @@ from core.heatedmetal import (
 from core.manifest import (
     effective_username,
     hm_folder_name,
-    hm_version,
     installed_downloads,
     is_installed,
     load_downloads,
@@ -211,7 +210,7 @@ def _hm_latest_installs() -> list[tuple[dict, Path]]:
         return []
     installs: list[tuple[dict, Path]] = []
     for download in downloads:
-        if hm_version(download) != HM_LATEST:
+        if download.get("hm_version") != HM_LATEST:
             continue
         for root in libraries():
             folder = root / hm_folder_name(download["key"])

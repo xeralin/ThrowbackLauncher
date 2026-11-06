@@ -16,7 +16,6 @@ from core.constants import (
     SEVENZ_BIN,
 )
 from core.github import RateLimitError, fetch_to, github_asset
-from core.manifest import hm_version
 from core.reporter import Reporter
 from core.throwbackloader import apply_tl, ensure_tl, write_launcher
 from core.winspawn import NOWINDOW
@@ -213,14 +212,14 @@ def _extract_hm_archive(archive: Path, tmp_dir: Path, reporter: Reporter) -> Pat
     raise OSError(log.fail("Heated Metal extraction failed", detail))
 
 
-_PF_SSE4_2_INSTRUCTIONS_AVAILABLE = 38
 _PF_AVX_INSTRUCTIONS_AVAILABLE = 39
+_PF_AVX2_INSTRUCTIONS_AVAILABLE = 40
 
 
 def hm_files_present(target_dir: Path) -> bool:
     return (
         _default_args(target_dir) is not None
-        and (target_dir / _HM_DIR / "HeatedMetal.dll").is_file()
+        and (target_dir / _HM_DIR / f"HeatedMetal{_detect_cpu_variant()}.dll").is_file()
     )
 
 
@@ -263,19 +262,15 @@ def hm_installed_version(target_dir: Path) -> str | None:
 def _detect_cpu_variant() -> str:
     if IS_WINDOWS:
         present = ctypes.WinDLL("kernel32").IsProcessorFeaturePresent
-        if present(_PF_AVX_INSTRUCTIONS_AVAILABLE):
+        if present(_PF_AVX_INSTRUCTIONS_AVAILABLE) and not present(_PF_AVX2_INSTRUCTIONS_AVAILABLE):
             return "AVX"
-        if present(_PF_SSE4_2_INSTRUCTIONS_AVAILABLE):
-            return "SSE"
         return ""
     with contextlib.suppress(OSError):
         for line in Path("/proc/cpuinfo").read_text().splitlines():
             if line.startswith("flags"):
                 tokens = line.split()
-                if "avx" in tokens:
+                if "avx" in tokens and "avx2" not in tokens:
                     return "AVX"
-                if "sse4_2" in tokens:
-                    return "SSE"
                 break
     return ""
 
@@ -289,11 +284,10 @@ def _apply_hm_mod(target_dir: Path, mod_dir: Path) -> None:
     shutil.copy2(source, target_dir / DEFAULTARGS_DLL)
     shutil.copytree(mod_dir / _HM_DIR, target_hm)
 
-    variant = _detect_cpu_variant()
-    if variant:
-        variant_dll = target_hm / f"HeatedMetal{variant}.dll"
-        if variant_dll.exists():
-            shutil.copy2(variant_dll, target_hm / "HeatedMetal.dll")
+    default_dll = target_hm / "HeatedMetal.dll"
+    variant_dll = target_hm / f"HeatedMetal{_detect_cpu_variant()}.dll"
+    if default_dll.exists() and not variant_dll.exists():
+        shutil.copy2(default_dll, variant_dll)
 
     notices = mod_dir / _NOTICES_NAME
     if notices.exists():
@@ -308,7 +302,7 @@ def apply_hm(
     archive: Path | None = None,
 ) -> None:
     tmp_dir = BIN_DIR / ".hm.tmp"
-    release = hm_version(download)
+    release = download["hm_version"]
     try:
         if release == HM_UNSTABLE:
             if archive is None:

@@ -42,7 +42,6 @@ from core.heatedmetal import (
 from core.manifest import (
     edition_folder,
     effective_username,
-    hm_version,
     installed_path,
     is_installed,
     partial_path,
@@ -656,7 +655,7 @@ class DownloadController(QObject):
             self._pick_hm_archive()
 
     def _ensure_hm_archive(self, download: dict, resume: Callable[[], None]) -> bool:
-        if hm_version(download) != HM_UNSTABLE or self._cached_hm_archive() is not None:
+        if download.get("hm_version") != HM_UNSTABLE or self._cached_hm_archive() is not None:
             return True
         self._pick_hm_archive(resume)
         return False
@@ -1004,7 +1003,7 @@ class DownloadController(QObject):
             self.error.emit("Not installed as Throwback")
             return
         download = self._find_download(season_key)
-        if download is None or not download.get("hm"):
+        if download is None or "hm_version" not in download:
             self.error.emit("Heated Metal is not available for this season")
             return
         if installed_path(season_key, True) is not None:
@@ -1075,7 +1074,7 @@ class DownloadController(QObject):
             self.error.emit(NOT_INSTALLED_HM)
             return
         download = self._find_download(season_key)
-        if download is None or not download.get("hm"):
+        if download is None or "hm_version" not in download:
             self.error.emit("Heated Metal is not available for this season")
             return
         if is_season_running(season_key):
@@ -1094,7 +1093,7 @@ class DownloadController(QObject):
             self.error.emit(NOT_INSTALLED_HM)
             return
         download = self._find_download(season_key)
-        if download is None or hm_version(download) != HM_UNSTABLE:
+        if download is None or download.get("hm_version") != HM_UNSTABLE:
             self.error.emit("Heated Metal beta is not available for this season")
             return
         if is_season_running(season_key):

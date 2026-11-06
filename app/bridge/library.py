@@ -2,7 +2,7 @@ from PySide6.QtCore import Property, QObject, Slot
 
 from core.constants import NEXT_OUT_DIR
 from core.heatedmetal import HM_UNSTABLE
-from core.manifest import edition_folder, hm_version, installed_path, partial_path
+from core.manifest import edition_folder, installed_path, partial_path
 
 
 def _key_art_url(key: str) -> str | None:
@@ -23,8 +23,8 @@ def _season_entry(download: dict, hm: bool) -> dict:
         "label": label,
         "sizeGb": download["size_gb"],
         "build": download["build"],
-        "hmAvailable": bool(download.get("hm")),
-        "hmBeta": hm_version(download) == HM_UNSTABLE,
+        "hmAvailable": "hm_version" in download,
+        "hmBeta": download.get("hm_version") == HM_UNSTABLE,
         "partial": False,
         "keyArt": _key_art_url(download["key"]),
     }
@@ -43,7 +43,7 @@ class LibraryController(QObject):
     def home(self) -> list:
         entries = []
         for download in self._downloads:
-            for hm in (False, True) if download.get("hm") else (False,):
+            for hm in (False, True) if "hm_version" in download else (False,):
                 if installed_path(download["key"], hm) is not None:
                     entries.append(_season_entry(download, hm))
                 elif partial_path(download["key"], hm) is not None:

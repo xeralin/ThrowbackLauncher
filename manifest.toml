@@ -141,9 +141,7 @@ build = '15018155'
 manifest_content = '3089981610366186823'
 manifest_ww = '85893637567200342'
 size_gb = 88.0
-
-[Y5S3_ShadowLegacy.hm]
-version = '0.2.3'
+hm_version = '0.2.3'
 
 [Y5S4_NeonDawn]
 label = 'Y5S4 Neon Dawn'
@@ -151,9 +149,7 @@ build = '15241382'
 manifest_content = '6947060999143280245'
 manifest_ww = '3390446325154338855'
 size_gb = 57.0
-
-[Y5S4_NeonDawn.hm]
-version = 'latest'
+hm_version = 'latest'
 
 [Y6S1_CrimsonHeist]
 label = 'Y6S1 Crimson Heist'
@@ -252,9 +248,7 @@ build = '72730050'
 manifest_content = '2171250367116101899'
 manifest_ww = '6874184890918352263'
 size_gb = 56.0
-
-[Y9S2_NewBlood.hm]
-version = 'unstable'
+hm_version = 'unstable'
 
 [Y9S3_TwinShells]
 label = 'Y9S3 Twin Shells'
