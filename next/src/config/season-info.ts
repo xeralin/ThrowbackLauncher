@@ -641,7 +641,6 @@ export const SEASON_INFO: Record<string, SeasonInfoEntry> = {
     maps: [{ name: "Consulate", img: "consulate-y8s2" }],
     highlights: [
       "**Observation Blocker** secondary gadget for defenders",
-      "Arcade modes and the new **Free For All** in custom games",
       "Shooting Range aiming lane with moving targets",
       "Host button to randomize teams in custom games",
     ],
