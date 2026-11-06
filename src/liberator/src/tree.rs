@@ -180,11 +180,22 @@ fn sort_gametypes_by_name(nodes: &mut [TNode]) {
 }
 
 fn label_gametypes(mode: &mut TNode) {
-    mode.children
-        .retain(|gametype| !gametype.text.to_ascii_uppercase().starts_with("DEFEND"));
+    let name = |text: &str| GAMETYPE_NAMES.iter().find(|(raw, ..)| *raw == text);
+    let mut sides = mode
+        .children
+        .iter()
+        .filter_map(|gametype| name(&gametype.text))
+        .map(|(_, side, _)| side);
+    let mixed = sides
+        .next()
+        .is_some_and(|first| sides.any(|side| side != first));
     for gametype in &mut mode.children {
-        if let Some((_, lighting)) = GAMETYPE_NAMES.iter().find(|(raw, _)| *raw == gametype.text) {
-            gametype.text = lighting.to_string();
+        if let Some((_, side, lighting)) = name(&gametype.text) {
+            gametype.text = if mixed {
+                format!("{side} - {lighting}")
+            } else {
+                lighting.to_string()
+            };
         }
     }
 }
