@@ -202,10 +202,8 @@ jobs:
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
             gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --notes ""
-          cp artifacts/windows/ThrowbackLauncher.exe artifacts/windows/Installer.exe
           gh release upload "$GITHUB_REF_NAME" \
             "artifacts/appimage/ThrowbackLauncher.AppImage" \
             "artifacts/windows/ThrowbackLauncher.exe" \
-            "artifacts/windows/Installer.exe" \
             "artifacts/windows/Runtime.zip" \
             --clobber
