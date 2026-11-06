@@ -13,6 +13,7 @@ pub struct Patch {
     pub bytes: &'static [u8],
 }
 
+#[derive(Clone, Copy)]
 pub struct ShadowRegion {
     pub offset: u64,
     pub patch: &'static [u8],
@@ -21,6 +22,60 @@ pub struct ShadowRegion {
 pub struct ShadowSeason {
     pub build: &'static str,
     pub regions: &'static [ShadowRegion],
+}
+
+pub const RAX: u8 = 0;
+pub const RCX: u8 = 1;
+pub const RBX: u8 = 3;
+pub const RSI: u8 = 6;
+pub const RDI: u8 = 7;
+pub const R13: u8 = 13;
+pub const R15: u8 = 15;
+
+pub enum PlaylistSend {
+    Block {
+        vptr: u64,
+        ctor: u64,
+        fill: u64,
+        msg: u64,
+        send: u64,
+        dtor: u64,
+        frame: u32,
+    },
+    Channel {
+        vptr: u64,
+        ctor: u64,
+        fill: u64,
+        msg: u64,
+        send: u64,
+        dtor: u64,
+        cookie: u64,
+    },
+    Call(u64),
+}
+
+pub struct PlaylistSync {
+    pub build: &'static str,
+    pub hook: u64,
+    pub moved: &'static [u8],
+    pub gm: u8,
+    pub alt_gm: u8,
+    pub host: u32,
+    pub net: u32,
+    pub playlist: u32,
+    pub send: PlaylistSend,
+    pub late: bool,
+}
+
+pub struct WarmupGate {
+    pub build: &'static str,
+    pub site: u64,
+    pub moved: &'static [u8],
+    pub mode: u8,
+    pub kind: u32,
+    pub asset: u32,
+    pub no: u64,
+    pub back: u64,
 }
 
 pub struct RendererBuild {
@@ -73,6 +128,8 @@ include!("idle.rs");
 include!("tree_params.rs");
 include!("names.rs");
 include!("shadow_regions.rs");
+include!("playlist_sync.rs");
+include!("warmup_gates.rs");
 include!("unlock.rs");
 include!("vulkan.rs");
 include!("dx11.rs");

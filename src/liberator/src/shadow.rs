@@ -16,7 +16,7 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::{s, w};
 
-use crate::runtime::Engine;
+use crate::runtime::{Engine, WARMUP_MODE};
 use crate::tables::*;
 
 static SHADOW_DLL: &[u8] = include_bytes!("../shadow/Shadow.dll");
@@ -26,6 +26,14 @@ pub(crate) fn shadow_regions_for_build(build: &str) -> Option<&'static [ShadowRe
         .iter()
         .find(|s| s.build == build)
         .map(|s| s.regions)
+}
+
+pub(crate) fn playlist_sync(build: &str) -> Option<&'static PlaylistSync> {
+    PLAYLIST_SYNC.iter().find(|s| s.build == build)
+}
+
+pub(crate) fn warmup_gate(build: &str) -> Option<&'static WarmupGate> {
+    WARMUP_GATES.iter().find(|s| s.build == build)
 }
 
 impl Engine {
@@ -57,7 +65,7 @@ impl Engine {
         None
     }
 
-    fn reserve_near(&self, near_addr: u64, size: u64) -> u64 {
+    fn alloc_near(&self, near_addr: u64, size: u64, kind: u32) -> u64 {
         let base = near_addr & !0xFFFFu64;
         let mut d = 0x10000u64;
         while d < 0x40000000 {
@@ -67,7 +75,7 @@ impl Engine {
                         self.proc,
                         (base - d) as usize as *const c_void,
                         size as usize,
-                        MEM_RESERVE,
+                        kind,
                         PAGE_EXECUTE_READWRITE,
                     )
                 };
@@ -80,7 +88,7 @@ impl Engine {
                     self.proc,
                     (base + d) as usize as *const c_void,
                     size as usize,
-                    MEM_RESERVE,
+                    kind,
                     PAGE_EXECUTE_READWRITE,
                 )
             };
@@ -167,6 +175,213 @@ impl Engine {
         false
     }
 
+    fn site_bytes<'a>(&self, rva: u64, dx: &'a [u8]) -> Option<&'a [u8]> {
+        let hook = self.at(rva);
+        let live = if self.shadow_pages.contains(&(hook & !0xFFFu64)) {
+            (hook as i64 + self.shadow_delta) as u64
+        } else {
+            hook
+        };
+        let moved = self.bytes(rva, dx);
+        let mut current = vec![0u8; moved.len()];
+        (hook != 0 && self.read_mem(live, &mut current) == moved.len() && current == moved)
+            .then_some(moved)
+    }
+
+    fn write_site(&self, rva: u64, opcode: u8, cave: u64, len: usize) {
+        let hook = self.at(rva);
+        let mut code = vec![opcode];
+        code.extend_from_slice(&((cave as i64 - (hook + 5) as i64) as i32).to_le_bytes());
+        code.resize(len, 0x90);
+        if self.shadow_pages.contains(&(hook & !0xFFFu64)) {
+            self.shadow_write(rva, &code);
+        } else {
+            self.write_mem(hook, &code);
+        }
+    }
+
+    pub(crate) fn arm_warmup_gate(&self, site: &WarmupGate) {
+        let (no, back) = (self.at(site.no), self.at(site.back));
+        let Some(moved) = self.site_bytes(site.site, site.moved) else {
+            return;
+        };
+        if no == 0 || back == 0 {
+            return;
+        }
+        let cave = self.alloc_near(self.base, 0x1000, MEM_COMMIT | MEM_RESERVE);
+        if cave == 0 {
+            return;
+        }
+        let (high, low) = (site.mode >> 3, site.mode & 7);
+        let rel = |c: &mut Vec<u8>, target: u64| {
+            let next = cave + c.len() as u64 + 4;
+            c.extend_from_slice(&((target as i64 - next as i64) as i32).to_le_bytes());
+        };
+        let mut c: Vec<u8> = vec![0x48 | (high * 5), 0x85, 0xC0 | (low * 9), 0x0F, 0x84];
+        rel(&mut c, back);
+        c.extend_from_slice(&[0x40 | high, 0x83, 0xB8 | low]);
+        c.extend_from_slice(&site.kind.to_le_bytes());
+        c.extend_from_slice(&[0x02, 0x0F, 0x84]);
+        rel(&mut c, no);
+        c.extend_from_slice(&[0x50, 0x48 | high, 0x8B, 0x80 | low]);
+        c.extend_from_slice(&site.asset.to_le_bytes());
+        c.extend_from_slice(&[
+            0x48, 0x85, 0xC0, 0x74, 0x1F, 0x48, 0x8B, 0x00, 0x48, 0x85, 0xC0, 0x74, 0x17, 0x48,
+            0x8B, 0x40, 0x10, 0x48, 0x3B, 0x05, 0x12, 0x00, 0x00, 0x00, 0x58, 0x0F, 0x84,
+        ]);
+        rel(&mut c, no);
+        c.push(0xE9);
+        rel(&mut c, back);
+        c.extend_from_slice(&[0x58, 0xE9]);
+        rel(&mut c, back);
+        c.extend_from_slice(&WARMUP_MODE.to_le_bytes());
+        if self.write_mem(cave, &c) {
+            self.write_site(site.site, 0xE9, cave, moved.len());
+        }
+    }
+
+    pub(crate) fn arm_playlist_sync(&self, site: &PlaylistSync) {
+        let targets: Vec<u64> = match site.send {
+            PlaylistSend::Block {
+                vptr,
+                ctor,
+                fill,
+                msg,
+                send,
+                dtor,
+                ..
+            } => vec![vptr, ctor, fill, msg, send, dtor],
+            PlaylistSend::Channel {
+                vptr,
+                ctor,
+                fill,
+                msg,
+                send,
+                dtor,
+                cookie,
+            } => vec![vptr, ctor, fill, msg, send, dtor, cookie],
+            PlaylistSend::Call(target) => vec![target],
+        }
+        .into_iter()
+        .map(|rva| self.at(rva))
+        .collect();
+        if targets.contains(&0) {
+            return;
+        }
+        let Some(moved) = self.site_bytes(site.hook, site.moved) else {
+            return;
+        };
+        let cave = self.alloc_near(self.base, 0x1000, MEM_COMMIT | MEM_RESERVE);
+        if cave == 0 {
+            return;
+        }
+        let gm = if self.renderer.is_some() {
+            site.alt_gm
+        } else {
+            site.gm
+        };
+        let rel = |c: &mut Vec<u8>, target: u64| {
+            let next = cave + c.len() as u64 + 4;
+            c.extend_from_slice(&((target as i64 - next as i64) as i32).to_le_bytes());
+        };
+        let frame: u32 = match site.send {
+            PlaylistSend::Block { frame, .. } => frame,
+            PlaylistSend::Channel { .. } => 0x218,
+            PlaylistSend::Call(_) => 0x1A8,
+        };
+        let mut c: Vec<u8> = vec![0x53, 0x41, 0x50, 0x41, 0x51, 0x57, 0x48, 0x81, 0xEC];
+        c.extend_from_slice(&frame.to_le_bytes());
+        c.extend_from_slice(&[0x48 | (gm >> 3), 0x8B, 0xD8 | (gm & 7), 0x80, 0xBB]);
+        c.extend_from_slice(&site.host.to_le_bytes());
+        c.extend_from_slice(&[0x00, 0x0F, 0x84, 0, 0, 0, 0]);
+        let j1 = c.len() - 4;
+        c.extend_from_slice(&[0x48, 0x8B, 0x8B]);
+        c.extend_from_slice(&site.net.to_le_bytes());
+        c.extend_from_slice(&[0x48, 0x85, 0xC9, 0x0F, 0x84, 0, 0, 0, 0]);
+        let j2 = c.len() - 4;
+        if let [vptr, ctor, fill, msg, send, dtor] = targets[..] {
+            c.extend_from_slice(&[0x48, 0x8D, 0x3D]);
+            rel(&mut c, vptr);
+            c.extend_from_slice(&[
+                0x48, 0x8D, 0x4C, 0x24, 0x28, 0x48, 0x89, 0x7C, 0x24, 0x20, 0xE8,
+            ]);
+            rel(&mut c, ctor);
+            c.extend_from_slice(&[0x48, 0x8D, 0x93]);
+            c.extend_from_slice(&site.playlist.to_le_bytes());
+            c.extend_from_slice(&[0x48, 0x8D, 0x4C, 0x24, 0x28, 0xE8]);
+            rel(&mut c, fill);
+            c.extend_from_slice(&[0x4C, 0x8D, 0x44, 0x24, 0x20, 0x48, 0x8B, 0x8B]);
+            c.extend_from_slice(&site.net.to_le_bytes());
+            c.extend_from_slice(&[0x48, 0x8D, 0x15]);
+            rel(&mut c, msg);
+            c.push(0xE8);
+            rel(&mut c, send);
+            c.extend_from_slice(&[
+                0x48, 0x8D, 0x4C, 0x24, 0x28, 0x48, 0x89, 0x7C, 0x24, 0x20, 0xE8,
+            ]);
+            rel(&mut c, dtor);
+        } else if let [vptr, ctor, fill, msg, send, dtor, cookie] = targets[..] {
+            c.extend_from_slice(&[0x48, 0x8D, 0x3D]);
+            rel(&mut c, vptr);
+            c.extend_from_slice(&[
+                0x48, 0x8D, 0x4C, 0x24, 0x40, 0x48, 0x89, 0x7C, 0x24, 0x38, 0xE8,
+            ]);
+            rel(&mut c, ctor);
+            c.extend_from_slice(&[0x48, 0x8D, 0x93]);
+            c.extend_from_slice(&site.playlist.to_le_bytes());
+            c.extend_from_slice(&[0x48, 0x8D, 0x4C, 0x24, 0x40, 0xE8]);
+            rel(&mut c, fill);
+            c.extend_from_slice(&[0x48, 0x8B, 0x8B]);
+            c.extend_from_slice(&site.net.to_le_bytes());
+            c.extend_from_slice(&[0x48, 0x8B, 0x49, 0x10, 0x48, 0x85, 0xC9, 0x74, 0x00]);
+            let j3 = c.len() - 1;
+            c.extend_from_slice(&[
+                0x48, 0x8B, 0x89, 0x90, 0x00, 0x00, 0x00, 0x48, 0x85, 0xC9, 0x74, 0x00,
+            ]);
+            let j4 = c.len() - 1;
+            c.extend_from_slice(&[
+                0x48, 0x8B, 0x49, 0x08, 0x8B, 0x51, 0x3C, 0x83, 0xFA, 0xFF, 0x74, 0x00,
+            ]);
+            let j5 = c.len() - 1;
+            c.extend_from_slice(&[0x48, 0x8B, 0x0D]);
+            rel(&mut c, cookie);
+            c.extend_from_slice(&[
+                0x48, 0x89, 0x8C, 0x24, 0x08, 0x02, 0x00, 0x00, 0x48, 0x8D, 0x8C, 0x24, 0x08, 0x02,
+                0x00, 0x00, 0x48, 0x89, 0x4C, 0x24, 0x30, 0xC7, 0x44, 0x24, 0x28, 0xFF, 0xFF, 0xFF,
+                0xFF, 0xC7, 0x44, 0x24, 0x20, 0x00, 0x00, 0x00, 0x00, 0x4C, 0x8D, 0x05,
+            ]);
+            rel(&mut c, msg);
+            c.extend_from_slice(&[
+                0x48, 0x8D, 0x8C, 0x24, 0x00, 0x02, 0x00, 0x00, 0x4C, 0x8D, 0x4C, 0x24, 0x38, 0xE8,
+            ]);
+            rel(&mut c, send);
+            for j in [j3, j4, j5] {
+                c[j] = (c.len() - j - 1) as u8;
+            }
+            c.extend_from_slice(&[
+                0x48, 0x8D, 0x4C, 0x24, 0x40, 0x48, 0x89, 0x7C, 0x24, 0x38, 0xE8,
+            ]);
+            rel(&mut c, dtor);
+        } else {
+            c.extend_from_slice(&[0x48, 0x8D, 0x93]);
+            c.extend_from_slice(&site.playlist.to_le_bytes());
+            c.push(0xE8);
+            rel(&mut c, targets[0]);
+        }
+        let out = c.len();
+        for j in [j1, j2] {
+            c[j..j + 4].copy_from_slice(&((out - j - 4) as u32).to_le_bytes());
+        }
+        c.extend_from_slice(&[0x48, 0x81, 0xC4]);
+        c.extend_from_slice(&frame.to_le_bytes());
+        c.extend_from_slice(&[0x5F, 0x41, 0x59, 0x41, 0x58, 0x5B]);
+        c.extend_from_slice(moved);
+        c.push(0xC3);
+        if self.write_mem(cave, &c) {
+            self.write_site(site.hook, 0xE8, cave, moved.len());
+        }
+    }
+
     pub(crate) fn shadow_run(&mut self, regions: &[ShadowRegion]) -> bool {
         let Some((text_base, text_size)) = self.section(b".text") else {
             return false;
@@ -223,7 +438,7 @@ impl Engine {
             return false;
         }
 
-        let shadow_base = self.reserve_near(text_base, text_size as u64);
+        let shadow_base = self.alloc_near(text_base, text_size as u64, MEM_RESERVE);
         if shadow_base == 0 {
             return false;
         }

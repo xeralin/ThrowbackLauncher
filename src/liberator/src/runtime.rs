@@ -25,7 +25,7 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_QUERY_INFORMATION, PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
 };
 
-use crate::shadow::shadow_regions_for_build;
+use crate::shadow::{playlist_sync, shadow_regions_for_build, warmup_gate};
 use crate::tables::*;
 use crate::tree::*;
 use crate::unlock::{unlock, Badges, Onboarding, Ownership};
@@ -634,80 +634,6 @@ static Y6S1_TOGGLES: &[(&str, u64, &[u8])] = &[
     ),
 ];
 
-static Y6S1_15500403_TOGGLES: &[(&str, u64, &[u8])] = &[
-    ("displayBuild", 0x3D689EA, &[0xEB, 0x09]),
-    (
-        "displayBuild",
-        0x4017F8D,
-        &[0x48, 0x8D, 0x15, 0xF0, 0x39, 0x68, 0x01],
-    ),
-    ("displayBuild", 0x3D685BA, &[0xB0, 0x01, 0x90]),
-    (
-        "deathless",
-        0x45BC7CE,
-        &[0xE9, 0xB2, 0xD1, 0x38, 0x00, 0x90, 0x90],
-    ),
-    ("unlimitedAmmo", 0x25A19E3, &[0x0F, 0x1F, 0x00]),
-    (
-        "unlimitedAmmo",
-        0x25AD7E9,
-        &[0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00],
-    ),
-    (
-        "unlimitedAmmo",
-        0x25AD907,
-        &[0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00],
-    ),
-    ("unlimitedAmmo", 0x25B7EF5, &[0x00]),
-    ("unlimitedAmmo", 0x25B39D3, &[0x72]),
-    ("unlimitedAmmo", 0x25B3A05, &[0x83]),
-    ("unlimitedAmmo", 0x25B4C58, &[0x92]),
-    ("disableAI", 0x45E20, &[0xC3]),
-    ("endMatch", 0x224D2B1, &[0xB0, 0xF4]),
-    (
-        "unlimitedEquip",
-        0x365270D,
-        &[
-            0x48, 0x8B, 0x8F, 0x78, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
-            0x39, 0x34, 0x01, 0x66, 0x90,
-        ],
-    ),
-    ("unlimitedEquip", 0x22F28A1, &[0x83, 0xC0, 0x00]),
-    ("unlimitedEquip", 0x5FB307, &[0x83, 0xC0, 0x00]),
-    ("unlimitedEquip", 0x22F78EF, &[0x83, 0x46, 0x44, 0x00]),
-    ("unlimitedEquip", 0x2C0FFA0, &[0x83, 0x43, 0x44, 0x00]),
-    ("unlimitedEquip", 0x5FB380, &[0x83, 0x43, 0x44, 0x00]),
-    (
-        "unlimitedEquip",
-        0x2D1FE5F,
-        &[
-            0x85, 0xF6, 0x0F, 0x84, 0x5B, 0x01, 0x00, 0x00, 0x48, 0x89, 0xCB, 0x0F, 0x1F, 0x00,
-        ],
-    ),
-    (
-        "unlimitedEquip",
-        0x2E93CFD,
-        &[
-            0x8B, 0x71, 0x6C, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44, 0x00, 0x00,
-        ],
-    ),
-    (
-        "unlimitedEquip",
-        0x5F1FB2,
-        &[
-            0x8B, 0x71, 0x64, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40, 0x00,
-        ],
-    ),
-    (
-        "unlimitedEquip",
-        0x5F460A,
-        &[
-            0x8B, 0xB9, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40,
-            0x00,
-        ],
-    ),
-];
-
 static Y6S2_TOGGLES: &[(&str, u64, &[u8])] = &[
     ("displayBuild", 0x2DEC67A, &[0xEB, 0x09]),
     (
@@ -783,81 +709,6 @@ static Y6S2_TOGGLES: &[(&str, u64, &[u8])] = &[
     ),
 ];
 
-static Y6S2_15701375_TOGGLES: &[(&str, u64, &[u8])] = &[
-    ("displayBuild", 0x2997F4A, &[0xEB, 0x09]),
-    (
-        "displayBuild",
-        0x2F1410D,
-        &[0x48, 0x8D, 0x15, 0xC0, 0x41, 0x8A, 0x02],
-    ),
-    ("displayBuild", 0x299776F, &[0xB0, 0x01, 0x90]),
-    (
-        "deathless",
-        0x39F80A7,
-        &[0xE9, 0x54, 0x7F, 0xF8, 0xFF, 0x90, 0x90],
-    ),
-    ("unlimitedAmmo", 0x3B2E15C, &[0x0F, 0x1F, 0x00]),
-    (
-        "unlimitedAmmo",
-        0x3B39DAF,
-        &[0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00],
-    ),
-    (
-        "unlimitedAmmo",
-        0x3B39ED7,
-        &[0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00],
-    ),
-    ("unlimitedAmmo", 0x3B44645, &[0x00]),
-    ("unlimitedAmmo", 0x3B403AA, &[0x72]),
-    ("unlimitedAmmo", 0x3B403DD, &[0x83]),
-    ("unlimitedAmmo", 0x3B4159C, &[0x92]),
-    ("disableAI", 0xC56B40, &[0xC3]),
-    ("endMatch", 0x46399C5, &[0x75, 0x3B, 0xB0, 0x01]),
-    (
-        "unlimitedEquip",
-        0x33C61A4,
-        &[
-            0x48, 0x8B, 0x8F, 0x78, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
-            0x39, 0x34, 0x01, 0x66, 0x90,
-        ],
-    ),
-    ("unlimitedEquip", 0x428FA97, &[0x83, 0xC0, 0x00]),
-    ("unlimitedEquip", 0x4605C97, &[0x83, 0xC0, 0x00]),
-    ("unlimitedEquip", 0x4294B92, &[0x83, 0x46, 0x44, 0x00]),
-    ("unlimitedEquip", 0x20617C0, &[0x83, 0x43, 0x44, 0x00]),
-    ("unlimitedEquip", 0x4605D10, &[0x83, 0x43, 0x44, 0x00]),
-    (
-        "unlimitedEquip",
-        0x256F81E,
-        &[
-            0x8B, 0xB1, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44,
-            0x00, 0x00,
-        ],
-    ),
-    (
-        "unlimitedEquip",
-        0x33F28D,
-        &[
-            0x8B, 0x71, 0x6C, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44, 0x00, 0x00,
-        ],
-    ),
-    (
-        "unlimitedEquip",
-        0x45FCF52,
-        &[
-            0x8B, 0x71, 0x64, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40, 0x00,
-        ],
-    ),
-    (
-        "unlimitedEquip",
-        0x45FF3DA,
-        &[
-            0x8B, 0xB9, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40,
-            0x00,
-        ],
-    ),
-];
-
 static Y6S3_TOGGLES: &[(&str, u64, &[u8])] = &[
     ("displayBuild", 0x1E1424A, &[0xEB, 0x09]),
     (
@@ -926,81 +777,6 @@ static Y6S3_TOGGLES: &[(&str, u64, &[u8])] = &[
     (
         "unlimitedEquip",
         0xBAB7AA,
-        &[
-            0x8B, 0xB9, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40,
-            0x00,
-        ],
-    ),
-];
-
-static Y6S3_32627923_TOGGLES: &[(&str, u64, &[u8])] = &[
-    ("displayBuild", 0x1B1F30A, &[0xEB, 0x09]),
-    (
-        "displayBuild",
-        0x32EF57D,
-        &[0x48, 0x8D, 0x15, 0x8A, 0x14, 0x71, 0x02],
-    ),
-    ("displayBuild", 0x1B1EEEF, &[0xB0, 0x01, 0x90]),
-    (
-        "deathless",
-        0x222587,
-        &[0xE9, 0x74, 0xAA, 0x87, 0x01, 0x90, 0x90],
-    ),
-    ("unlimitedAmmo", 0x1B92CAB, &[0x0F, 0x1F, 0x00]),
-    (
-        "unlimitedAmmo",
-        0x1B9E8DE,
-        &[0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00],
-    ),
-    (
-        "unlimitedAmmo",
-        0x1B9E9B9,
-        &[0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00],
-    ),
-    ("unlimitedAmmo", 0x1BA8F37, &[0x00]),
-    ("unlimitedAmmo", 0x1BA4EFF, &[0x72]),
-    ("unlimitedAmmo", 0x1BA4F32, &[0x83]),
-    ("unlimitedAmmo", 0x1BA5FFB, &[0x92]),
-    ("disableAI", 0xC82EA0, &[0xC3]),
-    ("endMatch", 0x2E8AAD8, &[0x75, 0x48, 0xB0, 0x01]),
-    (
-        "unlimitedEquip",
-        0x1DD6E74,
-        &[
-            0x48, 0x8B, 0x8F, 0x78, 0x03, 0x00, 0x00, 0x39, 0x34, 0x01, 0x0F, 0x4F, 0x34, 0x01,
-            0x39, 0x34, 0x01, 0x66, 0x90,
-        ],
-    ),
-    ("unlimitedEquip", 0x26EC647, &[0x83, 0xC0, 0x00]),
-    ("unlimitedEquip", 0x3F1BCC7, &[0x83, 0xC0, 0x00]),
-    ("unlimitedEquip", 0x26F16F9, &[0x83, 0x46, 0x44, 0x00]),
-    ("unlimitedEquip", 0x3E089A0, &[0x83, 0x43, 0x44, 0x00]),
-    ("unlimitedEquip", 0x3F1BD40, &[0x83, 0x43, 0x44, 0x00]),
-    (
-        "unlimitedEquip",
-        0x1F986EE,
-        &[
-            0x8B, 0xB1, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44,
-            0x00, 0x00,
-        ],
-    ),
-    (
-        "unlimitedEquip",
-        0x3F8879D,
-        &[
-            0x8B, 0x71, 0x6C, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x44, 0x00, 0x00,
-        ],
-    ),
-    (
-        "unlimitedEquip",
-        0x2947D2,
-        &[
-            0x8B, 0x71, 0x64, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40, 0x00,
-        ],
-    ),
-    (
-        "unlimitedEquip",
-        0x296ACA,
         &[
             0x8B, 0xB9, 0xC4, 0x00, 0x00, 0x00, 0xBD, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x1F, 0x40,
             0x00,
@@ -2093,11 +1869,8 @@ static Y9S2_TOGGLES: &[(&str, u64, &[u8])] = &[
 fn shadow_toggles(build: &str) -> &'static [(&'static str, u64, &'static [u8])] {
     match build {
         "Y5S1_14303219" => Y5S1_TOGGLES,
-        "Y6S1_15500403" => Y6S1_15500403_TOGGLES,
         "Y6S1_15680437" => Y6S1_TOGGLES,
-        "Y6S2_15701375" => Y6S2_15701375_TOGGLES,
         "Y6S2_15772114" => Y6S2_TOGGLES,
-        "Y6S3_32627923" => Y6S3_32627923_TOGGLES,
         "Y6S3_35130040" => Y6S3_TOGGLES,
         "Y6S4_37046065" => Y6S4_TOGGLES,
         "Y7S1_39785137" => Y7S1_TOGGLES,
@@ -2220,32 +1993,6 @@ fn y6s1_dec_handle(q: u64) -> u64 {
         .rotate_left(43)
 }
 
-fn y6s1_15500403_dec_gm(v: u64) -> u64 {
-    (v.wrapping_add(0x60390E992B107F77) ^ 0x8427F60A304AC650).rotate_left(23)
-}
-
-fn y6s1_15500403_dec_state(x: u32) -> u32 {
-    (x.rotate_left(16) ^ 0x3B).wrapping_add(0x39A03CA3)
-}
-
-fn y6s1_15500403_end(v: u32) -> u32 {
-    v ^ 0x07536942
-}
-
-fn y6s1_15500403_duration(v: u32) -> u32 {
-    v ^ 0x07305F6A
-}
-
-fn y6s1_15500403_dec_list(q: u64) -> u64 {
-    (q ^ 0x3ABF551846123F52)
-        .rotate_left(24)
-        .wrapping_add(0xD05C6C8E8806669F)
-}
-
-fn y6s1_15500403_dec_handle(q: u64) -> u64 {
-    q.rotate_left(40).wrapping_add(0x6CDD523938020578) ^ 0xB3E0F060399FED9A
-}
-
 fn y6s2_dec_gm(v: u64) -> u64 {
     (v ^ 0xDF9A1E6ACFE6E02C).rotate_left(20).wrapping_sub(0x15)
 }
@@ -2276,40 +2023,6 @@ fn y6s2_dec_list(q: u64) -> u64 {
 
 fn y6s2_dec_handle(q: u64) -> u64 {
     q ^ 0x0D61D1F4E77AF634
-}
-
-fn y6s2_15701375_dec_gm(v: u64) -> u64 {
-    v.wrapping_add(0x77FF4DDF516EED3F)
-        .rotate_left(36)
-        .wrapping_sub(0x59)
-}
-
-fn y6s2_15701375_dec_state(x: u32) -> u32 {
-    (x.wrapping_add(0x73C53D55) ^ 0x4C).wrapping_sub(0xE)
-}
-
-fn y6s2_15701375_enc_end(v: u32) -> u32 {
-    v.rotate_left(9).wrapping_add(0xBEF7FAAA) ^ 0x98AA86A5
-}
-
-fn y6s2_15701375_dec_end(x: u32) -> u32 {
-    (x ^ 0x98AA86A5).wrapping_add(0x41080556).rotate_left(23)
-}
-
-fn y6s2_15701375_enc_duration(v: u32) -> u32 {
-    v.wrapping_add(0x57).rotate_left(29).wrapping_add(0x50)
-}
-
-fn y6s2_15701375_dec_duration(x: u32) -> u32 {
-    x.wrapping_sub(0x50).rotate_left(3).wrapping_sub(0x57)
-}
-
-fn y6s2_15701375_dec_list(q: u64) -> u64 {
-    (q.rotate_left(10) ^ 0x9).wrapping_add(0x06A84949F48B2E7C)
-}
-
-fn y6s2_15701375_dec_handle(q: u64) -> u64 {
-    q.wrapping_add(0x7D0CABABCD9CA974).rotate_right(1) ^ 0x0F16A609DE2EC440
 }
 
 fn y6s3_dec_gm(v: u64) -> u64 {
@@ -2344,36 +2057,6 @@ fn y6s3_dec_list(q: u64) -> u64 {
 
 fn y6s3_dec_handle(q: u64) -> u64 {
     q ^ 0x40E890261C57E524
-}
-
-fn y6s3_32627923_dec_gm(v: u64) -> u64 {
-    (v.wrapping_sub(0x7E) ^ 0x79A56C116BE29149).rotate_left(27)
-}
-
-fn y6s3_32627923_dec_state(x: u32) -> u32 {
-    (x.wrapping_sub(0x10) ^ 0x9D649583).rotate_left(1)
-}
-
-fn y6s3_32627923_end(v: u32) -> u32 {
-    v ^ 0x5C089B7A
-}
-
-fn y6s3_32627923_enc_duration(v: u32) -> u32 {
-    v.wrapping_add(0x26877E87).rotate_left(27)
-}
-
-fn y6s3_32627923_dec_duration(x: u32) -> u32 {
-    x.rotate_left(5).wrapping_add(0xD9788179)
-}
-
-fn y6s3_32627923_dec_list(q: u64) -> u64 {
-    (q ^ 0xD1B1A992532A8697)
-        .rotate_left(15)
-        .wrapping_add(0xB2DC771E4D41B3F5)
-}
-
-fn y6s3_32627923_dec_handle(q: u64) -> u64 {
-    (q ^ 0xA07BCA1D7F136466).rotate_left(3) ^ 0xEEB133078F14E1A9
 }
 
 fn y6s4_dec_gm(v: u64) -> u64 {
@@ -4331,8 +4014,9 @@ static DIFFICULTIES: &[(&str, u64)] = &[
     ("Realistic", 0xCDE271EE),
 ];
 const GYM_MODE: u64 = 0x72AFC423;
-const WARMUP_MODE: u64 = 0x7A956D02F;
+pub(crate) const WARMUP_MODE: u64 = 0x7A956D02F;
 const WARMUP_MAPS: &[u64] = &[0x57AC2280B2];
+const WARMUP_PLAYLIST: u64 = 0x574F867F9E;
 
 static EVENT_FORGES: &[(u64, &str)] = &[
     (0x2D1D494EF2, "evn00_stadium_events"),
@@ -4487,7 +4171,11 @@ const Y10S1_MATCH_LAYOUT: MatchLayout = MatchLayout {
 };
 
 enum MatchState {
-    Chain(&'static [i32]),
+    Indexed {
+        entries: u64,
+        index: u64,
+        stride: u64,
+    },
     Encoded(&'static MatchCodec),
 }
 
@@ -4505,7 +4193,7 @@ struct MatchCodec {
 impl MatchState {
     fn codec(&self) -> Option<&'static MatchCodec> {
         match *self {
-            MatchState::Chain(_) => None,
+            MatchState::Indexed { .. } => None,
             MatchState::Encoded(codec) => Some(codec),
         }
     }
@@ -4531,6 +4219,7 @@ struct GameProfile {
     standard_maps: usize,
     thunt_maps: &'static [usize],
     tdm_maps: &'static [usize],
+    arcade: &'static [PlaylistEvent],
     events: &'static [PlaylistEvent],
 }
 
@@ -4541,7 +4230,11 @@ static Y5S1_GAME: GameProfile = GameProfile {
     state: 0xF0,
     dec_state: None,
     role: 0x230,
-    match_state: MatchState::Chain(&[0x90]),
+    match_state: MatchState::Indexed {
+        entries: 0x90,
+        index: 0x8C,
+        stride: 0x58,
+    },
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x3A94168,
     settings: 0x70,
@@ -4606,10 +4299,11 @@ static Y5S1_GAME: GameProfile = GameProfile {
         0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
     tdm_maps: &[],
-    events: &[
-        ("Grand Larceny", 0x39E871FC8A, 0x4024D5CD3C, &[22]),
+    arcade: &[
+        ("Warmup", WARMUP_MODE, WARMUP_PLAYLIST, &[]),
         ("Golden Gun", 0x3EA695B452, 0x3F331EF4E2, &[1]),
     ],
+    events: &[("Grand Larceny", 0x39E871FC8A, 0x4024D5CD3C, &[22])],
 };
 
 static Y5S2_GAME: GameProfile = GameProfile {
@@ -4619,7 +4313,11 @@ static Y5S2_GAME: GameProfile = GameProfile {
     state: 0x114,
     dec_state: None,
     role: 0x278,
-    match_state: MatchState::Chain(&[0xF8]),
+    match_state: MatchState::Indexed {
+        entries: 0xF8,
+        index: 0xF4,
+        stride: 0x80,
+    },
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x4C8AD70,
     settings: 0x70,
@@ -4681,6 +4379,7 @@ static Y5S2_GAME: GameProfile = GameProfile {
         0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
     tdm_maps: &[],
+    arcade: &[("Warmup", WARMUP_MODE, WARMUP_PLAYLIST, &[])],
     events: &[("M.U.T.E. Protocol", 0x41E157DDE5, 0x41E15761D1, &[22])],
 };
 
@@ -4691,7 +4390,11 @@ static Y5S3_GAME: GameProfile = GameProfile {
     state: 0x50,
     dec_state: None,
     role: 0x308,
-    match_state: MatchState::Chain(&[0x68]),
+    match_state: MatchState::Indexed {
+        entries: 0x68,
+        index: 0x64,
+        stride: 0x88,
+    },
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x534D4B0,
     settings: 0x68,
@@ -4753,10 +4456,11 @@ static Y5S3_GAME: GameProfile = GameProfile {
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
     tdm_maps: &[],
-    events: &[
+    arcade: &[
+        ("Warmup", WARMUP_MODE, WARMUP_PLAYLIST, &[]),
         ("Golden Gun", 0x3EA695B452, 0x3F331EF4E2, &[12, 21, 15]),
-        ("Sugar Fright", 0x45840C11F0, 0x45840EDB69, &[22]),
     ],
+    events: &[("Sugar Fright", 0x45840C11F0, 0x45840EDB69, &[22])],
 };
 
 static Y5S4_GAME: GameProfile = GameProfile {
@@ -4766,7 +4470,11 @@ static Y5S4_GAME: GameProfile = GameProfile {
     state: 0xB8,
     dec_state: Some(y5s4_dec_state),
     role: 0x348,
-    match_state: MatchState::Chain(&[0xC8]),
+    match_state: MatchState::Indexed {
+        entries: 0xC8,
+        index: 0xC4,
+        stride: 0x88,
+    },
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x53A7BA0,
     settings: 0x68,
@@ -4831,6 +4539,7 @@ static Y5S4_GAME: GameProfile = GameProfile {
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
     tdm_maps: &[],
+    arcade: &[("Warmup", WARMUP_MODE, WARMUP_PLAYLIST, &[])],
     events: &[("Road To S.I. 2021", 0x483AB3E121, 0x4707B87CF1, &[22])],
 };
 
@@ -4841,7 +4550,11 @@ static Y6S1_GAME: GameProfile = GameProfile {
     state: 0x184,
     dec_state: Some(y6s1_dec_state),
     role: 0x340,
-    match_state: MatchState::Chain(&[0xA0]),
+    match_state: MatchState::Indexed {
+        entries: 0xA0,
+        index: 0x9C,
+        stride: 0x88,
+    },
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x55444F0,
     settings: 0x68,
@@ -4907,55 +4620,11 @@ static Y6S1_GAME: GameProfile = GameProfile {
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
     tdm_maps: &[],
+    arcade: &[("Warmup", WARMUP_MODE, WARMUP_PLAYLIST, &[])],
     events: &[
         ("Rainbow is Magic", 0x4DB61E967D, 0x4DB61E9851, &[22]),
         ("Apocalypse", 0x530F7BDC93, 0x530F7BED20, &[23]),
     ],
-};
-
-static Y6S1_15500403_GAME: GameProfile = GameProfile {
-    tag: "y6s1",
-    game_manager: 0x7106998,
-    dec_gm: Some(y6s1_15500403_dec_gm),
-    state: 0x170,
-    dec_state: Some(y6s1_15500403_dec_state),
-    role: 0x338,
-    match_state: MatchState::Chain(&[0x100]),
-    match_layout: Y5_MATCH_LAYOUT,
-    gamemode: 0x5520760,
-    settings: 0x68,
-    dec_settings: None,
-    time_of_day: 0x40,
-    enc_handle_uid: None,
-    enc_object_uid: None,
-    round: RoundProfile {
-        live: (0x2FC, Raw::Fixed(1)),
-        running: (0xB10, Raw::Fixed(2)),
-        countdown: (0x3E8, Raw::Fixed(0x95)),
-        match_over: (0xC24, Raw::Fixed(0xF4)),
-        now: 0x51A8,
-        start: 0xA70,
-        end: 0xAE4,
-        duration: 0x9A0,
-        freeze: (0x8B4, Raw::Fixed(0x195A343E)),
-        infinite_display: Some((0x3E9, Raw::Fixed([0x9F, 0x8F]))),
-        enc_end: y6s1_15500403_end,
-        dec_end: y6s1_15500403_end,
-        enc_duration: y6s1_15500403_duration,
-        dec_duration: y6s1_15500403_duration,
-        roster: Roster::Encoded {
-            lists: [0x668, 0x418],
-            dec_head: [y6s1_15500403_dec_list; 2],
-            handles: &[0x180],
-            dec_handle: y6s1_15500403_dec_handle,
-            session_handles: None,
-        },
-        loadout: 0x38,
-        dec_loadout: None,
-        slots: Y5_SLOTS,
-        slot: None,
-    },
-    ..Y6S1_GAME
 };
 
 static Y6S2_GAME: GameProfile = GameProfile {
@@ -4965,7 +4634,11 @@ static Y6S2_GAME: GameProfile = GameProfile {
     state: 0x150,
     dec_state: Some(y6s2_dec_state),
     role: 0x358,
-    match_state: MatchState::Chain(&[0xD0]),
+    match_state: MatchState::Indexed {
+        entries: 0xD0,
+        index: 0xCC,
+        stride: 0x88,
+    },
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x56FCF90,
     settings: 0x68,
@@ -5030,53 +4703,8 @@ static Y6S2_GAME: GameProfile = GameProfile {
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
     tdm_maps: &[],
+    arcade: &[("Warmup", WARMUP_MODE, WARMUP_PLAYLIST, &[])],
     events: &[("Containment", 0x547CD662FD, 0x54A95068E8, &[22])],
-};
-
-static Y6S2_15701375_GAME: GameProfile = GameProfile {
-    tag: "y6s2",
-    game_manager: 0x72A43C8,
-    dec_gm: Some(y6s2_15701375_dec_gm),
-    state: 0xE0,
-    dec_state: Some(y6s2_15701375_dec_state),
-    role: 0x358,
-    match_state: MatchState::Chain(&[0x118]),
-    match_layout: Y5_MATCH_LAYOUT,
-    gamemode: 0x5643B20,
-    settings: 0x68,
-    dec_settings: None,
-    time_of_day: 0x40,
-    enc_handle_uid: None,
-    enc_object_uid: None,
-    round: RoundProfile {
-        live: (0x31C, Raw::Fixed(1)),
-        running: (0xC82, Raw::Fixed(0xA8)),
-        countdown: (0x4EC, Raw::Fixed(0xA4)),
-        match_over: (0xC38, Raw::Fixed(0x91)),
-        now: 0x6038,
-        start: 0x848,
-        end: 0x87C,
-        duration: 0xCE0,
-        freeze: (0x844, Raw::Fixed(0x76000)),
-        infinite_display: Some((0x490, Raw::Fixed([0xA3, 0x83]))),
-        enc_end: y6s2_15701375_enc_end,
-        dec_end: y6s2_15701375_dec_end,
-        enc_duration: y6s2_15701375_enc_duration,
-        dec_duration: y6s2_15701375_dec_duration,
-        roster: Roster::Encoded {
-            lists: [0x928, 0x5B8],
-            dec_head: [y6s2_15701375_dec_list; 2],
-            handles: &[0x1B0],
-            dec_handle: y6s2_15701375_dec_handle,
-            session_handles: None,
-        },
-        loadout: 0x38,
-        dec_loadout: None,
-        slots: Y5_SLOTS,
-        slot: None,
-    },
-    events: &[],
-    ..Y6S2_GAME
 };
 
 static Y6S3_GAME: GameProfile = GameProfile {
@@ -5086,7 +4714,11 @@ static Y6S3_GAME: GameProfile = GameProfile {
     state: 0x158,
     dec_state: Some(y6s3_dec_state),
     role: 0x338,
-    match_state: MatchState::Chain(&[0xD0]),
+    match_state: MatchState::Indexed {
+        entries: 0xD0,
+        index: 0xCC,
+        stride: 0x88,
+    },
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x5B9F930,
     settings: 0x68,
@@ -5152,56 +4784,11 @@ static Y6S3_GAME: GameProfile = GameProfile {
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
     tdm_maps: &[],
+    arcade: &[("Warmup", WARMUP_MODE, WARMUP_PLAYLIST, &[])],
     events: &[
         ("Showdown", 0x30B6346015, 0x4DB61E9852, &[22]),
         ("Doktor's Curse", 0x55CDE1F7AE, 0x55CDE1FAB7, &[23]),
     ],
-};
-
-static Y6S3_32627923_GAME: GameProfile = GameProfile {
-    tag: "y6s3",
-    game_manager: 0x72C3B28,
-    dec_gm: Some(y6s3_32627923_dec_gm),
-    state: 0x15C,
-    dec_state: Some(y6s3_32627923_dec_state),
-    role: 0x338,
-    match_state: MatchState::Chain(&[0xD0]),
-    match_layout: Y5_MATCH_LAYOUT,
-    gamemode: 0x5959F00,
-    settings: 0x68,
-    dec_settings: None,
-    time_of_day: 0x40,
-    enc_handle_uid: None,
-    enc_object_uid: None,
-    round: RoundProfile {
-        live: (0x2FC, Raw::Fixed(1)),
-        running: (0xC28, Raw::Fixed(0x82)),
-        countdown: (0xC2A, Raw::Fixed(0x4B)),
-        match_over: (0xC35, Raw::Fixed(0x41)),
-        now: 0x5B28,
-        start: 0xBB0,
-        end: 0xC08,
-        duration: 0xBD0,
-        freeze: (0xBA8, Raw::Fixed(0xE603AB21)),
-        infinite_display: Some((0xC2F, Raw::Fixed([0x18, 0x19]))),
-        enc_end: y6s3_32627923_end,
-        dec_end: y6s3_32627923_end,
-        enc_duration: y6s3_32627923_enc_duration,
-        dec_duration: y6s3_32627923_dec_duration,
-        roster: Roster::Encoded {
-            lists: [0x428, 0x858],
-            dec_head: [y6s3_32627923_dec_list; 2],
-            handles: &[0x50],
-            dec_handle: y6s3_32627923_dec_handle,
-            session_handles: None,
-        },
-        loadout: 0x38,
-        dec_loadout: None,
-        slots: Y5_SLOTS,
-        slot: None,
-    },
-    events: &[("Showdown", 0x30B6346015, 0x4DB61E9852, &[22])],
-    ..Y6S3_GAME
 };
 
 static Y6S4_GAME: GameProfile = GameProfile {
@@ -5211,7 +4798,11 @@ static Y6S4_GAME: GameProfile = GameProfile {
     state: 0x158,
     dec_state: Some(y6s4_dec_state),
     role: 0x380,
-    match_state: MatchState::Chain(&[0x28, 0x50, 0x48]),
+    match_state: MatchState::Indexed {
+        entries: 0x60,
+        index: 0x5C,
+        stride: 0x88,
+    },
     match_layout: Y5_MATCH_LAYOUT,
     gamemode: 0x56C33E0,
     settings: 0x68,
@@ -5278,6 +4869,7 @@ static Y6S4_GAME: GameProfile = GameProfile {
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ],
     tdm_maps: &[16, 13, 18],
+    arcade: &[("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[])],
     events: &[
         ("Snow Brawl", 0x5797ECFED9, 0x4A9198FBF7, &[22]),
         ("Road To S.I. 2022", 0x57490FFCEA, 0x4DA02B54A4, &[23]),
@@ -5292,7 +4884,11 @@ static Y7S1_GAME: GameProfile = GameProfile {
     state: 0x15C,
     dec_state: Some(y7s1_dec_state),
     role: 0x380,
-    match_state: MatchState::Chain(&[0x70]),
+    match_state: MatchState::Indexed {
+        entries: 0x70,
+        index: 0x6C,
+        stride: 0x90,
+    },
     match_layout: Y7_MATCH_LAYOUT,
     gamemode: 0x64CB688,
     settings: 0x68,
@@ -5358,6 +4954,7 @@ static Y7S1_GAME: GameProfile = GameProfile {
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
     ],
     tdm_maps: &[13, 15, 16, 18, 22],
+    arcade: &[("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[])],
     events: &[("Rengoku", 0x585B44DA5C, 0x585B4583CD, &[23])],
 };
 
@@ -5368,7 +4965,11 @@ static Y7S2_GAME: GameProfile = GameProfile {
     state: 0x15C,
     dec_state: Some(y7s2_dec_state),
     role: 0x380,
-    match_state: MatchState::Chain(&[0xE0]),
+    match_state: MatchState::Indexed {
+        entries: 0xE0,
+        index: 0xDC,
+        stride: 0x90,
+    },
     match_layout: Y7_MATCH_LAYOUT,
     gamemode: 0x61C55C8,
     settings: 0x68,
@@ -5435,6 +5036,7 @@ static Y7S2_GAME: GameProfile = GameProfile {
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
     ],
     tdm_maps: &[13, 14, 15, 16, 18, 22, 23],
+    arcade: &[("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[])],
     events: &[("M.U.T.E. Protocol", 0x59E5A4411F, 0x58CE8D5DB2, &[24])],
 };
 
@@ -5445,7 +5047,11 @@ static Y7S3_GAME: GameProfile = GameProfile {
     state: 0x158,
     dec_state: Some(y7s3_dec_state),
     role: 0x390,
-    match_state: MatchState::Chain(&[0xE8]),
+    match_state: MatchState::Indexed {
+        entries: 0xE8,
+        index: 0xE4,
+        stride: 0x90,
+    },
     match_layout: Y7_MATCH_LAYOUT,
     gamemode: 0x655DAC8,
     settings: 0x68,
@@ -5519,10 +5125,11 @@ static Y7S3_GAME: GameProfile = GameProfile {
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
     ],
     tdm_maps: &[13, 14, 15, 16, 18, 22, 23, 24],
-    events: &[
-        ("Snipers", 0x5A4EE6FC73, 0x5A4EE6FC65, &[2, 25, 9]),
-        ("Doktor's Curse", 0x55CDE1F7AE, 0x55CDE1FAB7, &[26]),
+    arcade: &[
+        ("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[]),
+        ("Snipers Only", 0x5A4EE6FC73, 0x5A4EE6FC65, &[2, 25, 9]),
     ],
+    events: &[("Doktor's Curse", 0x55CDE1F7AE, 0x55CDE1FAB7, &[26])],
 };
 
 static Y7S4_GAME: GameProfile = GameProfile {
@@ -5532,7 +5139,11 @@ static Y7S4_GAME: GameProfile = GameProfile {
     state: 0x15C,
     dec_state: Some(y7s4_dec_state),
     role: 0x390,
-    match_state: MatchState::Chain(&[0x100]),
+    match_state: MatchState::Indexed {
+        entries: 0x100,
+        index: 0xFC,
+        stride: 0x90,
+    },
     match_layout: Y7_MATCH_LAYOUT,
     gamemode: 0x68EB5E0,
     settings: 0x68,
@@ -5606,6 +5217,7 @@ static Y7S4_GAME: GameProfile = GameProfile {
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24,
     ],
     tdm_maps: &[13, 14, 15, 16, 18, 22, 23, 24, 25],
+    arcade: &[("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[])],
     events: &[("Snow Brawl", 0x5797ECFED9, 0x4A9198FBF7, &[26])],
 };
 
@@ -5616,7 +5228,11 @@ static Y8S1_GAME: GameProfile = GameProfile {
     state: 0x1C4,
     dec_state: Some(y8s1_dec_state),
     role: 0x3B8,
-    match_state: MatchState::Chain(&[0x60]),
+    match_state: MatchState::Indexed {
+        entries: 0x60,
+        index: 0x5C,
+        stride: 0x90,
+    },
     match_layout: Y7_MATCH_LAYOUT,
     gamemode: 0x6585BB0,
     settings: 0x70,
@@ -5690,6 +5306,16 @@ static Y8S1_GAME: GameProfile = GameProfile {
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24,
     ],
     tdm_maps: &[13, 14, 15, 16, 18, 22, 23, 24, 25],
+    arcade: &[
+        ("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[]),
+        ("Snipers Only", 0x5A4EE6FC73, 0x5A4EE6FC65, &[2, 9]),
+        (
+            "Golden Gun",
+            0x5949AB6753,
+            0x3F331EF4E2,
+            &[25, 23, 13, 22, 14, 15],
+        ),
+    ],
     events: &[("Rainbow is Magic", 0x5B55A9D54B, 0x4DB61E9851, &[26])],
 };
 
@@ -5700,7 +5326,11 @@ static Y8S2_GAME: GameProfile = GameProfile {
     state: 0x1C0,
     dec_state: Some(y8s2_dec_state),
     role: 0x3B8,
-    match_state: MatchState::Chain(&[0x70]),
+    match_state: MatchState::Indexed {
+        entries: 0x70,
+        index: 0x6C,
+        stride: 0x90,
+    },
     match_layout: Y7_MATCH_LAYOUT,
     gamemode: 0x6745B80,
     settings: 0x60,
@@ -5775,6 +5405,28 @@ static Y8S2_GAME: GameProfile = GameProfile {
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24,
     ],
     tdm_maps: &[6, 13, 14, 15, 16, 18, 22, 23, 24, 25],
+    arcade: &[
+        (
+            "Free For All",
+            0x59D4686E9F,
+            0x59D469F60F,
+            &[25, 23, 22, 18, 16, 13, 6, 24, 3, 14, 15, 21],
+        ),
+        ("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[]),
+        ("Snipers Only", 0x5A4EE6FC73, 0x5A4EE6FC65, &[2, 9]),
+        (
+            "Headshots Only",
+            0x5A237A780E,
+            0x54BBE4E534,
+            &[15, 18, 24, 25, 16],
+        ),
+        (
+            "Golden Gun",
+            0x5949AB6753,
+            0x3F331EF4E2,
+            &[25, 23, 13, 22, 14, 15],
+        ),
+    ],
     events: &[
         ("Rainbow is Magic", 0x5B55A9D54B, 0x4DB61E9851, &[26]),
         ("Rengoku", 0x585B44DA5C, 0x585B4583CD, &[27]),
@@ -5788,7 +5440,11 @@ static Y8S3_GAME: GameProfile = GameProfile {
     state: 0x1B8,
     dec_state: Some(y8s3_dec_state),
     role: 0x3B8,
-    match_state: MatchState::Chain(&[0x88]),
+    match_state: MatchState::Indexed {
+        entries: 0x88,
+        index: 0x84,
+        stride: 0xA0,
+    },
     match_layout: Y8S3_MATCH_LAYOUT,
     gamemode: 0x65EDB30,
     settings: 0x68,
@@ -5862,6 +5518,34 @@ static Y8S3_GAME: GameProfile = GameProfile {
         0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24,
     ],
     tdm_maps: &[6, 13, 14, 15, 16, 18, 22, 23, 24, 25],
+    arcade: &[
+        (
+            "Free For All",
+            0x59D4686E9F,
+            0x59D469F60F,
+            &[25, 23, 22, 18, 16, 13, 6, 24, 3, 14, 15, 21],
+        ),
+        ("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[]),
+        ("Snipers Only", 0x5A4EE6FC73, 0x5A4EE6FC65, &[2, 9]),
+        (
+            "Headshots Only",
+            0x5A237A780E,
+            0x54BBE4E534,
+            &[15, 18, 24, 25, 16],
+        ),
+        (
+            "Golden Gun",
+            0x5949AB6753,
+            0x3F331EF4E2,
+            &[25, 23, 13, 22, 14, 15],
+        ),
+        (
+            "Weapon Roulette",
+            0x5B8EF085DD,
+            0x5CDFA96065,
+            &[25, 23, 13, 24, 16, 18, 15],
+        ),
+    ],
     events: &[("Doktor's Curse", 0x55CDE1F7AE, 0x55CDE1FAB7, &[26])],
 };
 
@@ -5872,7 +5556,11 @@ static Y8S4_GAME: GameProfile = GameProfile {
     state: 0x1B8,
     dec_state: Some(y8s4_dec_state),
     role: 0x3B8,
-    match_state: MatchState::Chain(&[0x68]),
+    match_state: MatchState::Indexed {
+        entries: 0x68,
+        index: 0x64,
+        stride: 0xA0,
+    },
     match_layout: Y8S3_MATCH_LAYOUT,
     gamemode: 0x68736C8,
     settings: 0xD0,
@@ -5944,6 +5632,34 @@ static Y8S4_GAME: GameProfile = GameProfile {
     standard_maps: 26,
     thunt_maps: &[],
     tdm_maps: &[5, 12, 13, 14, 15, 17, 21, 25, 23, 24, 22],
+    arcade: &[
+        (
+            "Free For All",
+            0x59D4686E9F,
+            0x59D469F60F,
+            &[25, 23, 21, 17, 15, 12, 5, 24, 2, 13, 14, 20, 22],
+        ),
+        ("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[]),
+        ("Snipers Only", 0x5A4EE6FC73, 0x5A4EE6FC65, &[1, 8]),
+        (
+            "Headshots Only",
+            0x5A237A780E,
+            0x54BBE4E534,
+            &[14, 17, 23, 25, 15],
+        ),
+        (
+            "Golden Gun",
+            0x5949AB6753,
+            0x3F331EF4E2,
+            &[25, 22, 12, 21, 13, 24, 14],
+        ),
+        (
+            "Weapon Roulette",
+            0x5B8EF085DD,
+            0x5CDFA96065,
+            &[25, 14, 12, 23, 15, 17, 24, 22],
+        ),
+    ],
     events: &[("Freeze For All", 0x5C895B9F5C, 0x5C895BA04D, &[26])],
 };
 
@@ -6036,7 +5752,35 @@ static Y9S1_GAME: GameProfile = GameProfile {
     ],
     standard_maps: 26,
     thunt_maps: &[],
-    tdm_maps: &[5, 12, 13, 14, 15, 17, 21, 25, 23, 24],
+    tdm_maps: &[5, 12, 13, 14, 15, 17, 21, 25, 23, 24, 22],
+    arcade: &[
+        (
+            "Free For All",
+            0x59D4686E9F,
+            0x59D469F60F,
+            &[25, 23, 21, 17, 15, 12, 5, 24, 2, 13, 14, 20, 22],
+        ),
+        ("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[]),
+        ("Snipers Only", 0x5A4EE6FC73, 0x5A4EE6FC65, &[1, 8]),
+        (
+            "Headshots Only",
+            0x5A237A780E,
+            0x54BBE4E534,
+            &[14, 17, 23, 25, 15],
+        ),
+        (
+            "Golden Gun",
+            0x5949AB6753,
+            0x3F331EF4E2,
+            &[25, 22, 12, 21, 13, 24, 14],
+        ),
+        (
+            "Weapon Roulette",
+            0x5B8EF085DD,
+            0x5CDFA96065,
+            &[25, 14, 12, 23, 15, 17, 24, 22],
+        ),
+    ],
     events: &[("Containment", 0x547CD662FD, 0x54A95068E8, &[26])],
 };
 
@@ -6131,7 +5875,36 @@ static Y9S2_GAME: GameProfile = GameProfile {
     ],
     standard_maps: 28,
     thunt_maps: &[],
-    tdm_maps: &[5, 25, 13, 27, 15, 17, 24, 26, 11, 2],
+    tdm_maps: &[5, 25, 13, 27, 15, 17, 24, 26, 11, 2, 12, 14, 21, 22],
+    arcade: &[
+        (
+            "Free For All",
+            0x59D4686E9F,
+            0x59D469F60F,
+            &[27, 24, 5, 17, 15, 25, 26, 11, 0, 14, 2, 12, 13, 20, 21, 22],
+        ),
+        ("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[]),
+        ("Snipers Only", 0x5A4EE6FC73, 0x5A4EE6FC65, &[1, 8]),
+        (
+            "Headshots Only",
+            0x5A237A780E,
+            0x54BBE4E534,
+            &[14, 17, 24, 27, 15],
+        ),
+        (
+            "Golden Gun",
+            0x5949AB6753,
+            0x3F331EF4E2,
+            &[27, 22, 23, 12, 21, 13, 25, 26, 14, 19],
+        ),
+        (
+            "Weapon Roulette",
+            0x5B8EF085DD,
+            0x5CDFA96065,
+            &[27, 14, 12, 24, 15, 25, 26, 22, 23, 19, 17],
+        ),
+        ("Attrition", 0x5DD3A86E8C, 0x5DD3A86E4E, &[2, 5, 11, 0, 25]),
+    ],
     events: &[("M.U.T.E. Protocol", 0x59E5A4411F, 0x58CE8D5DB2, &[28])],
 };
 
@@ -6226,7 +5999,36 @@ static Y9S3_GAME: GameProfile = GameProfile {
     ],
     standard_maps: 28,
     thunt_maps: &[],
-    tdm_maps: &[5, 25, 13, 27, 15, 17, 24, 26, 11, 2],
+    tdm_maps: &[5, 25, 13, 27, 15, 17, 24, 26, 11, 2, 12, 14, 21, 22],
+    arcade: &[
+        (
+            "Free For All",
+            0x59D4686E9F,
+            0x59D469F60F,
+            &[27, 24, 5, 17, 15, 25, 26, 11, 0, 14, 2, 12, 13, 20, 21, 22],
+        ),
+        ("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[]),
+        ("Snipers Only", 0x5A4EE6FC73, 0x5A4EE6FC65, &[1, 8]),
+        (
+            "Headshots Only",
+            0x5A237A780E,
+            0x54BBE4E534,
+            &[14, 17, 24, 27, 15],
+        ),
+        (
+            "Golden Gun",
+            0x5949AB6753,
+            0x3F331EF4E2,
+            &[27, 22, 23, 12, 21, 13, 25, 26, 14, 19],
+        ),
+        (
+            "Weapon Roulette",
+            0x5FCFDA4DBF,
+            0x5FCFDA4CB5,
+            &[27, 14, 12, 24, 15, 25, 26, 22, 23, 19, 17],
+        ),
+        ("Attrition", 0x5DD3A86E8C, 0x5DD3A86E4E, &[2, 5, 11, 0, 25]),
+    ],
     events: &[("Doktor's Curse", 0x55CDE1F7AE, 0x55CDE1FAB7, &[28])],
 };
 
@@ -6321,7 +6123,36 @@ static Y9S4_GAME: GameProfile = GameProfile {
     ],
     standard_maps: 28,
     thunt_maps: &[],
-    tdm_maps: &[5, 25, 13, 27, 15, 17, 24, 26, 11, 2],
+    tdm_maps: &[5, 25, 13, 27, 15, 17, 24, 26, 11, 2, 12, 14, 21, 22],
+    arcade: &[
+        (
+            "Free For All",
+            0x59D4686E9F,
+            0x59D469F60F,
+            &[27, 24, 5, 17, 15, 25, 26, 11, 0, 14, 2, 12, 13, 20, 21, 22],
+        ),
+        ("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[]),
+        ("Snipers Only", 0x5A4EE6FC73, 0x5A4EE6FC65, &[1, 8]),
+        (
+            "Headshots Only",
+            0x5A237A780E,
+            0x54BBE4E534,
+            &[14, 17, 24, 27, 15],
+        ),
+        (
+            "Golden Gun",
+            0x5949AB6753,
+            0x3F331EF4E2,
+            &[27, 22, 23, 12, 21, 13, 25, 26, 14, 19],
+        ),
+        (
+            "Weapon Roulette",
+            0x5FCFDA4DBF,
+            0x5FCFDA4CB5,
+            &[27, 14, 12, 24, 15, 25, 26, 22, 23, 19, 17],
+        ),
+        ("Attrition", 0x5DD3A86E8C, 0x5DD3A86E4E, &[2, 5, 11, 0, 25]),
+    ],
     events: &[("Freeze For All", 0x5C895B9F5C, 0x5C895BA04D, &[28])],
 };
 
@@ -6414,7 +6245,36 @@ static Y10S1_GAME: GameProfile = GameProfile {
     ],
     standard_maps: 27,
     thunt_maps: &[],
-    tdm_maps: &[4, 24, 12, 26, 14, 16, 23, 25, 10, 1],
+    tdm_maps: &[4, 24, 12, 26, 14, 16, 23, 25, 10, 1, 11, 13, 20, 21],
+    arcade: &[
+        (
+            "Free For All",
+            0x59D4686E9F,
+            0x59D469F60F,
+            &[26, 23, 4, 16, 14, 24, 25, 10, 0, 13, 1, 11, 12, 19, 20, 21],
+        ),
+        ("Team Deathmatch", WARMUP_MODE, WARMUP_PLAYLIST, &[]),
+        ("Snipers Only", 0x5A4EE6FC73, 0x5A4EE6FC65, &[7]),
+        (
+            "Headshots Only",
+            0x5A237A780E,
+            0x54BBE4E534,
+            &[13, 16, 23, 26, 14],
+        ),
+        (
+            "Golden Gun",
+            0x5949AB6753,
+            0x3F331EF4E2,
+            &[26, 21, 22, 11, 20, 12, 24, 25, 13, 18],
+        ),
+        (
+            "Weapon Roulette",
+            0x5FCFDA4DBF,
+            0x5FCFDA4CB5,
+            &[26, 13, 11, 23, 14, 24, 25, 21, 22, 18, 16],
+        ),
+        ("Attrition", 0x5DD3A86E8C, 0x5DD3A86E4E, &[1, 4, 10, 0, 24]),
+    ],
     events: &[],
 };
 
@@ -6424,11 +6284,8 @@ fn game_profile(build: &str) -> Option<&'static GameProfile> {
         "Y5S2_14664131" => Some(&Y5S2_GAME),
         "Y5S3_15018155" => Some(&Y5S3_GAME),
         "Y5S4_15241382" => Some(&Y5S4_GAME),
-        "Y6S1_15500403" => Some(&Y6S1_15500403_GAME),
         "Y6S1_15680437" => Some(&Y6S1_GAME),
-        "Y6S2_15701375" => Some(&Y6S2_15701375_GAME),
         "Y6S2_15772114" => Some(&Y6S2_GAME),
-        "Y6S3_32627923" => Some(&Y6S3_32627923_GAME),
         "Y6S3_35130040" => Some(&Y6S3_GAME),
         "Y6S4_37046065" => Some(&Y6S4_GAME),
         "Y7S1_39785137" => Some(&Y7S1_GAME),
@@ -6458,6 +6315,7 @@ struct Pick {
 
 struct Lobby {
     m: u64,
+    base: u64,
     playlist: u64,
     tod_at: u64,
     tod: u64,
@@ -6480,7 +6338,14 @@ fn parse_pick(game: &GameProfile, id: &str) -> Option<Pick> {
         })
     };
     match *parts.get(1)? {
-        "mp" => plain(MULTIPLAYER_MODES, 0),
+        "mp" => plain(MULTIPLAYER_MODES, 0).map(|pick| Pick {
+            playlist: if pick.mode == WARMUP_MODE && !game.tdm_maps.is_empty() {
+                WARMUP_PLAYLIST
+            } else {
+                0
+            },
+            ..pick
+        }),
         "dev" => Some(Pick {
             mode: GYM_MODE,
             map: map(2)?,
@@ -6490,8 +6355,13 @@ fn parse_pick(game: &GameProfile, id: &str) -> Option<Pick> {
         "th" if game.thunt_maps.contains(&n(3)?) => {
             plain(TERRORIST_HUNT_MODES, DIFFICULTIES.get(n(4)?)?.1)
         }
-        "ev" => {
-            let (_, mode, playlist, _) = game.events.get(n(2)?)?;
+        kind @ ("ev" | "arc") => {
+            let table = if kind == "ev" {
+                game.events
+            } else {
+                game.arcade
+            };
+            let (_, mode, playlist, _) = table.get(n(2)?)?;
             Some(Pick {
                 mode: *mode,
                 map: map(3)?,
@@ -6511,7 +6381,7 @@ fn build_profile_tree_json(game: &GameProfile, installed: impl Fn(u64) -> bool) 
             .map(|map| leaf(game.maps[map].0, format!("{prefix}:{map}")))
             .collect::<Vec<_>>()
     };
-    let multiplayer = MULTIPLAYER_MODES
+    let mut multiplayer: Vec<TNode> = MULTIPLAYER_MODES
         .iter()
         .enumerate()
         .map(|(m, &(name, mode))| match game.tdm_maps {
@@ -6524,7 +6394,26 @@ fn build_profile_tree_json(game: &GameProfile, installed: impl Fn(u64) -> bool) 
             _ => branch(name, maps(format!("{tag}:mp:{m}"), mode == WARMUP_MODE)),
         })
         .collect();
-    let gym = maps(format!("{tag}:dev"), false);
+    let tdm = multiplayer.pop().unwrap_or_default();
+    let modes = game
+        .arcade
+        .iter()
+        .enumerate()
+        .map(|(a, (name, mode, _, maps))| {
+            if *mode == WARMUP_MODE {
+                return tdm.clone();
+            }
+            let leaves = maps
+                .iter()
+                .filter(|&&map| installed(game.maps[map].1))
+                .map(|&map| leaf(game.maps[map].0, format!("{tag}:arc:{a}:{map}")))
+                .collect();
+            branch(name, leaves)
+        })
+        .collect();
+    multiplayer.push(branch("Arcade", modes));
+    let mut gym = maps(format!("{tag}:dev"), false);
+    gym.retain(|map| map.text != "Lair");
     let hunt = TERRORIST_HUNT_MODES
         .iter()
         .enumerate()
@@ -6594,7 +6483,7 @@ pub struct Runner {
     handles: HashMap<u64, u64>,
     playlists: HashMap<u64, u64>,
     scanned_match: u64,
-    lobby: Option<Lobby>,
+    lobbies: Vec<Lobby>,
     lastsig: String,
     tree_sent: bool,
     scanned: String,
@@ -6625,7 +6514,7 @@ impl Runner {
             handles: HashMap::new(),
             playlists: HashMap::new(),
             scanned_match: 0,
-            lobby: None,
+            lobbies: Vec::new(),
             lastsig: String::new(),
             tree_sent: false,
             scanned: String::new(),
@@ -6656,7 +6545,20 @@ impl Runner {
 
     fn match_entry(&self, game: &GameProfile, gm: u64) -> u64 {
         match game.match_state {
-            MatchState::Chain(offsets) => self.deref_chain(gm, offsets),
+            MatchState::Indexed {
+                entries,
+                index,
+                stride,
+            } => {
+                let data = self.eng.read_u64(gm + entries);
+                let count = self.eng.read_u64(gm + entries + 8) & 0x3FFF_FFFF;
+                let index = u64::from(self.eng.read_u8(gm + index));
+                if data == 0 || index >= count {
+                    0
+                } else {
+                    data + index * stride
+                }
+            }
             MatchState::Encoded(codec) => {
                 let (at, [dec_data, dec_count]) = codec.entries;
                 let data = dec_data(self.eng.read_u64(gm + at));
@@ -6667,6 +6569,15 @@ impl Runner {
                 } else {
                     data + index * 0xA0
                 }
+            }
+        }
+    }
+
+    fn match_base(&self, game: &GameProfile, gm: u64) -> u64 {
+        match game.match_state {
+            MatchState::Indexed { entries, .. } => self.eng.read_u64(gm + entries),
+            MatchState::Encoded(codec) => {
+                (codec.entries.1[0])(self.eng.read_u64(gm + codec.entries.0))
             }
         }
     }
@@ -7080,9 +6991,9 @@ impl Runner {
             .chain(TERRORIST_HUNT_MODES)
             .map(|m| m.1)
             .chain([GYM_MODE])
-            .chain(game.events.iter().map(|e| e.1))
+            .chain(game.events.iter().chain(game.arcade).map(|e| e.1))
             .collect();
-        let playlists: Vec<u64> = game.events.iter().map(|e| e.2).collect();
+        let playlists: Vec<u64> = game.events.iter().chain(game.arcade).map(|e| e.2).collect();
         let objects: HashMap<u64, u64> = playlists
             .iter()
             .map(|&uid| (game.enc_object_uid.map_or(uid, |enc| enc(uid)), uid))
@@ -7237,23 +7148,26 @@ impl Runner {
                 &self.handle(game, pick.difficulty).to_le_bytes(),
             );
         }
+        let base = self.match_base(game, gm);
         if pick.playlist == 0 {
-            self.restore_lobby(game, m);
+            self.restore_lobby(game, base);
         } else {
-            self.apply_event(game, m, pick.playlist);
+            self.apply_event(game, m, base, pick.playlist);
         }
     }
 
-    fn apply_event(&mut self, game: &GameProfile, m: u64, playlist: u64) {
+    fn apply_event(&mut self, game: &GameProfile, m: u64, base: u64, playlist: u64) {
         let codec = game.match_state.codec();
         let layout = &game.match_layout;
         let tod_at = self.match_tod(game, m);
-        let lobby = match self.lobby.take() {
-            Some(lobby) if lobby.m == m => lobby,
-            _ => {
+        self.lobbies.retain(|lobby| lobby.base == base);
+        let lobby = match self.lobbies.iter().position(|lobby| lobby.m == m) {
+            Some(i) => self.lobbies.swap_remove(i),
+            None => {
                 let (ptr, packed) = self.settings_head(m + layout.settings, codec);
                 Lobby {
                     m,
+                    base,
                     playlist: self.eng.read_u64(m + layout.playlist),
                     tod_at,
                     tod: self.eng.read_u64(tod_at),
@@ -7263,12 +7177,15 @@ impl Runner {
         };
         let obj = self.playlists[&playlist];
         let at = obj + game.settings;
-        let settings = match game.dec_settings {
+        let mut settings = match game.dec_settings {
             Some([ptr, count]) => {
                 self.array_entries(ptr(self.eng.read_u64(at)), count(self.eng.read_u64(at + 8)))
             }
             None => self.read_array(at),
         };
+        if let Some(&last) = settings.last() {
+            settings.resize(settings.len().max(lobby.entries.len()), last);
+        }
         self.write_settings(
             m + layout.settings,
             if settings.is_empty() {
@@ -7289,27 +7206,26 @@ impl Runner {
         let playlist = codec.map_or(playlist, |codec| (codec.enc_playlist)(playlist));
         self.eng
             .write_mem(m + layout.playlist, &playlist.to_le_bytes());
-        self.lobby = Some(lobby);
+        self.lobbies.push(lobby);
     }
 
-    fn restore_lobby(&mut self, game: &GameProfile, m: u64) {
-        let Some(lobby) = self.lobby.take() else {
-            return;
-        };
-        if lobby.m != m {
-            return;
-        }
+    fn restore_lobby(&mut self, game: &GameProfile, base: u64) {
         let layout = &game.match_layout;
-        self.eng
-            .write_mem(m + layout.playlist, &lobby.playlist.to_le_bytes());
-        if lobby.tod_at != 0 && self.match_tod(game, m) == lobby.tod_at {
-            self.eng.write_mem(lobby.tod_at, &lobby.tod.to_le_bytes());
+        for lobby in std::mem::take(&mut self.lobbies) {
+            if lobby.base != base {
+                continue;
+            }
+            self.eng
+                .write_mem(lobby.m + layout.playlist, &lobby.playlist.to_le_bytes());
+            if lobby.tod_at != 0 && self.match_tod(game, lobby.m) == lobby.tod_at {
+                self.eng.write_mem(lobby.tod_at, &lobby.tod.to_le_bytes());
+            }
+            self.write_settings(
+                lobby.m + layout.settings,
+                &lobby.entries,
+                game.match_state.codec(),
+            );
         }
-        self.write_settings(
-            m + layout.settings,
-            &lobby.entries,
-            game.match_state.codec(),
-        );
     }
 
     fn set_watermark(&self, enabled: bool) -> bool {
@@ -7717,7 +7633,19 @@ impl Runner {
         }
         if self.pending {
             let idle = match shadow_regions_for_build(self.build) {
-                Some(regions) => self.eng.shadow_run(regions),
+                Some(regions) => {
+                    let sync = playlist_sync(self.build).map(|site| ShadowRegion {
+                        offset: site.hook,
+                        patch: site.moved,
+                    });
+                    let gate = warmup_gate(self.build).map(|site| ShadowRegion {
+                        offset: site.site,
+                        patch: site.moved,
+                    });
+                    let regions: Vec<ShadowRegion> =
+                        regions.iter().copied().chain(sync).chain(gate).collect();
+                    self.eng.shadow_run(&regions)
+                }
                 None => self.is_idle(),
             };
             if !idle {
@@ -7745,6 +7673,12 @@ impl Runner {
             self.eng.shadow_arm_pages();
             self.apply_static("ApplyCorePatch", "always");
             self.end_match_patch(false);
+            if let Some(site) = playlist_sync(self.build).filter(|site| !site.late) {
+                self.eng.arm_playlist_sync(site);
+            }
+            if let Some(site) = warmup_gate(self.build) {
+                self.eng.arm_warmup_gate(site);
+            }
             self.patched = true;
         }
         for (build, offset, value) in INIT_BYTES {
@@ -7764,6 +7698,9 @@ impl Runner {
         }
         if !self.unlocked {
             self.apply_static("ApplyOfflinePatch", "always");
+            if let Some(site) = playlist_sync(self.build).filter(|site| site.late) {
+                self.eng.arm_playlist_sync(site);
+            }
         }
         self.apply_disable();
         self.apply_playlist();
@@ -7918,6 +7855,22 @@ mod table_tests {
                     "{} renderer patch {:#x} has no address pair",
                     build.build,
                     patch.rva
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn warmup_gates_map_every_address() {
+        for gate in WARMUP_GATES {
+            let Some(build) = VULKAN_BUILDS.iter().find(|b| b.build == gate.build) else {
+                continue;
+            };
+            for rva in [gate.site, gate.no, gate.back] {
+                assert!(
+                    build.rvas.iter().any(|&(dx, _)| dx == rva),
+                    "{} warmup gate {rva:#x} has no address pair",
+                    gate.build
                 );
             }
         }
