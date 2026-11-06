@@ -4,14 +4,11 @@ export const SUPPORT: SeasonRow[] = [
   { season: "Y1S0", operation: "Vanilla", build: "8194013" },
   { season: "Y1S1", operation: "Black Ice", build: "8519860" },
   { season: "Y1S2", operation: "Dust Line", build: "9132097" },
-  { season: "Y1S3", operation: "Skull Rain", build: "9654076" },
   { season: "Y1S3", operation: "Skull Rain", build: "9860556" },
   { season: "Y1S4", operation: "Red Crow", build: "10211195" },
   { season: "Y2S1", operation: "Velvet Shell", build: "10751226" },
   { season: "Y2S2", operation: "Health", build: "11216230" },
   { season: "Y2S3", operation: "Blood Orchid", build: "11432634" },
-  { season: "Y2S3", operation: "Blood Orchid", build: "11493221" },
-  { season: "Y2S4", operation: "White Noise", build: "11553121" },
   { season: "Y2S4", operation: "White Noise", build: "11580709" },
   {
     season: "Y3S1",
@@ -19,9 +16,7 @@ export const SUPPORT: SeasonRow[] = [
     event: "Outbreak",
     build: "11726982",
   },
-  { season: "Y3S2", operation: "Para Bellum", build: "11938214" },
   { season: "Y3S2", operation: "Para Bellum", build: "11965022" },
-  { season: "Y3S3", operation: "Grim Sky", build: "12213419" },
   {
     season: "Y3S3",
     operation: "Grim Sky",
@@ -29,12 +24,6 @@ export const SUPPORT: SeasonRow[] = [
     build: "12362767",
   },
   { season: "Y3S4", operation: "Wind Bastion", build: "12512571" },
-  {
-    season: "Y4S1",
-    operation: "Burnt Horizon",
-    event: "Rainbow is Magic",
-    build: "12815133",
-  },
   {
     season: "Y4S1",
     operation: "Burnt Horizon",
@@ -60,15 +49,9 @@ export const SUPPORT: SeasonRow[] = [
     build: "13777760",
   },
   {
-    season: "Y4S4",
-    operation: "Shifting Tides",
-    event: "Road To S.I. 2020",
-    build: "13924517",
-  },
-  {
     season: "Y5S1",
     operation: "Void Edge",
-    event: "Grand Larceny / Golden Gun",
+    event: "Grand Larceny",
     build: "14303219",
   },
   {
@@ -80,7 +63,7 @@ export const SUPPORT: SeasonRow[] = [
   {
     season: "Y5S3",
     operation: "Shadow Legacy",
-    event: "Golden Gun / Sugar Fright",
+    event: "Sugar Fright",
     build: "15018155",
   },
   {
@@ -93,26 +76,13 @@ export const SUPPORT: SeasonRow[] = [
     season: "Y6S1",
     operation: "Crimson Heist",
     event: "Rainbow is Magic / Apocalypse",
-    build: "15500403",
-  },
-  {
-    season: "Y6S1",
-    operation: "Crimson Heist",
-    event: "Rainbow is Magic / Apocalypse",
     build: "15680437",
   },
-  { season: "Y6S2", operation: "North Star", build: "15701375" },
   {
     season: "Y6S2",
     operation: "North Star",
     event: "Containment",
     build: "15772114",
-  },
-  {
-    season: "Y6S3",
-    operation: "Crystal Guard",
-    event: "Showdown",
-    build: "32627923",
   },
   {
     season: "Y6S3",
@@ -141,7 +111,7 @@ export const SUPPORT: SeasonRow[] = [
   {
     season: "Y7S3",
     operation: "Brutal Swarm",
-    event: "Snipers / Doktor's Curse",
+    event: "Doktor's Curse",
     build: "47165842",
   },
   {

@@ -1,8 +1,8 @@
 import Image from "next/image";
 import { keyArtFade } from "@/components/SeasonKeyArt";
-import { BuildChips } from "@/components/SeasonTable";
+import { BuildChip } from "@/components/SeasonTable";
 import { renderInline } from "@/components/Markdown";
-import { panel } from "@/components/ui";
+import { panel, textBox, textBoxText } from "@/components/ui";
 import type {
   SeasonInfoEntry,
   InfoOperator,
@@ -117,7 +117,7 @@ export function SeasonInfo({
             <td>{entry.release}</td>
             <td className="w-px whitespace-nowrap">{sizeGb} GB</td>
             <td className="w-px whitespace-nowrap">
-              <BuildChips builds={[build]} />
+              <BuildChip build={build} />
             </td>
           </tr>
         </tbody>
@@ -139,11 +139,11 @@ export function SeasonInfo({
         {released}
         <InfoList title="Highlights" rows={entry.highlights} />
         {events.length > 0 && (
-          <div className={`flex h-8 self-end divide-x divide-border ${panel}`}>
+          <div className={`${textBox} self-end`}>
             {events.map((name) => (
               <span
                 key={name}
-                className="content-center whitespace-nowrap px-[0.6rem] font-display text-ui font-bold text-text text-box-cap"
+                className={`content-center px-[0.6rem] ${textBoxText}`}
               >
                 {name}
               </span>
