@@ -94,12 +94,7 @@ function ModToggle({
   return (
     <div className="flex items-center gap-2 px-2 py-1.5">
       <span className="flex-1 text-ui text-text">{label}</span>
-      <Switch
-        label={label}
-        checked={checked}
-        onChange={onToggle}
-        disabled={disabled}
-      />
+      <Switch checked={checked} onChange={onToggle} disabled={disabled} />
     </div>
   );
 }
@@ -227,8 +222,7 @@ export default function LiberatorPage() {
     function onFocusIn(event: FocusEvent) {
       const target = event.target;
       focusInTabs.current =
-        target instanceof HTMLElement &&
-        !!target.closest('[role="tablist"], [role="tabpanel"]');
+        target instanceof HTMLElement && !!target.closest("[data-tabs]");
     }
     document.addEventListener("focusin", onFocusIn);
     return () => document.removeEventListener("focusin", onFocusIn);
@@ -323,7 +317,6 @@ export default function LiberatorPage() {
           <span className="flex items-center gap-2.5">
             <LiberatorStatus lib={lib} enabled={enabled} />
             <Switch
-              label="Liberator"
               checked={enabled}
               onChange={(value) => settings?.set_liberator_enabled(value)}
             />
@@ -331,12 +324,7 @@ export default function LiberatorPage() {
         }
       />
 
-      <div
-        role="tabpanel"
-        id={`tabpanel-${tab}`}
-        aria-labelledby={`tab-${tab}`}
-        className="mt-4 min-h-0 flex-1 overflow-y-auto"
-      >
+      <div data-tabs className="mt-4 min-h-0 flex-1 overflow-y-auto">
         {tab === "modifications" && (
           <div className="max-w-[720px]">
             <div className="grid grid-cols-2 gap-4 max-cards:grid-cols-1">

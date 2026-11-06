@@ -23,13 +23,11 @@ function Group<T extends string>({
   active,
   onSelect,
   radio = false,
-  label,
 }: {
   tabs: TabItem<T>[];
   active: T;
   onSelect: (id: T) => void;
   radio?: boolean;
-  label?: string;
 }) {
   const compact = useContext(CompactContext);
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -61,8 +59,7 @@ function Group<T extends string>({
 
   return (
     <div
-      role={radio ? "radiogroup" : "tablist"}
-      aria-label={label}
+      data-tabs={radio ? undefined : true}
       onKeyDown={onKeyDown}
       className="relative flex gap-1"
     >
@@ -73,17 +70,10 @@ function Group<T extends string>({
             refs.current[tab.id] = el;
           }}
           type="button"
-          role={radio ? "radio" : "tab"}
           id={radio ? undefined : `tab-${tab.id}`}
-          aria-selected={radio ? undefined : active === tab.id}
-          aria-checked={radio ? active === tab.id : undefined}
-          aria-controls={
-            radio || active !== tab.id ? undefined : `tabpanel-${tab.id}`
-          }
           tabIndex={tab.id === active ? 0 : -1}
           disabled={tab.disabled}
           onClick={() => onSelect(tab.id)}
-          aria-label={compact && tab.icon ? tab.label : undefined}
           className={`py-2 font-mono text-label uppercase tracking-[0.12em] transition-colors ${
             compact && tab.icon ? "px-3" : "px-4"
           } ${
@@ -98,7 +88,6 @@ function Group<T extends string>({
         </button>
       ))}
       <span
-        aria-hidden
         className="pointer-events-none absolute -bottom-px h-0.5 bg-action transition-[left,width] duration-300 ease-out"
         style={{ left: indicator.left, width: indicator.width }}
       />
@@ -110,7 +99,6 @@ export function OptionGroup<T extends string>(props: {
   tabs: TabItem<T>[];
   active: T;
   onSelect: (id: T) => void;
-  label: string;
 }) {
   return <Group {...props} radio />;
 }

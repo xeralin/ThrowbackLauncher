@@ -42,7 +42,7 @@ function ActivityCard({
 }: {
   season: Season;
   tone?: "transfer" | "muted";
-  action?: { label: string; icon: ReactNode; onClick: () => void };
+  action?: { icon: ReactNode; onClick: () => void };
   progress?: number;
   onOpen: () => void;
 }) {
@@ -54,14 +54,12 @@ function ActivityCard({
       <CardKeyArt season={season} sizes={SIDEBAR_W_CLAMP} />
       <button
         type="button"
-        aria-label={seasonTitle(season)}
         onClick={onOpen}
         className="absolute inset-0 cursor-pointer"
       />
       {action && (
         <button
           type="button"
-          aria-label={action.label}
           onClick={action.onClick}
           className="absolute inset-y-0 right-0 flex w-9 cursor-pointer items-center justify-center text-text"
         >
@@ -108,7 +106,6 @@ function DownloadCard({
       onOpen={onOpen}
       action={
         onToggle && {
-          label: paused ? "Continue" : verifying ? "Cancel" : "Pause",
           icon: paused ? (
             <StrokeIcon d="M8.5 5.7 18.5 12l-10 6.3Z" className="size-6" />
           ) : verifying ? (
@@ -292,7 +289,7 @@ export function Sidebar({
                         detail.reset();
                       }
                     }}
-                    aria-current={active ? "page" : undefined}
+                    data-current={active || undefined}
                     className={`nav-link flex items-center justify-between overflow-hidden rounded-md px-3 py-[0.55rem] text-[0.9rem] font-medium transition-[background-color,color,translate] duration-200 ${
                       active
                         ? "border-l-2 border-action bg-action-dim text-text shadow-[inset_0_0_18px_-5px_var(--color-action-glow-soft)]"
@@ -401,7 +398,6 @@ export function Sidebar({
             season={season}
             onOpen={() => openSeason(season)}
             action={{
-              label: "Stop",
               icon: <CancelIcon />,
               onClick: () => lc.stop(season.key),
             }}

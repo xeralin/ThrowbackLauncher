@@ -49,7 +49,6 @@ function UpdateCard({
         </span>
         <button
           type="button"
-          aria-disabled={applying || undefined}
           disabled={!applying && disabled}
           onClick={applying ? undefined : onApply}
           className={`${buttonBase} ml-auto shrink-0 justify-center ${
@@ -63,7 +62,6 @@ function UpdateCard({
           {applying ? (
             <>
               <span
-                aria-hidden
                 className="absolute inset-0 origin-left bg-action transition-transform duration-200"
                 style={{ transform: `scaleX(${progress / 100})` }}
               />
@@ -132,7 +130,6 @@ export default function UpdatesPage() {
           <span className={`${iconBox} bg-surface-2`}>
             <button
               type="button"
-              aria-label="Installed versions"
               onClick={() => {
                 update.installed(setInstalled);
               }}
@@ -143,7 +140,6 @@ export default function UpdatesPage() {
             <button
               type="button"
               ref={refreshRef}
-              aria-label="Check for updates"
               disabled={update.busy}
               onClick={() => {
                 manualCheck.current = true;

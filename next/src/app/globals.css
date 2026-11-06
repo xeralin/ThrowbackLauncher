@@ -293,9 +293,7 @@
 
   a,
   button,
-  input,
-  [role="button"],
-  [role="switch"] {
+  input {
     border-radius: var(--radius-md);
   }
 
@@ -630,7 +628,7 @@
   .nav-link {
     translate: 0 0;
   }
-  .nav-link:not([aria-current="page"]):hover {
+  .nav-link:not([data-current]):hover {
     translate: 4px 0;
   }
   .notes {

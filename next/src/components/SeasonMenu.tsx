@@ -19,7 +19,7 @@ import {
 } from "@/components/icons";
 import { useSeasonManage } from "@/components/SeasonManage";
 import { iconBox } from "@/components/ui";
-import { seasonTitle, type Season } from "@/lib/bridge";
+import type { Season } from "@/lib/bridge";
 import { usePopoverDismiss } from "@/lib/popover";
 import { showToast } from "@/lib/toast";
 
@@ -57,7 +57,6 @@ export function SeasonMenu({
     editionInstall,
     playingSeason,
     downloadingSeason,
-    downloading,
     queuedEdition,
     editionState,
     transferring,
@@ -88,7 +87,7 @@ export function SeasonMenu({
             onSelect: () => dl.dequeue(season.key, hmActive),
           }
         : {
-            label: downloading ? "Queue verify" : "Verify",
+            label: "Verify",
             icon: <StrokeIcon d={REFRESH} />,
             disabled: playingSeason,
             onSelect: verify,
@@ -202,9 +201,6 @@ export function SeasonMenu({
         createPortal(
           <div
             ref={ref}
-            role="menu"
-            aria-label={seasonTitle(season)}
-            aria-orientation="horizontal"
             onKeyDown={onKeyDown}
             onContextMenu={(event) => event.preventDefault()}
             className={`fixed z-(--z-menu) ${iconBox} bg-surface shadow-lg`}
@@ -213,8 +209,6 @@ export function SeasonMenu({
               <button
                 key={tool.label}
                 type="button"
-                role="menuitem"
-                aria-label={tool.label}
                 disabled={tool.disabled}
                 onClick={() => select(tool)}
                 className={iconButton}

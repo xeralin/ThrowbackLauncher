@@ -30,7 +30,6 @@ export function ShearsModal({
               <button
                 type="button"
                 ref={index === 0 ? firstCutRef : undefined}
-                aria-label={`Remove ${action.label}`}
                 onClick={() => onCut(action.kind, action.level)}
                 className={iconButton}
               >

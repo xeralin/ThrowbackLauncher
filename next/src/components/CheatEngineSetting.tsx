@@ -38,7 +38,6 @@ export function CheatEngineSetting({
     <ListRow label="Cheat Engine">
       <span className={`flex${status.busy ? " animate-pulse" : ""}`}>
         <Switch
-          label="Open Cheat Engine alongside the game"
           checked={status.enabled && status.present}
           disabled={status.busy}
           onChange={toggle}

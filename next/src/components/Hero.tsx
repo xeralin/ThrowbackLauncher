@@ -31,10 +31,7 @@ export function Hero({ tag, corner, title, description }: HeroProps) {
         </h1>
         <p className="text-body leading-[1.6] text-text">{description}</p>
       </div>
-      <div
-        aria-hidden
-        className="pointer-events-none absolute right-6 top-1/2 translate-y-[calc(-50%_+_0.036em)] select-none font-display text-[6rem] font-bold leading-none text-[color-mix(in_srgb,var(--color-action)_22%,transparent)] max-content:hidden"
-      >
+      <div className="pointer-events-none absolute right-6 top-1/2 translate-y-[calc(-50%_+_0.036em)] select-none font-display text-[6rem] font-bold leading-none text-[color-mix(in_srgb,var(--color-action)_22%,transparent)] max-content:hidden">
         {corner}
       </div>
     </div>

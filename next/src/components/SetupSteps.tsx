@@ -56,8 +56,6 @@ export function ExclusionStepList({ paths }: { paths: string[] }) {
           <ListRow key={path} label={path} title={path}>
             <span className="-mr-1 flex shrink-0 items-center">
               <CopyButton
-                label="Copy path"
-                copiedLabel="Path copied"
                 onCopy={(copied) =>
                   navigator.clipboard.writeText(path).then(copied, () => {})
                 }

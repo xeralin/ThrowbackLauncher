@@ -1,12 +1,10 @@
 export function Switch({
   checked,
   onChange,
-  label,
   disabled = false,
 }: {
   checked: boolean;
   onChange: (value: boolean) => void;
-  label: string;
   disabled?: boolean;
 }) {
   const on = `border-action bg-action${disabled ? "" : " group-hover:bg-action-deep"}`;
@@ -15,9 +13,6 @@ export function Switch({
   return (
     <button
       type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className="group inline-flex items-center disabled:cursor-not-allowed disabled:opacity-40"

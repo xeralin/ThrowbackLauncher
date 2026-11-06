@@ -69,12 +69,10 @@ export function Row({
 }
 
 export function ColorBar({
-  label,
   colors,
   value,
   onSelect,
 }: {
-  label: string;
   colors: string[];
   value: string;
   onSelect: (color: string) => void;
@@ -94,8 +92,6 @@ export function ColorBar({
 
   return (
     <span
-      role="radiogroup"
-      aria-label={label}
       onKeyDown={onKeyDown}
       className="flex h-8 overflow-hidden rounded-md border border-border"
     >
@@ -103,9 +99,6 @@ export function ColorBar({
         <button
           key={color}
           type="button"
-          role="radio"
-          aria-label={`${label} ${color}`}
-          aria-checked={color === value}
           tabIndex={color === selected ? 0 : -1}
           ref={(el) => {
             refs.current.set(color, el);
@@ -177,7 +170,6 @@ export function AccentPicker({
           max={ACCENT_HUE_MAX}
           step={1}
           value={ACCENT_HUE_MAX - draft.hue}
-          aria-label="Accent hue"
           onChange={(event) =>
             preview({
               ...draft,
@@ -197,7 +189,6 @@ export function AccentPicker({
           max={1}
           step={ACCENT_STEP}
           value={draft.level}
-          aria-label="Accent intensity"
           onChange={(event) =>
             preview({ ...draft, level: Number(event.target.value) })
           }
@@ -217,12 +208,10 @@ export function AccentPicker({
 }
 
 export function LevelStepper({
-  label,
   value,
   levels,
   onCommit,
 }: {
-  label: string;
   value: number;
   levels: number[];
   onCommit: (value: number) => void;
@@ -243,7 +232,6 @@ export function LevelStepper({
       <button
         ref={decrease}
         type="button"
-        aria-label={`Decrease ${label}`}
         disabled={index <= 0}
         onClick={(event) => step(-1, event.detail === 0)}
         className={stepperButton}
@@ -256,7 +244,6 @@ export function LevelStepper({
       <button
         ref={increase}
         type="button"
-        aria-label={`Increase ${label}`}
         disabled={index >= levels.length - 1}
         onClick={(event) => step(1, event.detail === 0)}
         className={stepperButton}
@@ -268,13 +255,11 @@ export function LevelStepper({
 }
 
 export function Stepper({
-  label,
   value,
   min,
   max,
   onCommit,
 }: {
-  label: string;
   value: number;
   min: number;
   max: number;
@@ -314,7 +299,6 @@ export function Stepper({
     <div className="flex h-8 items-center rounded-md border border-border bg-surface-2 has-[input:focus]:border-action">
       <button
         type="button"
-        aria-label={`Decrease ${label}`}
         disabled={current <= min}
         onClick={(event) => step(-1, event.detail === 0)}
         className={stepperButton}
@@ -325,7 +309,6 @@ export function Stepper({
         ref={inputRef}
         value={draft}
         inputMode="numeric"
-        aria-label={label}
         onChange={(event) =>
           setDraft(event.target.value.replace(/\D/g, "").slice(0, digits))
         }
@@ -342,7 +325,6 @@ export function Stepper({
       />
       <button
         type="button"
-        aria-label={`Increase ${label}`}
         disabled={current >= max}
         onClick={(event) => step(1, event.detail === 0)}
         className={stepperButton}
@@ -354,14 +336,12 @@ export function Stepper({
 }
 
 export function TextSetting({
-  label,
   value,
   onCommit,
   maxLength,
   placeholder,
   sanitize,
 }: {
-  label: string;
   value: string;
   onCommit: (value: string) => void;
   maxLength?: number;
@@ -373,7 +353,6 @@ export function TextSetting({
 
   return (
     <input
-      aria-label={label}
       value={draft}
       maxLength={maxLength}
       placeholder={placeholder}
@@ -388,11 +367,9 @@ export function TextSetting({
 }
 
 export function HexSetting({
-  label,
   value,
   onCommit,
 }: {
-  label: string;
   value: string;
   onCommit: (hex: string) => void;
 }) {
@@ -410,7 +387,6 @@ export function HexSetting({
   return (
     <input
       value={draft}
-      aria-label={label}
       spellCheck={false}
       onChange={(event) =>
         setDraft(

@@ -220,9 +220,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <button
         id="hamburger"
         type="button"
-        aria-label="Toggle navigation menu"
-        aria-expanded={open}
-        aria-controls="sidebar"
         onClick={() => setOpen((value) => !value)}
         className="fixed left-3 top-3 z-(--z-hamburger) hidden flex-col gap-1 px-2 py-2.5 max-nav:flex"
       >

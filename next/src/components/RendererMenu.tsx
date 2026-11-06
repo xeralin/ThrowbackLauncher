@@ -29,9 +29,6 @@ export function RendererMenu({
       {children}
       <button
         type="button"
-        aria-label="Renderer"
-        aria-haspopup="menu"
-        aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen((value) => !value)}
         className={`inline-flex h-8 w-6 shrink-0 items-center justify-center rounded-md rounded-l-none transition duration-200 ${buttonVariants.primary} disabled:cursor-not-allowed disabled:opacity-40`}
@@ -42,8 +39,6 @@ export function RendererMenu({
         />
       </button>
       <span
-        role="menu"
-        aria-label="Renderer"
         className={`absolute left-0 top-full z-20 mt-1 grid w-full transition-[grid-template-rows,visibility] duration-200 ease-out-cubic ${
           open ? "grid-rows-[1fr]" : "invisible grid-rows-[0fr]"
         }`}
@@ -54,8 +49,6 @@ export function RendererMenu({
               <button
                 key={option.label}
                 type="button"
-                role="menuitemradio"
-                aria-checked={option.arg === active}
                 onClick={() => {
                   setOpen(false);
                   if (option.arg !== active) onSelect(option.arg);

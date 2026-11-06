@@ -75,12 +75,7 @@ export default function SettingsPage() {
       <Tabs tabs={TABS} active={tab} onSelect={setTab} />
 
       {settings && (
-        <div
-          role="tabpanel"
-          id={`tabpanel-${tab}`}
-          aria-labelledby={`tab-${tab}`}
-          className="mt-4"
-        >
+        <div className="mt-4">
           {tab === "general" && (
             <div className="grid max-w-[1160px] grid-cols-2 gap-4 max-settings:grid-cols-1">
               <div className="flex flex-col gap-4">
@@ -88,7 +83,6 @@ export default function SettingsPage() {
                   <Row key={`username:${usernameRevert}`} label="Username">
                     <div className="relative w-[230px] min-w-0">
                       <TextSetting
-                        label="Username"
                         value={settings.username}
                         maxLength={settings.username_rules.maxLength}
                         sanitize={(draft) =>
@@ -136,7 +130,6 @@ export default function SettingsPage() {
                     hint="Display the season you are playing as a Discord activity."
                   >
                     <Switch
-                      label="Discord presence"
                       checked={settings.discord_rpc}
                       onChange={(value) => settings.set_discord_rpc(value)}
                     />
@@ -147,7 +140,6 @@ export default function SettingsPage() {
                       hint="Keep the Launcher running in the tray when the window is closed."
                     >
                       <Switch
-                        label="Close to tray"
                         checked={settings.close_to_tray}
                         onChange={(value) => settings.set_close_to_tray(value)}
                       />
@@ -163,7 +155,6 @@ export default function SettingsPage() {
                     hint="How many file chunks are downloaded at the same time. A higher value can be faster, but uses more bandwidth and system resources."
                   >
                     <Stepper
-                      label="Parallel downloads"
                       value={settings.max_downloads}
                       min={settings.download_bounds.min}
                       max={settings.download_bounds.max}
@@ -190,7 +181,6 @@ export default function SettingsPage() {
                       ) : (
                         <button
                           type="button"
-                          aria-label="Change Proton version"
                           onClick={() => {
                             reloadProtons();
                             setProtonOpen(true);
@@ -231,7 +221,6 @@ export default function SettingsPage() {
                         <span className="-mr-1 flex shrink-0 items-center">
                           <button
                             type="button"
-                            aria-label={`Open ${library.display}`}
                             disabled={!library.exists}
                             onClick={() =>
                               onBridgeReady((bridge) =>
@@ -247,7 +236,6 @@ export default function SettingsPage() {
                           ) : (
                             <button
                               type="button"
-                              aria-label="Make default"
                               disabled={!library.exists}
                               onClick={() =>
                                 settings.set_default_library(library.path)
@@ -260,7 +248,6 @@ export default function SettingsPage() {
                           {!library.default && !library.fixed && (
                             <button
                               type="button"
-                              aria-label={`Remove ${library.display}`}
                               onClick={() =>
                                 settings.remove_library(library.path)
                               }
@@ -288,13 +275,11 @@ export default function SettingsPage() {
                     </span>
                     <span className="flex items-center justify-end gap-2">
                       <ColorBar
-                        label="Progress bar color"
                         colors={BAR_PRESETS.map((preset) => preset.fill)}
                         value={settings.bar_fill}
                         onSelect={(value) => settings.set_bar_fill(value)}
                       />
                       <HexSetting
-                        label="Progress bar hex code"
                         value={settings.bar_fill}
                         onCommit={(hex) => settings.set_bar_fill(hex)}
                       />
@@ -311,13 +296,11 @@ export default function SettingsPage() {
                     </span>
                     <span className="flex items-center justify-end gap-2">
                       <ColorBar
-                        label="Stripe color"
                         colors={BAR_PRESETS.map((preset) => preset.stripe)}
                         value={settings.bar_stripe}
                         onSelect={(value) => settings.set_bar_stripe(value)}
                       />
                       <HexSetting
-                        label="Stripe hex code"
                         value={settings.bar_stripe}
                         onCommit={(hex) => settings.set_bar_stripe(hex)}
                       />
@@ -327,14 +310,12 @@ export default function SettingsPage() {
                 <div className={card}>
                   <Row label="Reduce motion">
                     <Switch
-                      label="Reduce motion"
                       checked={settings.reduce_motion}
                       onChange={(value) => settings.set_reduce_motion(value)}
                     />
                   </Row>
                   <Row label="Scale">
                     <LevelStepper
-                      label="Scale"
                       value={settings.scale}
                       levels={settings.scale_levels}
                       onCommit={(value) => settings.set_scale(value)}
@@ -356,7 +337,6 @@ export default function SettingsPage() {
                     </span>
                     <span className="flex h-8 items-center gap-2">
                       <HexSetting
-                        label="Accent hex code"
                         value={settings.accent}
                         onCommit={(hex) => settings.set_accent(hex)}
                       />

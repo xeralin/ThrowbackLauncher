@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { panel } from "@/components/ui";
@@ -28,12 +28,14 @@ function setBackgroundInert(inert: boolean) {
 export const modalTitle = "font-display text-[1.2rem] font-bold text-text";
 
 const modalWidth = "w-[min(440px,calc(100vw-2rem))]";
+const wideModalWidth = "w-[min(760px,calc(100vw-2rem))]";
 
 export function Modal({
   title,
   children,
   footer,
   aside,
+  wide = false,
   onClose,
   onConfirm,
 }: {
@@ -41,11 +43,11 @@ export function Modal({
   children?: ReactNode;
   footer?: ReactNode;
   aside?: ReactNode;
+  wide?: boolean;
   onClose?: () => void;
   onConfirm?: () => void;
 }) {
   const id = useRef(Symbol("modal"));
-  const titleId = useId();
   const overlayRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
@@ -105,9 +107,6 @@ export function Modal({
     <div
       ref={overlayRef}
       data-overlay
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
       onMouseDown={(event) => {
         if (event.target !== event.currentTarget) return;
         if (document.activeElement instanceof HTMLElement)
@@ -120,11 +119,9 @@ export function Modal({
         <div
           ref={panelRef}
           tabIndex={-1}
-          className={`flex min-h-0 max-h-[calc(100dvh-3rem)] ${modalWidth} flex-col ${panel} p-6 outline-none`}
+          className={`flex min-h-0 max-h-[calc(100dvh-3rem)] ${wide ? wideModalWidth : modalWidth} flex-col ${panel} p-6 outline-none`}
         >
-          <h2 id={titleId} className={`mb-3 shrink-0 ${modalTitle}`}>
-            {title}
-          </h2>
+          <h2 className={`mb-3 shrink-0 ${modalTitle}`}>{title}</h2>
           {children && (
             <div className="scroll-fade -mx-6 -my-5 max-h-[25.5rem] min-h-0 overflow-y-auto px-6 py-5">
               {children}

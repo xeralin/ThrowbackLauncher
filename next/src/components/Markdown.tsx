@@ -32,10 +32,10 @@ const components: Partial<Components> = {
         {children}
       </span>
     ),
-  img: ({ src, alt, title, width, height }) => (
+  img: ({ src, title, width, height }) => (
     <img
       src={src || undefined}
-      alt={alt ?? ""}
+      alt=""
       title={title}
       width={width}
       height={height}
@@ -44,9 +44,6 @@ const components: Partial<Components> = {
   ),
   input: ({ checked }) => (
     <span
-      role="checkbox"
-      aria-checked={!!checked}
-      aria-disabled
       className={`-ml-4 mr-1.5 inline-flex size-3.5 items-center justify-center rounded-sm border align-[-2px] ${
         checked
           ? "border-action bg-action text-action-text"

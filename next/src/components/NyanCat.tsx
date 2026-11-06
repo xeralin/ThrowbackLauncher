@@ -50,11 +50,7 @@ export function toggleNyan(event: MouseEvent, settings: SettingsObject) {
 export function NyanCat() {
   if (!useNyan(!!useSettings()?.bar_nyan)) return null;
   return (
-    <ExternalLink
-      href="https://www.nyan.cat/"
-      aria-label="Nyan Cat"
-      className="nyan-cat"
-    >
+    <ExternalLink href="https://www.nyan.cat/" className="nyan-cat">
       <img src={NYAN_GIF} alt="" />
     </ExternalLink>
   );

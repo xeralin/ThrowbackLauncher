@@ -20,8 +20,6 @@ export function StrokeIcon({
       strokeLinecap="round"
       strokeLinejoin="round"
       className={className}
-      aria-hidden="true"
-      focusable="false"
     >
       {d ? <path d={d} /> : children}
     </svg>
@@ -30,13 +28,7 @@ export function StrokeIcon({
 
 export function MarkIcon({ d, className }: { d: string; className: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      className={className}
-      aria-hidden="true"
-      focusable="false"
-    >
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
       <path d={d} />
     </svg>
   );
@@ -100,11 +92,7 @@ export function WarningIcon({ className }: { className: string }) {
 
 export function DefaultLibraryIcon() {
   return (
-    <span
-      role="img"
-      aria-label="Default library"
-      className="shrink-0 p-1 text-text-muted"
-    >
+    <span className="shrink-0 p-1 text-text-muted">
       <BookmarkIcon filled />
     </span>
   );

@@ -6,13 +6,9 @@ import { CHECK, COPY, StrokeIcon } from "@/components/icons";
 import { saveCheck } from "@/components/ui";
 
 export function CopyButton({
-  label,
-  copiedLabel,
   disabled,
   onCopy,
 }: {
-  label: string;
-  copiedLabel: string;
   disabled?: boolean;
   onCopy: (copied: () => void) => void;
 }) {
@@ -21,7 +17,6 @@ export function CopyButton({
   return (
     <button
       type="button"
-      aria-label={copied > 0 ? copiedLabel : label}
       disabled={disabled}
       onClick={() => onCopy(() => setCopied((tick) => tick + 1))}
       onAnimationEnd={() => setCopied(0)}

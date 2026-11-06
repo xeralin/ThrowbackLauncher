@@ -20,7 +20,6 @@ export function BackHeading({
           d={CHEVRON_LEFT}
           className="-ml-2 size-6 shrink-0 -translate-y-[2.5px] text-text-muted transition-colors group-hover:text-text"
         />
-        <span className="sr-only">Back </span>
         <span>{title}</span>
       </button>
     </h1>

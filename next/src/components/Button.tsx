@@ -35,7 +35,6 @@ export function Button({
         pulse ? "animate-pulse pointer-events-none" : ""
       } ${className}`}
       {...props}
-      aria-disabled={pulse || undefined}
       onClick={pulse ? undefined : props.onClick}
     >
       {children}

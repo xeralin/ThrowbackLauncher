@@ -8,6 +8,11 @@ export const iconBox =
 
 export const card = `${panel} flex flex-col gap-4 p-4`;
 
+export const textBox = `flex h-8 shrink-0 divide-x divide-border ${panel}`;
+
+export const textBoxText =
+  "whitespace-nowrap font-display text-ui font-bold text-text text-box-cap";
+
 const fieldRow =
   "flex min-h-8 items-center justify-between gap-3 rounded-md border bg-surface-2 px-2";
 
@@ -42,11 +47,7 @@ export const saveCheck =
   "animate-save-check size-4 text-success opacity-0 [&]:stroke-[2.5]";
 
 export function BlinkCursor() {
-  return (
-    <span aria-hidden className="ml-px inline-block animate-blink">
-      _
-    </span>
-  );
+  return <span className="ml-px inline-block animate-blink">_</span>;
 }
 
 function RowLabel({

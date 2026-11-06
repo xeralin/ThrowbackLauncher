@@ -87,7 +87,6 @@ export function Toasts() {
   return (
     <div
       data-overlay
-      role="status"
       className="pointer-events-none fixed bottom-5 right-5 z-(--z-toast) flex max-w-[360px] flex-col items-end"
     >
       {toasts.map((toast) => (

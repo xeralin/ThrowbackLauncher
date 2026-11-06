@@ -13,11 +13,7 @@ export const metadata: Metadata = FAQ_PAGES["getting-started"];
 
 function AppliedIcon() {
   return (
-    <span
-      role="img"
-      aria-label="Unlock All has been applied"
-      className="inline-flex align-[-0.2em]"
-    >
+    <span className="inline-flex align-[-0.2em]">
       <UnlockIcon className="size-[1.22em] text-success" />
     </span>
   );

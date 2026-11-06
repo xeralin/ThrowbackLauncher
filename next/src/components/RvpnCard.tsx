@@ -96,7 +96,6 @@ export function RvpnCard() {
             >
               <span className="flex h-6 items-center">
                 <Switch
-                  label="Autorun"
                   checked={settings?.rvpn_autorun ?? false}
                   onChange={(value) => settings?.set_rvpn_autorun(value)}
                 />
@@ -105,7 +104,6 @@ export function RvpnCard() {
             <ListRow label="Uninstall">
               <button
                 type="button"
-                aria-label="Uninstall Radmin VPN"
                 disabled={jobRunning}
                 onClick={() => {
                   setManageOpen(false);

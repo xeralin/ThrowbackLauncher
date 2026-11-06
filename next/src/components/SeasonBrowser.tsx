@@ -300,9 +300,6 @@ const DashCard = memo(function DashCard({
       }}
       draggable={editing}
       tabIndex={editing ? 0 : undefined}
-      role={editing ? "button" : undefined}
-      aria-label={editing ? seasonTitle(season) : undefined}
-      aria-keyshortcuts={editing ? "Alt+ArrowLeft Alt+ArrowRight" : undefined}
       onKeyDown={
         editing
           ? (event) => {
@@ -349,17 +346,13 @@ const DashCard = memo(function DashCard({
       {!editing && (
         <button
           type="button"
-          aria-label={seasonTitle(season)}
           onClick={() => onOpen(season)}
           className="absolute inset-0 cursor-pointer rounded-lg"
         />
       )}
       {editing && (
         <span
-          role="button"
           tabIndex={0}
-          aria-label={`Resize ${seasonTitle(season)}`}
-          aria-keyshortcuts="ArrowRight ArrowLeft ArrowUp ArrowDown"
           draggable={false}
           onDragStart={(event) => {
             event.preventDefault();
@@ -389,7 +382,7 @@ const DashCard = memo(function DashCard({
             onResizePreview(season.id, width, height);
             onResizeCommit(season.id, width, height);
           }}
-          className="absolute -bottom-[3px] -right-[3px] z-10 size-4 touch-none cursor-nwse-resize text-text/90"
+          className="absolute -bottom-[3px] -right-[3px] z-10 size-4 touch-none cursor-nwse-resize rounded-md text-text/90"
         >
           <StrokeIcon
             d="M3.75 20.25H9A11.25 11.25 0 0 0 20.25 9V3.75"
@@ -1013,7 +1006,6 @@ export function SeasonBrowser({
               <div className={`${iconBox} bg-surface-2`}>
                 <button
                   type="button"
-                  aria-label="Reset layout"
                   onClick={resetLayout}
                   className={iconButton}
                 >
@@ -1026,7 +1018,6 @@ export function SeasonBrowser({
                 {(seasons?.length ?? 0) > 1 && (
                   <button
                     type="button"
-                    aria-label="Reverse order"
                     onClick={reverseOrder}
                     className={iconButton}
                   >
@@ -1035,7 +1026,6 @@ export function SeasonBrowser({
                 )}
                 <button
                   type="button"
-                  aria-label={editing ? "Done arranging" : "Arrange seasons"}
                   onClick={() => {
                     setEditing((value) => !value);
                     setResetErase(0);
@@ -1065,7 +1055,6 @@ export function SeasonBrowser({
                 ref={searchRef}
                 value={query}
                 maxLength={SEARCH_MAX_LENGTH}
-                aria-label="Search seasons"
                 placeholder="Search"
                 spellCheck={false}
                 onChange={(event) => setQuery(event.target.value)}

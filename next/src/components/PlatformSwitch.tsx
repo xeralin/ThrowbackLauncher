@@ -30,18 +30,14 @@ export function PlatformSwitch() {
 
   return (
     <div
-      role="radiogroup"
-      aria-label="Platform"
       onKeyDown={onKeyDown}
       className="flex items-center gap-1.5 font-mono text-label tracking-[0.04em] text-text-muted"
     >
       {PLATFORMS.map((entry, index) => (
         <Fragment key={entry.id}>
-          {index > 0 && <span aria-hidden>/</span>}
+          {index > 0 && <span>/</span>}
           <button
             type="button"
-            role="radio"
-            aria-checked={platform === entry.id}
             tabIndex={platform === entry.id ? 0 : -1}
             ref={(el) => {
               refs.current[entry.id] = el;

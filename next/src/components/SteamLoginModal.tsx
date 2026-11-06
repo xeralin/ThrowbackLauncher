@@ -31,7 +31,6 @@ function PasswordInput({
       />
       <button
         type="button"
-        aria-label={show ? "Hide password" : "Show password"}
         onClick={() => setShow((value) => !value)}
         className="absolute inset-y-0 right-0 flex items-center px-3 text-text-muted transition-colors hover:text-text"
       >

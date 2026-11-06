@@ -44,15 +44,12 @@ export function InfoHint({ text }: { text: string }) {
     >
       <button
         type="button"
-        aria-label="Info"
-        aria-expanded={open}
         onClick={show}
         className="flex shrink-0 text-text-muted transition-colors hover:text-text"
       >
         <StrokeIcon d={INFO} className="size-3.5" />
       </button>
       <span
-        aria-hidden={!open}
         className={`absolute left-0 top-full z-20 mt-1.5 w-60 rounded-md border border-border bg-surface-2 p-2 text-left text-ui leading-snug text-text shadow-lg transition-[opacity,display] transition-discrete duration-100 ${
           open
             ? "opacity-100 starting:opacity-0"

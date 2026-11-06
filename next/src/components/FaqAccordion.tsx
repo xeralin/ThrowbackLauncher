@@ -15,7 +15,6 @@ export type FaqItem = {
 function Item({ item }: { item: FaqItem }) {
   const [open, setOpen] = useState(false);
   const [pulse, setPulse] = useState(false);
-  const answerId = `faq-${item.id}-answer`;
 
   useEffect(() => {
     function openFromHash() {
@@ -48,14 +47,12 @@ function Item({ item }: { item: FaqItem }) {
       <button
         type="button"
         className="question-header"
-        aria-expanded={open}
-        aria-controls={answerId}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="question-title">{item.q}</span>
         <StrokeIcon d={CHEVRON_DOWN} className="question-chevron" />
       </button>
-      <div id={answerId} className="answer" inert={!open}>
+      <div className="answer" inert={!open}>
         <div className="answer-clip">
           <div className="answer-inner prose">{item.a}</div>
         </div>
