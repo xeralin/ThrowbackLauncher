@@ -14,7 +14,7 @@ export const FAQ_PAGES = {
   },
   "common-errors": {
     title: "Common Errors",
-    description: "Solutions to the most frequently encountered game issues.",
+    description: "Solutions to the most encountered game issues.",
     tag: "Support",
     corner: "ERR",
   },
