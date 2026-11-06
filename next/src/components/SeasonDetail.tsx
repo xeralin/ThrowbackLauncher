@@ -13,15 +13,17 @@ import {
 } from "@/components/icons";
 import { LogBox, type LogLine } from "@/components/LogBox";
 import { SeasonInfo } from "@/components/SeasonInfo";
-import { iconBox } from "@/components/ui";
+import { iconBox, textBox, textBoxText } from "@/components/ui";
 import { CardKeyArt } from "@/components/SeasonKeyArt";
 import { RendererMenu } from "@/components/RendererMenu";
 import { useSeasonManage } from "@/components/SeasonManage";
 import { OptionGroup, Tabs, type TabItem } from "@/components/Tabs";
 import { TransferBar } from "@/components/TransferBar";
 import {
+  formatPlaytime,
   seasonTitle,
   useHomeSeasons,
+  usePlaytime,
   type GameArgs,
   type Season,
 } from "@/lib/bridge";
@@ -165,6 +167,11 @@ export function SeasonDetail({
     }
   }, [dl, season.key]);
 
+  const playtime =
+    usePlaytime()?.find(
+      (entry) => entry.key === season.key && entry.hm === hmActive,
+    )?.minutes ?? 0;
+
   const { gameArgs: fetchGameArgs } = lc;
   const gameTokens = gameArgs.args.split(/\s+/).filter(Boolean);
   const renderers = gameArgs.renderer ? RENDERERS[gameArgs.renderer] : null;
@@ -297,22 +304,18 @@ export function SeasonDetail({
                 tabs={EDITION_TABS}
                 active={hmActive ? "hm" : "tb"}
                 onSelect={(id) => onHmChange(id === "hm")}
-                label="Edition"
               />
             ) : undefined
           }
         />
 
         <div
-          role="tabpanel"
-          id={`tabpanel-${tab}`}
-          aria-labelledby={`tab-${tab}`}
           className={
             tab === "info" ? undefined : "flex min-h-0 flex-1 flex-col"
           }
         >
           {tab !== "info" && (
-            <div className="mt-4 flex items-center gap-3">
+            <div className="mt-4 flex flex-wrap items-center gap-3">
               <span className="flex flex-wrap items-center gap-2">
                 {transferring ? (
                   transferActions
@@ -390,44 +393,59 @@ export function SeasonDetail({
               <span className="flex min-w-0 flex-1 items-center gap-3">
                 <TransferBar state={editionState} />
               </span>
-              {!transferring && editionInstall.installed && (
-                <span className={`${iconBox} bg-surface`}>
-                  {hmActive && (
-                    <CopyButton
-                      label="Copy crash log"
-                      copiedLabel="Crash log copied"
-                      disabled={!installs.hm.crashLog}
-                      onCopy={copyCrashLog}
-                    />
+              {!transferring && (editionInstall.installed || playtime > 0) && (
+                <span className="ml-auto flex shrink-0 items-center gap-2">
+                  {playtime > 0 && (
+                    <span className={textBox}>
+                      <span className="flex items-center gap-0.5 pl-[0.35rem] pr-[0.6rem]">
+                        <button
+                          type="button"
+                          onClick={() => setModal({ kind: "playtime" })}
+                          className={iconButton}
+                        >
+                          <StrokeIcon d="M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0zM12 6v6l4 2" />
+                        </button>
+                        <span className={textBoxText}>
+                          {formatPlaytime(playtime)}
+                        </span>
+                      </span>
+                    </span>
                   )}
-                  {platform === "linux" && (
-                    <button
-                      type="button"
-                      aria-label="Proton"
-                      disabled={protons?.length === 0}
-                      onClick={openProton}
-                      className={iconButton}
-                    >
-                      <StrokeIcon d={PROTON} />
-                    </button>
+                  {editionInstall.installed && (
+                    <span className={`${iconBox} bg-surface`}>
+                      {hmActive && (
+                        <CopyButton
+                          disabled={!installs.hm.crashLog}
+                          onCopy={copyCrashLog}
+                        />
+                      )}
+                      {platform === "linux" && (
+                        <button
+                          type="button"
+                          disabled={protons?.length === 0}
+                          onClick={openProton}
+                          className={iconButton}
+                        >
+                          <StrokeIcon d={PROTON} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={openFolder}
+                        className={iconButton}
+                      >
+                        <FolderIcon />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={downloadingSeason || playingSeason}
+                        onClick={() => setModal({ kind: "uninstall" })}
+                        className={iconButton}
+                      >
+                        <RemoveIcon />
+                      </button>
+                    </span>
                   )}
-                  <button
-                    type="button"
-                    aria-label="Open folder"
-                    onClick={openFolder}
-                    className={iconButton}
-                  >
-                    <FolderIcon />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Uninstall"
-                    disabled={downloadingSeason || playingSeason}
-                    onClick={() => setModal({ kind: "uninstall" })}
-                    className={iconButton}
-                  >
-                    <RemoveIcon />
-                  </button>
                 </span>
               )}
             </div>

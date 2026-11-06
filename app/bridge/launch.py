@@ -1,11 +1,12 @@
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 from queue import Queue
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from core import log
 from core.constants import (
@@ -24,8 +25,10 @@ from core.manifest import (
     partial_path,
     resolve_install,
 )
+from core.playtime import read_playtime, write_playtime
 from core.steam import (
     expand_launch_args,
+    game_started,
     is_season_running,
     prefix_pids,
     proton_env,
@@ -35,12 +38,16 @@ from core.steam import (
 )
 from core.throwbackloader import read_tl_args, tl_present, write_tl_args
 
+_SUSPEND_GAP_S = 30.0
+_CHECKPOINT_S = 300.0
+
 
 class LaunchController(QObject):
     error = Signal(str)
     running_changed = Signal("QVariantList")
     launching_changed = Signal(object)
     files_missing = Signal(str, bool, str)
+    playtime_changed = Signal()
     _fail_in = Signal(str, int)
     _spawned_in = Signal(object, int)
 
@@ -60,6 +67,9 @@ class LaunchController(QObject):
         self._downloader = downloader
         self._updater = updater
         self._running_pairs: set[tuple[str, bool]] = set()
+        self._sessions: dict[tuple[str, bool], float] = {}
+        self._last_tick = 0.0
+        self._playtime_table = read_playtime()
         self._launching: tuple[str, bool] | None = None
         self._launch_proc: subprocess.Popen | None = None
         self._launch_gen = 0
@@ -77,12 +87,14 @@ class LaunchController(QObject):
             except Exception as e:
                 log.fail("Launch job failed", e)
 
-    def _on_tick(self, folders: object) -> None:
-        pairs = set()
-        for folder in folders:
+    def _on_tick(self, folders: dict[str, list[int]]) -> None:
+        pids: dict[tuple[str, bool], list[int]] = {}
+        for folder, folder_pids in folders.items():
             resolved = resolve_install(folder, self._downloads)
             if resolved is not None:
-                pairs.add((resolved[0]["key"], resolved[1]))
+                pids[(resolved[0]["key"], resolved[1])] = folder_pids
+        pairs = set(pids)
+        self._count_playtime(pids)
         if pairs != self._running_pairs:
             closed = {key for key, _ in self._running_pairs} - {key for key, _ in pairs}
             self._running_pairs = pairs
@@ -99,6 +111,67 @@ class LaunchController(QObject):
                 )
         if self._launching is not None:
             self._watchdog.keep_fast()
+
+    def _count_playtime(self, pids: dict[tuple[str, bool], list[int]]) -> None:
+        now = time.time()
+        if now - self._last_tick > _SUSPEND_GAP_S:
+            for pair in self._sessions:
+                self._sessions[pair] += now - self._last_tick
+        self._last_tick = now
+        for pair in self._sessions.keys() - pids.keys():
+            self._book(pair, self._sessions.pop(pair), now)
+        for pair, start in self._sessions.items():
+            if now - start >= _CHECKPOINT_S:
+                self._sessions[pair] = self._book(pair, start, now)
+        for pair in pids.keys() - self._sessions.keys():
+            started = game_started(pids[pair]) or now
+            known = self._playtime_entry(*pair)
+            until = known.get("until", 0)
+            if round(started) > until:
+                self._edition(*pair).update(
+                    sessions=known.get("sessions", 0) + 1,
+                    since=known.get("since", until or round(started)),
+                    until=round(started),
+                )
+                self._write_playtime()
+            self._sessions[pair] = max(started, until)
+
+    def _playtime_entry(self, key: str, hm: bool) -> dict[str, int]:
+        entry = self._playtime_table.get(key, {})
+        entry = entry.get("hm") if hm else entry
+        if not isinstance(entry, dict):
+            return {}
+        return {name: value for name, value in entry.items() if isinstance(value, int)}
+
+    def _edition(self, key: str, hm: bool) -> dict:
+        entry = self._playtime_table.setdefault(key, {})
+        if not hm:
+            return entry
+        if not isinstance(entry.get("hm"), dict):
+            entry["hm"] = {}
+        return entry["hm"]
+
+    def _book(self, pair: tuple[str, bool], start: float, end: float) -> float:
+        booked = max(0, round((end - start) / 60))
+        until = start + booked * 60
+        minutes = self._playtime_entry(*pair).get("minutes", 0) + booked
+        self._edition(*pair).update(minutes=minutes, until=round(until))
+        self._write_playtime()
+        return until
+
+    def _write_playtime(self) -> None:
+        ranked = sorted(
+            self._playtime_table.items(),
+            key=lambda item: self._order.get(item[0], len(self._order)),
+        )
+        try:
+            write_playtime(dict(ranked))
+        except OSError as e:
+            log.fail("Play time save failed", e)
+        self.playtime_changed.emit()
+
+    def save_playtime(self) -> None:
+        self._count_playtime({})
 
     def _running_list(self) -> list:
         order = sorted(self._running_pairs, key=lambda pair: (self._order[pair[0]], pair[1]))
@@ -122,6 +195,28 @@ class LaunchController(QObject):
     @Slot(result="QVariant")
     def launching(self) -> dict | None:
         return self._launching_map()
+
+    @Property("QVariantList", notify=playtime_changed)
+    def playtime(self) -> list:
+        played = []
+        for d in self._downloads:
+            code = d["label"].partition(" ")[0]
+            for hm in (False, True):
+                entry = self._playtime_entry(d["key"], hm)
+                if entry.get("minutes", 0) > 0:
+                    until = entry.get("until", 0)
+                    played.append(
+                        {
+                            "key": d["key"],
+                            "code": code,
+                            "hm": hm,
+                            "minutes": entry["minutes"],
+                            "sessions": entry.get("sessions", 0),
+                            "lastPlayed": until,
+                            "firstPlayed": entry.get("since", until),
+                        }
+                    )
+        return played
 
     @Slot(str, result="QVariantMap")
     def installs(self, key: str) -> dict:

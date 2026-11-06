@@ -112,6 +112,14 @@ def is_season_running(key: str) -> bool:
     return not {key, hm_folder_name(key)}.isdisjoint(running_game_folders())
 
 
+def game_started(pids: list[int]) -> float | None:
+    times = []
+    for pid in pids:
+        with contextlib.suppress(psutil.Error, OSError):
+            times.append(psutil.Process(pid).create_time())
+    return min(times, default=None)
+
+
 def prefix_pids(prefix: Path) -> list[int]:
     compat = str(prefix)
     wineprefix = str(prefix / "pfx")

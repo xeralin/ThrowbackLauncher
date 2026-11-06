@@ -58,17 +58,23 @@ def _fmt_key(key: str) -> str:
     return key if _BARE_KEY.fullmatch(key) else toml_str(key)
 
 
-def save_settings(settings: dict) -> None:
-    lines = ["[settings]"]
-    for k, v in settings.get("settings", {}).items():
-        lines.append(f"{_fmt_key(k)} = {_fmt_value(v)}")
-    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = SETTINGS_FILE.with_name(SETTINGS_FILE.name + ".tmp")
+def toml_section(path: list[str], values: dict) -> str:
+    header = f"[{'.'.join(_fmt_key(part) for part in path)}]"
+    return "\n".join([header, *(f"{_fmt_key(k)} = {_fmt_value(v)}" for k, v in values.items())])
+
+
+def write_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
     with tmp.open("w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+        f.write(text)
         f.flush()
         os.fsync(f.fileno())
-    tmp.replace(SETTINGS_FILE)
+    tmp.replace(path)
+
+
+def save_settings(settings: dict) -> None:
+    write_atomic(SETTINGS_FILE, toml_section(["settings"], settings.get("settings", {})) + "\n")
 
 
 def get_setting[T](settings: dict, key: str, default: T) -> T:

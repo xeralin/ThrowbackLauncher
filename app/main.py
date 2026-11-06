@@ -178,6 +178,7 @@ def main() -> int:
 
     uninstaller = UninstallController(downloader, updater)
     launch = LaunchController(settings, downloads, watchdog, downloader, updater)
+    app.aboutToQuit.connect(launch.save_playtime)
     shears = ShearsController(downloader)
     downloader.set_peers(updater, settings_bridge, uninstaller, launch, shears)
     updater.set_peers(settings_bridge, downloader, uninstaller)

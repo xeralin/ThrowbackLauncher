@@ -5,6 +5,7 @@ import { CheatEngineSetting } from "@/components/CheatEngineSetting";
 import { Button, iconButton } from "@/components/Button";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Modal, modalTitle } from "@/components/Modal";
+import { PlaytimeModal } from "@/components/PlaytimeModal";
 import { SelectHmModal } from "@/components/SelectHmModal";
 import { DefaultLibraryIcon, RemoveIcon } from "@/components/icons";
 import { ListRow, PickerRow } from "@/components/ui";
@@ -40,7 +41,8 @@ type SeasonModal =
   | { kind: "selectHm"; then: () => void }
   | { kind: "download" }
   | { kind: "removeDownload" }
-  | { kind: "proton" };
+  | { kind: "proton" }
+  | { kind: "playtime" };
 
 const NO_INSTALL: SeasonInstalls["tb"] = {
   installed: false,
@@ -136,11 +138,7 @@ export function useSeasonManage(
   const cancelRun = verifyingEdition || editionInstall.installed;
   if (
     (downloadingSeason || playingSeason) &&
-    modal !== null &&
-    modal.kind !== "download" &&
-    modal.kind !== "removeDownload" &&
-    modal.kind !== "selectHm" &&
-    modal.kind !== "proton"
+    (modal?.kind === "shears" || modal?.kind === "uninstall")
   )
     setModal(null);
 
@@ -366,7 +364,6 @@ export function useSeasonManage(
                 <div className="flex flex-col gap-2">
                   <div className="relative">
                     <TextSetting
-                      label="Launch options"
                       value={storedArgs}
                       placeholder="%command%"
                       onCommit={(draft) => {
@@ -388,7 +385,6 @@ export function useSeasonManage(
                       <span className="-mr-1 flex shrink-0 items-center">
                         <button
                           type="button"
-                          aria-label="Remove prefix"
                           disabled={playingSeason || ceStatus?.busy}
                           onClick={() => settings.remove_prefix(season.key)}
                           className={iconButton}
@@ -425,6 +421,10 @@ export function useSeasonManage(
             </div>
           </Modal>
         )}
+
+      {modal?.kind === "playtime" && (
+        <PlaytimeModal onClose={() => setModal(null)} />
+      )}
 
       {modal?.kind === "shears" && (
         <ShearsModal

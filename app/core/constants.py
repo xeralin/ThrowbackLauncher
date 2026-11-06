@@ -47,6 +47,7 @@ NEXT_OUT_DIR = ASSET_ROOT / "next" / "out"
 ICON_FILE = ASSET_ROOT / "icon.png" if FROZEN else ASSET_ROOT / ".github" / "icon.png"
 
 SETTINGS_FILE = DATA_ROOT / "settings.toml"
+PLAYTIME_FILE = DATA_ROOT / "playtime.toml"
 BIN_DIR = DATA_ROOT / "bin"
 API_CACHE_FILE = BIN_DIR / "api_cache.json"
 ERRORS_FILE = BIN_DIR / "errors.txt"

@@ -68,7 +68,16 @@ export type SeasonInstalls = {
   prefix: boolean;
 };
 
+export type PlaytimeEntry = EditionRef & {
+  code: string;
+  minutes: number;
+  sessions: number;
+  lastPlayed: number;
+  firstPlayed: number;
+};
+
 type LaunchObject = {
+  playtime: PlaytimeEntry[];
   installs(key: string, callback: (installs: SeasonInstalls) => void): void;
   game_args(key: string, hm: boolean, callback: (info: GameArgs) => void): void;
   set_game_args(
@@ -81,6 +90,7 @@ type LaunchObject = {
   stop(key: string): void;
   running(callback: (refs: EditionRef[]) => void): void;
   launching(callback: (ref: EditionRef | null) => void): void;
+  playtime_changed: QtSignal;
 };
 
 export type ShearsKind = "videos" | "events" | "textures";
@@ -148,6 +158,11 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(digits)} ${units[exp]}`;
 }
 
+export function formatPlaytime(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  return `${(minutes / 60).toFixed(1)} h`;
+}
+
 type ShearsObject = {
   scan(key: string): void;
   cut(key: string, kind: ShearsKind, level: number): void;
@@ -165,7 +180,7 @@ type LibraryEntry = {
   exists: boolean;
 };
 
-export type ProtonOption = { internal: string; display: string };
+type ProtonOption = { internal: string; display: string };
 
 export type SettingsObject = {
   username: string;
@@ -499,20 +514,27 @@ export function useHomeSeasons(): [Season[] | null, () => void] {
   return [seasons, refreshHome];
 }
 
-function subscribeDiskUsage(listener: () => void): () => void {
-  let cancelled = false;
-  let disconnect: (() => void) | undefined;
-  onBridgeReady((bridge) => {
-    if (cancelled) return;
-    bridge.info.disk_usage_changed.connect(listener);
-    disconnect = () => bridge.info.disk_usage_changed.disconnect(listener);
-    listener();
-  });
-  return () => {
-    cancelled = true;
-    disconnect?.();
+function subscribeTo(select: (bridge: Bridge) => QtSignal) {
+  return (listener: () => void): (() => void) => {
+    let cancelled = false;
+    let disconnect: (() => void) | undefined;
+    onBridgeReady((bridge) => {
+      if (cancelled) return;
+      const signal = select(bridge);
+      signal.connect(listener);
+      disconnect = () => signal.disconnect(listener);
+      listener();
+    });
+    return () => {
+      cancelled = true;
+      disconnect?.();
+    };
   };
 }
+
+const subscribeDiskUsage = subscribeTo(
+  (bridge) => bridge.info.disk_usage_changed,
+);
 
 function diskUsageSnapshot(): number | null {
   const gb = window.throwback?.info.disk_usage ?? -1;
@@ -523,6 +545,18 @@ export function useDiskUsage(): number | null {
   return useSyncExternalStore(
     subscribeDiskUsage,
     diskUsageSnapshot,
+    () => null,
+  );
+}
+
+const subscribePlaytime = subscribeTo(
+  (bridge) => bridge.launch.playtime_changed,
+);
+
+export function usePlaytime(): PlaytimeEntry[] | null {
+  return useSyncExternalStore(
+    subscribePlaytime,
+    () => window.throwback?.launch.playtime ?? null,
     () => null,
   );
 }
