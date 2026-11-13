@@ -1,6 +1,5 @@
 import Image from "next/image";
 import { keyArtFade } from "@/components/SeasonKeyArt";
-import { BuildChip } from "@/components/SeasonTable";
 import { renderInline } from "@/components/Markdown";
 import { panel, textBox, textBoxText } from "@/components/ui";
 import type {
@@ -9,29 +8,20 @@ import type {
   InfoMap,
 } from "@/config/season-info";
 
-const infoTable = "prose overflow-hidden rounded-lg border border-border";
+const boxCell = `content-center px-[0.6rem] ${textBoxText}`;
 
-const infoCell =
-  "align-top font-body text-text-muted [&_code]:text-[0.68rem] [&_code]:whitespace-nowrap";
-
-function InfoList({ title, rows }: { title: string; rows: string[] }) {
+function InfoList({ rows }: { rows: string[] }) {
   if (rows.length === 0) return null;
   return (
-    <div className={infoTable}>
-      <table className="w-full">
-        <thead>
-          <tr>
-            <th>{title}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row}>
-              <td className={infoCell}>{renderInline(row)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className={`prose divide-y divide-border ${panel}`}>
+      {rows.map((row) => (
+        <div
+          key={row}
+          className="px-[0.6rem] text-[0.78rem] leading-[normal] text-text-muted [--cap-pad:0.5rem] text-box-cap [&_code]:text-[0.68rem] [&_code]:whitespace-nowrap"
+        >
+          {renderInline(row)}
+        </div>
+      ))}
     </div>
   );
 }
@@ -99,31 +89,15 @@ export function SeasonInfo({
   sizeGb: number;
 }) {
   const events = entry.events ?? [];
+  const highlights =
+    events.length > 0
+      ? [
+          ...entry.highlights,
+          `${events.map((name) => `**${name}**`).join(" and ")} event${events.length > 1 ? "s" : ""}`,
+        ]
+      : entry.highlights;
   const requirements =
     entry.requirements?.filter((row): row is string => row !== false) ?? [];
-
-  const released = (
-    <div className={infoTable}>
-      <table className="info-table w-full">
-        <thead>
-          <tr>
-            <th>Release</th>
-            <th className="w-px whitespace-nowrap">Size</th>
-            <th className="w-px whitespace-nowrap">Build</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>{entry.release}</td>
-            <td className="w-px whitespace-nowrap">{sizeGb} GB</td>
-            <td className="w-px whitespace-nowrap">
-              <BuildChip build={build} />
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  );
 
   return (
     <div className="grid items-start gap-4 content:grid-cols-[minmax(0,1fr)_260px]">
@@ -136,21 +110,15 @@ export function SeasonInfo({
         ))}
       </div>
       <div className="flex flex-col gap-3">
-        {released}
-        <InfoList title="Highlights" rows={entry.highlights} />
-        {events.length > 0 && (
-          <div className={`${textBox} self-end`}>
-            {events.map((name) => (
-              <span
-                key={name}
-                className={`content-center px-[0.6rem] ${textBoxText}`}
-              >
-                {name}
-              </span>
-            ))}
-          </div>
-        )}
-        <InfoList title="Requirements" rows={requirements} />
+        <InfoList rows={highlights} />
+        <InfoList rows={requirements} />
+        <div className={`${textBox} self-end`}>
+          <span className={boxCell}>{entry.release}</span>
+          <span className={boxCell}>{sizeGb} GB</span>
+          <span className="flex items-center px-[0.6rem]">
+            <code className="code-chip">{build}</code>
+          </span>
+        </div>
       </div>
     </div>
   );

@@ -86,10 +86,10 @@
 
   --z-topbar: 50;
   --z-sidebar: 100;
-  --z-link-preview: 101;
   --z-hamburger: 110;
   --z-menu: 120;
   --z-modal: 150;
+  --z-link-preview: 160;
   --z-toast: 200;
 
   --breakpoint-narrow: 32.5em;
@@ -407,6 +407,10 @@
 
 .nyan-cat:hover img {
   image-rendering: pixelated;
+}
+
+[data-inactive] .animate-blink {
+  animation: none;
 }
 
 [data-reduce-motion] [data-reveal] {
@@ -865,7 +869,6 @@
     background: var(--color-surface-2);
     font-family: var(--font-mono);
     font-size: var(--text-micro);
-    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.2em;
     color: var(--color-text-muted);
@@ -884,9 +887,7 @@
   .season-table th:first-child,
   .season-table td:first-child,
   .season-table th:last-child,
-  .season-table td:last-child,
-  .info-table th,
-  .info-table td {
+  .season-table td:last-child {
     text-align: center;
   }
 

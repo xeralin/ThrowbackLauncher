@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { LiberatorStatus } from "@/components/LiberatorStatus";
 import { CardKeyArt } from "@/components/SeasonKeyArt";
@@ -149,11 +150,7 @@ export function Sidebar({
       const anchor =
         target instanceof Element ? target.closest("a[href]") : null;
       const href = anchor?.getAttribute("href") ?? "";
-      setHoveredLink(
-        /^https?:\/\//.test(href) && !href.startsWith(window.location.origin)
-          ? href
-          : "",
-      );
+      setHoveredLink(/^https?:\/\//.test(href) ? href : "");
     }
     document.addEventListener("mouseover", preview);
     document.addEventListener("focusin", preview);
@@ -405,11 +402,13 @@ export function Sidebar({
         ))}
       </div>
 
-      {hoveredLink && (
-        <div className="pointer-events-none fixed bottom-2 left-2 z-(--z-link-preview) max-w-[calc(100vw_-_1rem)] truncate-fade rounded-md border border-border bg-surface-2 px-[3px] pb-[2px] pt-[3px] font-mono text-[11px] leading-none text-text max-nav:hidden">
-          {hoveredLink}
-        </div>
-      )}
+      {hoveredLink &&
+        createPortal(
+          <div className="pointer-events-none fixed bottom-2 left-2 z-(--z-link-preview) max-w-[calc(100vw_-_1rem)] truncate-fade rounded-md border border-border bg-surface-2 px-[3px] pb-[2px] pt-[3px] font-mono text-[11px] leading-none text-text max-nav:hidden">
+            {hoveredLink}
+          </div>,
+          document.body,
+        )}
     </aside>
   );
 }

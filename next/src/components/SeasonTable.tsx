@@ -6,14 +6,6 @@ export type SeasonRow = {
   build: string;
 };
 
-export function BuildChip({ build }: { build: string }) {
-  return (
-    <span className="flex flex-col items-center">
-      <code className="code-chip">{build}</code>
-    </span>
-  );
-}
-
 export function SeasonTable({
   rows,
   showEvent,
@@ -51,7 +43,9 @@ export function SeasonTable({
               ) : null}
               {showVersion ? <td>{version}</td> : null}
               <td>
-                <BuildChip build={build} />
+                <span className="flex flex-col items-center">
+                  <code className="code-chip">{build}</code>
+                </span>
               </td>
             </tr>
           ))}
