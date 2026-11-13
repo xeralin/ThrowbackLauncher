@@ -49,14 +49,14 @@ label = 'Y2S2 Health'
 build = '11216230'
 manifest_content = '708773000306432190'
 manifest_ww = '5875987479498297665'
-size_gb = 34.0
+size_gb = 34.2
 
 [Y2S3_BloodOrchid]
 label = 'Y2S3 Blood Orchid'
 build = '11432634'
 manifest_content = '1613631671988840841'
 manifest_ww = '6708129824495912434'
-size_gb = 34.3
+size_gb = 35.9
 
 [Y2S4_WhiteNoise]
 label = 'Y2S4 White Noise'
@@ -77,7 +77,7 @@ label = 'Y3S2 Para Bellum'
 build = '11965022'
 manifest_content = '8765715607275074515'
 manifest_ww = '6507886921175556869'
-size_gb = 63.3
+size_gb = 60.6
 
 [Y3S3_GrimSky]
 label = 'Y3S3 Grim Sky'
@@ -98,14 +98,14 @@ label = 'Y4S1 Burnt Horizon'
 build = '12863847'
 manifest_content = '5935578581006804383'
 manifest_ww = '8356277316976403078'
-size_gb = 58.8
+size_gb = 59.7
 
 [Y4S2_PhantomSight]
 label = 'Y4S2 Phantom Sight'
 build = '13147883'
 manifest_content = '5408324128694463720'
 manifest_ww = '693082837425613508'
-size_gb = 67.1
+size_gb = 64.9
 
 [Y4S3_EmberRise]
 label = 'Y4S3 Ember Rise'
@@ -133,7 +133,7 @@ label = 'Y5S2 Steel Wave'
 build = '14664131'
 manifest_content = '893971391196952070'
 manifest_ww = '4367817844736324940'
-size_gb = 81.3
+size_gb = 82.2
 
 [Y5S3_ShadowLegacy]
 label = 'Y5S3 Shadow Legacy'
@@ -156,35 +156,35 @@ label = 'Y6S1 Crimson Heist'
 build = '15680437'
 manifest_content = '7781896841500953375'
 manifest_ww = '2200775373002020326'
-size_gb = 44.9
+size_gb = 45.2
 
 [Y6S2_NorthStar]
 label = 'Y6S2 North Star'
 build = '15772114'
 manifest_content = '5588923295150591607'
 manifest_ww = '8537616701006158335'
-size_gb = 62.1
+size_gb = 47.5
 
 [Y6S3_CrystalGuard]
 label = 'Y6S3 Crystal Guard'
 build = '35130040'
 manifest_content = '1030120416124554825'
 manifest_ww = '9055328556991635819'
-size_gb = 50.3
+size_gb = 52.0
 
 [Y6S4_HighCalibre]
 label = 'Y6S4 High Calibre'
 build = '37046065'
 manifest_content = '8627214406801860013'
 manifest_ww = '2637055726475611418'
-size_gb = 54.2
+size_gb = 53.9
 
 [Y7S1_DemonVeil]
 label = 'Y7S1 Demon Veil'
 build = '39785137'
 manifest_content = '2178080523228113690'
 manifest_ww = '8323869632165751287'
-size_gb = 58.8
+size_gb = 56.3
 
 [Y7S2_VectorGlare]
 label = 'Y7S2 Vector Glare'
@@ -212,7 +212,7 @@ label = 'Y8S1 Commanding Force'
 build = '55217154'
 manifest_content = '5863062164463920572'
 manifest_ww = '3275824905781062648'
-size_gb = 53.8
+size_gb = 53.3
 
 [Y8S2_DreadFactor]
 label = 'Y8S2 Dread Factor'
@@ -233,7 +233,7 @@ label = 'Y8S4 Deep Freeze'
 build = '67466841'
 manifest_content = '4957295777170965935'
 manifest_ww = '7646647065987620875'
-size_gb = 52.9
+size_gb = 52.5
 
 [Y9S1_DeadlyOmen]
 label = 'Y9S1 Deadly Omen'
@@ -255,49 +255,49 @@ label = 'Y9S3 Twin Shells'
 build = '79429095'
 manifest_content = '825321500774263546'
 manifest_ww = '4296569502001540403'
-size_gb = 59.2
+size_gb = 58.9
 
 [Y9S4_CollisionPoint]
 label = 'Y9S4 Collision Point'
 build = '82873685'
 manifest_content = '3039751959139581613'
 manifest_ww = '9207916394092784817'
-size_gb = 59.2
+size_gb = 51.4
 
 [Y10S1_PrepPhase]
 label = 'Y10S1 Prep Phase'
 build = '87835624'
 manifest_content = '2619322944995294928'
 manifest_ww = '8382986432868135995'
-size_gb = 51.4
+size_gb = 51.2
 
 [Y10S2_Daybreak]
 label = 'Y10S2 Daybreak'
 build = '91107972'
 manifest_content = '6061565907083200123'
 manifest_ww = '6185866687945877979'
-size_gb = 57.6
+size_gb = 56.1
 
 [Y10S3_HighStakes]
 label = 'Y10S3 High Stakes'
 build = '97612398'
 manifest_content = '2991287519065391053'
 manifest_ww = '6414584647978564432'
-size_gb = 64.1
+size_gb = 62.6
 
 [Y10S4_TenfoldPursuit]
 label = 'Y10S4 Tenfold Pursuit'
 build = '101173381'
 manifest_content = '4662717791508703860'
 manifest_ww = '5312359447964179543'
-size_gb = 64.1
+size_gb = 44.9
 
 [Y11S1_SilentHunt]
 label = 'Y11S1 Silent Hunt'
 build = '108519331'
 manifest_content = '4262752188904831422'
 manifest_ww = '6538965566725574323'
-size_gb = 47.8
+size_gb = 47.5
 
 [Y11S2_SystemOverride]
 label = 'Y11S2 System Override'
