@@ -3,16 +3,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { buttonBase, buttonVariants, iconButton } from "@/components/Button";
-import { card, heading, iconBox, ListRow } from "@/components/ui";
+import { heading, iconBox, link, ListRow, textBoxText } from "@/components/ui";
 import { Note } from "@/components/Note";
 import { ExternalLink } from "@/components/ExternalLink";
 import { VersionChip } from "@/components/VersionChip";
 import { Modal } from "@/components/Modal";
-import { REFRESH, StrokeIcon } from "@/components/icons";
+import { CHEVRON_DOWN, GITHUB, REFRESH, StrokeIcon } from "@/components/icons";
 import {
   useDownloader,
+  useReleaseHistory,
   useUpdate,
   type InstalledComponent,
+  type Release,
   type UpdateComponent,
 } from "@/lib/bridge";
 import { Markdown } from "@/components/Markdown";
@@ -22,6 +24,21 @@ import { useTopbarSlot } from "@/lib/topbar-slot";
 import { site } from "@/config/site";
 
 const UPDATE_TOAST = "update";
+
+const segment =
+  "content-center whitespace-nowrap rounded-none px-[0.6rem] font-display text-ui font-bold text-box-cap transition-colors";
+
+const changelogBox = "rounded-lg border border-border bg-well";
+
+const boxRow = "border-t border-border px-[0.6rem] py-[0.45rem]";
+
+function releaseDate(date: string) {
+  return new Date(date).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
 function UpdateCard({
   component,
@@ -41,8 +58,8 @@ function UpdateCard({
     [component.body, component.repository],
   );
   return (
-    <div className={card}>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+    <div className={changelogBox}>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 py-[0.45rem] pl-[0.6rem] pr-[0.45rem]">
         <span className="flex min-w-0 items-center gap-2.5">
           <span className={`truncate ${heading}`}>{component.name}</span>
           <VersionChip version={component.target} className="shrink-0" />
@@ -72,7 +89,60 @@ function UpdateCard({
           )}
         </button>
       </div>
-      {notes.length > 0 && <Markdown nodes={notes} />}
+      {notes.length > 0 && <Markdown nodes={notes} className={boxRow} />}
+      {component.url && (
+        <div
+          className={`flex items-baseline justify-between gap-4 text-ui text-text-muted ${boxRow}`}
+        >
+          <span>{releaseDate(component.date)}</span>
+          <ExternalLink href={component.url} className={link}>
+            View on GitHub
+          </ExternalLink>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HistoryEntry({ release }: { release: Release }) {
+  const [open, setOpen] = useState(false);
+  const [seen, setSeen] = useState(false);
+  const notes = useMemo(
+    () => (seen ? parseReleaseNotes(release.body, release.repository) : []),
+    [seen, release.body, release.repository],
+  );
+  return (
+    <div
+      data-reveal
+      className={`${changelogBox} transition-colors has-[>button:hover]:border-action-edge`}
+    >
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((value) => !value);
+          setSeen(true);
+        }}
+        className="flex h-7.5 w-full items-center gap-2.5 px-[0.6rem] text-left"
+      >
+        <span className={textBoxText}>{releaseDate(release.date)}</span>
+        <VersionChip version={release.version} className="ml-auto shrink-0" />
+        <StrokeIcon
+          d={CHEVRON_DOWN}
+          className={`size-3.5 shrink-0 text-text-muted transition-transform duration-200${
+            open ? " rotate-180" : ""
+          }`}
+        />
+      </button>
+      <div
+        inert={!open}
+        className={`grid transition-[grid-template-rows] duration-200 ease-out-cubic ${
+          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          {notes.length > 0 && <Markdown nodes={notes} className={boxRow} />}
+        </div>
+      </div>
     </div>
   );
 }
@@ -80,6 +150,12 @@ function UpdateCard({
 export default function UpdatesPage() {
   const downloading = useDownloader().running;
   const update = useUpdate();
+  const history = useReleaseHistory();
+  const [historyName, setHistoryName] = useState("");
+  const shown =
+    history.find(
+      (entry) => entry.name === historyName && entry.releases.length > 0,
+    ) ?? history.find((entry) => entry.releases.length > 0);
   const refreshRef = useRef<HTMLButtonElement>(null);
   const [spins, setSpins] = useState(0);
   const [installed, setInstalled] = useState<InstalledComponent[] | null>(null);
@@ -157,23 +233,7 @@ export default function UpdatesPage() {
           </span>,
           slot,
         )}
-      {update.selfUpdatable ? (
-        <Note className="mb-6 max-w-[600px]">
-          Keeps the Launcher,{" "}
-          <ExternalLink href={site.depotDownloaderRepoUrl}>
-            DepotDownloader
-          </ExternalLink>
-          , <ExternalLink href="https://7-zip.org/">7z</ExternalLink>,{" "}
-          <ExternalLink href={site.throwbackLoaderRepoUrl}>
-            ThrowbackLoader
-          </ExternalLink>
-          , and{" "}
-          <ExternalLink href={site.heatedMetalRepoUrl}>
-            Heated Metal
-          </ExternalLink>{" "}
-          up to date.
-        </Note>
-      ) : (
+      {!update.selfUpdatable && (
         <Note variant="error" className="mb-6 max-w-[600px]">
           Download <code>ThrowbackLauncher.exe</code> from the{" "}
           <ExternalLink href={site.latestReleaseUrl}>
@@ -183,18 +243,50 @@ export default function UpdatesPage() {
         </Note>
       )}
 
-      <div className="flex max-w-[600px] flex-col gap-4">
-        {update.components.map((component) => (
-          <UpdateCard
-            key={component.name}
-            component={component}
-            applying={update.applying === component.name}
-            progress={update.progress}
-            disabled={update.busy || update.checking || downloading}
-            onApply={() => update.apply(component.name)}
-          />
-        ))}
-      </div>
+      {update.components.length > 0 && (
+        <div className="mb-6 flex max-w-[600px] flex-col gap-4">
+          {update.components.map((component) => (
+            <UpdateCard
+              key={component.name}
+              component={component}
+              applying={update.applying === component.name}
+              progress={update.progress}
+              disabled={update.busy || update.checking || downloading}
+              onApply={() => update.apply(component.name)}
+            />
+          ))}
+        </div>
+      )}
+
+      {shown && (
+        <div className="flex max-w-[600px] flex-col gap-4">
+          <div className="flex flex-wrap gap-px self-start overflow-hidden rounded-lg border border-border bg-border">
+            {history.map(({ name, releases }) => (
+              <button
+                key={name}
+                type="button"
+                disabled={releases.length === 0}
+                onClick={() => setHistoryName(name)}
+                className={`${segment} h-7.5 grow ${
+                  name === shown.name
+                    ? "bg-surface-2 text-text"
+                    : "bg-surface text-text-muted hover:text-text disabled:cursor-not-allowed disabled:text-text-muted/40"
+                }`}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-col gap-2">
+            {shown.releases.map((release) => (
+              <HistoryEntry
+                key={`${shown.name} ${release.version}`}
+                release={release}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {installed && (
         <Modal title="Installed versions" onClose={() => setInstalled(null)}>
@@ -202,6 +294,16 @@ export default function UpdatesPage() {
             {installed.map((component) => (
               <ListRow key={component.name} label={component.name}>
                 <VersionChip version={component.version} />
+                <ExternalLink
+                  href={`https://github.com/${component.repository}`}
+                  className="flex text-text-muted transition-colors hover:text-text"
+                >
+                  <StrokeIcon
+                    d={GITHUB}
+                    fill="currentColor"
+                    className="size-4 stroke-0"
+                  />
+                </ExternalLink>
               </ListRow>
             ))}
           </div>

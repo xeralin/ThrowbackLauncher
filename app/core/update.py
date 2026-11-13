@@ -8,15 +8,16 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from core import log
 from core.constants import (
+    BIN_DIR,
     DD_API_URL,
     DD_BIN,
     GAME_RUNNING,
     HM_API_URL,
     IS_WINDOWS,
+    NOT_INSTALLED_HM,
     SELF_UPDATABLE,
     SEVENZ_API_URL,
     SEVENZ_BIN,
@@ -114,36 +115,46 @@ _REPOSITORY_RX = re.compile(r"/repos/([^/]+/[^/]+)/")
 class ReleaseNotes:
     body: str = ""
     repository: str = ""
+    url: str = ""
+    date: str = ""
 
 
-def _release_notes(api_url: str) -> ReleaseNotes:
-    release = github_json(api_url)
-    repository = _REPOSITORY_RX.search(api_url)
+def repository(api_url: str) -> str:
+    match = _REPOSITORY_RX.search(api_url)
+    return match.group(1) if match else ""
+
+
+def _release_notes(release: dict, api_url: str) -> ReleaseNotes:
     return ReleaseNotes(
         release.get("body") or "",
-        repository.group(1) if repository else "",
+        repository(api_url),
+        release.get("html_url") or "",
+        release.get("published_at") or "",
     )
 
 
 def _throwback_apply_windows(reporter: Reporter, url: str, tag: str) -> None:
     pending = pending_dir()
+    archive = BIN_DIR / RUNTIME_ASSET
     try:
-        with TemporaryDirectory() as tmp:
-            archive = Path(tmp) / RUNTIME_ASSET
-            fetch_to(url, archive, on_progress=reporter.progress)
-            shutil.rmtree(pending, ignore_errors=True)
-            pending.mkdir(parents=True)
-            with zipfile.ZipFile(archive) as z:
-                z.extractall(pending)
-                names = z.namelist()
-            missing = [n for n in names if not (pending / n).exists()]
-            if missing:
-                raise OSError(f"{len(missing)} update files are missing")
-            (pending / PENDING_FILE).write_text(tag.removeprefix("v"), encoding="ascii")
+        BIN_DIR.mkdir(parents=True, exist_ok=True)
+        fetch_to(url, archive, on_progress=reporter.progress)
+        shutil.rmtree(pending, ignore_errors=True)
+        pending.mkdir(parents=True)
+        with zipfile.ZipFile(archive) as z:
+            z.extractall(pending)
+            names = z.namelist()
+        missing = [n for n in names if not (pending / n).exists()]
+        if missing:
+            raise OSError(f"{len(missing)} update files are missing")
+        (pending / PENDING_FILE).write_text(tag.removeprefix("v"), encoding="ascii")
         spawn_detached(helper_argv(pending))
     except BaseException:
         shutil.rmtree(pending, ignore_errors=True)
         raise
+    finally:
+        with contextlib.suppress(OSError):
+            archive.unlink(missing_ok=True)
 
 
 def _throwback_apply_appimage(reporter: Reporter, url: str) -> None:
@@ -159,7 +170,7 @@ def _throwback_apply_appimage(reporter: Reporter, url: str) -> None:
     write_outcome(True)
 
 
-def _throwback_apply(reporter: Reporter) -> bool:
+def _throwback_apply(reporter: Reporter) -> None:
     if is_game_running():
         raise OSError(GAME_RUNNING)
     try:
@@ -171,8 +182,7 @@ def _throwback_apply(reporter: Reporter) -> bool:
     except RateLimitError:
         raise
     except Exception as e:
-        raise OSError(log.fail("Update failed", e)) from e
-    return True
+        raise OSError(log.fail(f"{APP_NAME} update failed", e)) from e
 
 
 def _tl_current() -> str | None:
@@ -188,25 +198,26 @@ def _tl_latest() -> str:
     return tag
 
 
-def _tl_apply(reporter: Reporter) -> bool:
+def _tl_apply(reporter: Reporter) -> None:
     if is_game_running():
         raise OSError(GAME_RUNNING)
     ensure_tl(reporter, force=True)
     username = effective_username(load_settings())
+    error = None
     for folder in installed_downloads():
         try:
             apply_tl(folder, username)
             write_launcher(folder)
         except OSError as e:
-            raise OSError(log.fail("ThrowbackLoader setup failed", e)) from e
-    return True
+            error = OSError(log.fail("ThrowbackLoader setup failed", e))
+    if error is not None:
+        raise error
 
 
 def _hm_latest_installs() -> list[tuple[dict, Path]]:
     try:
         downloads = load_downloads()
-    except Exception as e:
-        log.fail("Heated Metal check failed", e)
+    except RuntimeError:
         return []
     installs: list[tuple[dict, Path]] = []
     for download in downloads:
@@ -229,10 +240,10 @@ def _hm_current() -> str | None:
         return min(versions)
 
 
-def _hm_apply(reporter: Reporter) -> bool:
+def _hm_apply(reporter: Reporter) -> None:
     installs = _hm_latest_installs()
     if not installs:
-        return False
+        raise OSError(NOT_INSTALLED_HM)
     if is_game_running():
         raise OSError(GAME_RUNNING)
     username = effective_username(load_settings())
@@ -244,7 +255,6 @@ def _hm_apply(reporter: Reporter) -> bool:
             error = e
     if error is not None:
         raise error
-    return True
 
 
 @dataclass
@@ -253,7 +263,7 @@ class Component:
     present: Callable[[], bool]
     current: Callable[[], str | None]
     latest: Callable[[], str | None]
-    apply: Callable[[Reporter], bool]
+    apply: Callable[[Reporter], object]
     restart: bool = False
     release_url: str = ""
 
@@ -273,7 +283,7 @@ COMPONENTS = [
         DD_BIN.exists,
         lambda: _binary_version(DD_BIN, ["--version"], r"v(\d+(?:\.\d+)+)"),
         lambda: github_tag(DD_API_URL).removeprefix("DepotDownloader_") or None,
-        lambda reporter: bool(ensure_depotdownloader(reporter, force=True)),
+        lambda reporter: ensure_depotdownloader(reporter, force=True),
         release_url=DD_API_URL,
     ),
     Component(
@@ -281,7 +291,7 @@ COMPONENTS = [
         SEVENZ_BIN.exists,
         lambda: _binary_version(SEVENZ_BIN, [], r"7-Zip(?:\s+\([arz]\))?\s+(\d+(?:\.\d+)+)"),
         lambda: github_tag(SEVENZ_API_URL),
-        lambda reporter: bool(ensure_7z(reporter, force=True)),
+        lambda reporter: ensure_7z(reporter, force=True),
         release_url=SEVENZ_API_URL,
     ),
     Component(
@@ -340,6 +350,35 @@ def available(force: bool = False) -> tuple[Pending, str, str]:
         notes = ReleaseNotes()
         if component.release_url:
             with contextlib.suppress(Exception):
-                notes = _release_notes(component.release_url)
+                notes = _release_notes(github_json(component.release_url), component.release_url)
         pending.append((component, latest, notes))
     return pending, failure, detail
+
+
+_TAG_PREFIX_RX = re.compile(r"^\D+")
+
+
+def _component_history(component: Component) -> list[tuple[str, ReleaseNotes]]:
+    url = component.release_url.removesuffix("/latest")
+    current = component.current()
+    releases = []
+    for release in github_json(url):
+        version = _TAG_PREFIX_RX.sub("", release["tag_name"])
+        if release["prerelease"] or (current is not None and _newer(version, current)):
+            continue
+        releases.append((version, _release_notes(release, url)))
+    return releases
+
+
+def history() -> list[tuple[str, list[tuple[str, ReleaseNotes]]]]:
+    def load(component: Component) -> list[tuple[str, ReleaseNotes]]:
+        try:
+            return _component_history(component)
+        except RateLimitError:
+            return []
+        except Exception as e:
+            log.fail(f"{component.name} history check failed", e)
+            return []
+
+    with ThreadPoolExecutor(max_workers=len(COMPONENTS)) as ex:
+        return list(zip((c.name for c in COMPONENTS), ex.map(load, COMPONENTS), strict=True))

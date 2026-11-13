@@ -12,7 +12,7 @@ from core.shears import folder_size
 
 
 class InfoController(QObject):
-    disk_usage_changed = Signal(float)
+    disk_usage_changed = Signal()
     attached = Signal()
     _usage_in = Signal(float)
 
@@ -50,7 +50,7 @@ class InfoController(QObject):
         self._scanning = False
         if value != self._usage:
             self._usage = value
-            self.disk_usage_changed.emit(value)
+            self.disk_usage_changed.emit()
         if self._rescan:
             self._rescan = False
             self.refresh_disk_usage()

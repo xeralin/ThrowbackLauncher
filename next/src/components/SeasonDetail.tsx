@@ -5,6 +5,7 @@ import { BackHeading } from "@/components/BackHeading";
 import { Button, iconButton } from "@/components/Button";
 import { CopyButton } from "@/components/CopyButton";
 import {
+  CLOCK,
   FolderIcon,
   MarkIcon,
   PROTON,
@@ -22,8 +23,6 @@ import { TransferBar } from "@/components/TransferBar";
 import {
   formatPlaytime,
   seasonTitle,
-  useHomeSeasons,
-  usePlaytime,
   type GameArgs,
   type Season,
 } from "@/lib/bridge";
@@ -85,11 +84,13 @@ export function SeasonDetail({
   hm,
   onHmChange,
   onBack,
+  onUninstalled,
 }: {
   season: Season;
   hm: boolean;
   onHmChange: (hm: boolean) => void;
   onBack: () => void;
+  onUninstalled: (otherInstalled: boolean) => void;
 }) {
   const [log, setLog] = useState<LogLine[]>([]);
   const logId = useRef(0);
@@ -98,7 +99,6 @@ export function SeasonDetail({
     renderer: "",
   });
   const [tab, setTab] = useState<TabId>("manage");
-  const [homeSeasons] = useHomeSeasons();
   const deferredLog = useDeferredValue(log);
   const seededRef = useRef(false);
   const {
@@ -108,6 +108,8 @@ export function SeasonDetail({
     updateBusy,
     installs,
     hmActive,
+    playtime,
+    anyPlaytime,
     editionInstall,
     playingEdition,
     launchingEdition,
@@ -147,12 +149,7 @@ export function SeasonDetail({
           : [],
       ),
     onClearLog: () => setLog([]),
-    onUninstalled: (otherInstalled) => {
-      const otherSeasons = (homeSeasons ?? []).some(
-        (s) => s.key !== season.key,
-      );
-      if (!otherInstalled && otherSeasons) onBack();
-    },
+    onUninstalled,
   });
 
   useEffect(() => {
@@ -166,11 +163,6 @@ export function SeasonDetail({
       dl.requestLog();
     }
   }, [dl, season.key]);
-
-  const playtime =
-    usePlaytime()?.find(
-      (entry) => entry.key === season.key && entry.hm === hmActive,
-    )?.minutes ?? 0;
 
   const { gameArgs: fetchGameArgs } = lc;
   const gameTokens = gameArgs.args.split(/\s+/).filter(Boolean);
@@ -403,7 +395,7 @@ export function SeasonDetail({
                           onClick={() => setModal({ kind: "playtime" })}
                           className={iconButton}
                         >
-                          <StrokeIcon d="M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0zM12 6v6l4 2" />
+                          <StrokeIcon d={CLOCK} />
                         </button>
                         <span className={textBoxText}>
                           {formatPlaytime(playtime)}
@@ -413,6 +405,16 @@ export function SeasonDetail({
                   )}
                   {editionInstall.installed && (
                     <span className={`${iconBox} bg-surface`}>
+                      {playtime === 0 && (
+                        <button
+                          type="button"
+                          disabled={!anyPlaytime}
+                          onClick={() => setModal({ kind: "playtime" })}
+                          className={iconButton}
+                        >
+                          <StrokeIcon d={CLOCK} />
+                        </button>
+                      )}
                       {hmActive && (
                         <CopyButton
                           disabled={!installs.hm.crashLog}
@@ -477,14 +479,14 @@ export function SeasonDetail({
                             : info.release,
                         requirements: [
                           platform === "windows" &&
-                            `Latest [Visual C++ Redistributable](${site.vcRedistUrl})`,
+                            `Install the latest [Visual C++ Redistributable](${site.vcRedistUrl})`,
                           season.key === "Y5S3_ShadowLegacy" &&
-                            "Medium or above in-game textures",
+                            "Set in-game textures to Medium or above",
                           platform === "windows"
-                            ? "External overlays like **Overwolf** disabled"
-                            : "External overlays disabled",
+                            ? "Disable external overlays like **Overwolf**"
+                            : "Disable external overlays",
                           season.hmBeta &&
-                            `Latest \`Unstable.7z\` from [\`#indev-releases\`](${site.heatedMetalDiscordUrl})`,
+                            `Get \`Unstable.7z\` from [\`#indev-releases\`](${site.heatedMetalDiscordUrl})`,
                         ],
                       }
                     : { ...info, events }

@@ -110,8 +110,9 @@ export function accentParts(hex: string): { hue: number; level: number } {
   const radians = (hue * Math.PI) / 180;
   let best = 0;
   let closest = Infinity;
-  for (let step = 0; step <= Math.round(1 / ACCENT_STEP); step += 1) {
-    const level = step * ACCENT_STEP;
+  const steps = Math.round(1 / ACCENT_STEP);
+  for (let step = 0; step <= steps; step += 1) {
+    const level = step / steps;
     const light = lightnessFor(hue, level);
     const chroma = chromaFor(light, hue, level);
     const distance =

@@ -11,6 +11,7 @@ import urllib.request
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import truststore
 
@@ -79,7 +80,7 @@ def open_url(url: str, headers: dict[str, str] | None = None) -> http.client.HTT
         raise
 
 
-def github_json(api_url: str, bypass_ttl: bool = False) -> dict:
+def github_json(api_url: str, bypass_ttl: bool = False) -> Any:
     with _api_cache_lock:
         entry = _api_cache_read().get(api_url)
     usable = isinstance(entry, dict) and "data" in entry

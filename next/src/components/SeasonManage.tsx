@@ -23,6 +23,7 @@ import {
   useLaunch,
   useLibraries,
   usePlatform,
+  usePlaytime,
   useProtons,
   useSettings,
   useShears,
@@ -90,6 +91,12 @@ export function useSeasonManage(
   const libs = useMemo(() => libraryEntries ?? [], [libraryEntries]);
   const multiLib = libs.length > 1;
   const hmActive = hm && season.hmAvailable;
+  const playtimeEntries = usePlaytime();
+  const playtime =
+    playtimeEntries?.find(
+      (entry) => entry.key === season.key && entry.hm === hmActive,
+    )?.minutes ?? 0;
+  const anyPlaytime = (playtimeEntries?.length ?? 0) > 0;
   const cheatEngine = !hmActive && installs.tb.installed;
   const shearsCuts = useMemo(() => shearsActions(shearsScan), [shearsScan]);
 
@@ -439,12 +446,12 @@ export function useSeasonManage(
           season={season}
           hm={hmActive}
           onClose={() => setModal(null)}
-          onDone={() => {
+          onDone={(ok) => {
             const otherInstalled = hmActive
               ? installs.tb.installed
               : installs.hm.installed;
             refresh();
-            onUninstalled?.(otherInstalled);
+            if (ok) onUninstalled?.(otherInstalled);
           }}
         />
       )}
@@ -460,6 +467,8 @@ export function useSeasonManage(
     loaded,
     checkingHm,
     hmActive,
+    playtime,
+    anyPlaytime,
     editionInstall,
     playingEdition,
     launchingEdition,

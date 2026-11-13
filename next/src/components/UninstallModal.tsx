@@ -14,19 +14,15 @@ export function UninstallModal({
   season: Season;
   hm: boolean;
   onClose: () => void;
-  onDone: () => void;
+  onDone: (ok: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
 
   const un = useUninstall({
     onDone: (ok, message) => {
-      setBusy(false);
-      if (ok) {
-        onDone();
-        onClose();
-      } else {
-        showToast(message);
-      }
+      if (!ok) showToast(message);
+      onDone(ok);
+      onClose();
     },
   });
 

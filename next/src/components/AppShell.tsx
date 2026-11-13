@@ -42,14 +42,11 @@ function BridgeToasts({
   useEffect(() => {
     if (!settings) return;
     const onInvalid = (_field: string, message: string) => showToast(message);
-    const onLoggedOut = (message: string) => showToast(message);
     const onCacheCleared = () => showToast("Cache cleared");
     settings.settings_error.connect(onInvalid);
-    settings.logged_out.connect(onLoggedOut);
     settings.cache_cleared.connect(onCacheCleared);
     return () => {
       settings.settings_error.disconnect(onInvalid);
-      settings.logged_out.disconnect(onLoggedOut);
       settings.cache_cleared.disconnect(onCacheCleared);
     };
   }, [settings]);
@@ -61,6 +58,7 @@ function BridgeToasts({
           const outcome = args[1] as string;
           const code = (args[0] as string).split("_")[0];
           if (outcome === "done") showToast(`${code} installed`);
+          else if (outcome === "updated") showToast(`${code} updated`);
           else if (outcome === "verified") showToast(`${code} verified`);
           else if (outcome === "switched_hm")
             showToast(`${code} switched to Heated Metal`);
@@ -91,7 +89,7 @@ function BridgeToasts({
         const name = args[1] as string;
         const message = args[2] as string;
         if (args[0]) showToast(`${name} updated`);
-        else showToast(message || `${name} update failed`);
+        else showToast(message);
       }
     });
     onBridgeReady((bridge) => bridge.info.attach());
@@ -130,6 +128,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.toggleAttribute("data-nyan", nyan);
   }, [nyan]);
+
+  useEffect(() => {
+    function sync() {
+      document.documentElement.toggleAttribute(
+        "data-inactive",
+        !document.hasFocus(),
+      );
+    }
+    sync();
+    window.addEventListener("focus", sync);
+    window.addEventListener("blur", sync);
+    return () => {
+      window.removeEventListener("focus", sync);
+      window.removeEventListener("blur", sync);
+    };
+  }, []);
 
   useEffect(() => {
     if (!pathname.startsWith("/faq")) resetPlatformView();

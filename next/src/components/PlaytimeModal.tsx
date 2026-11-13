@@ -29,48 +29,58 @@ function Timeline({
   entries: PlaytimeEntry[];
   seasons: Season[];
 }) {
-  const years = [
+  const rows = [
     ...new Set(seasons.map((season) => season.code.split("S")[0])),
-  ];
-  const minutes = new Map<string, number>();
-  for (const entry of entries)
-    minutes.set(entry.code, (minutes.get(entry.code) ?? 0) + entry.minutes);
+  ].map((year) =>
+    seasons
+      .filter((season) => season.code.startsWith(`${year}S`))
+      .map((season) => season.code),
+  );
+  rows.push(
+    seasons
+      .filter((season) => season.hmAvailable)
+      .map((season) => `${season.code} HM`),
+  );
+  const minutes = new Map(
+    entries.map((entry) => [
+      entry.hm ? `${entry.code} HM` : entry.code,
+      entry.minutes,
+    ]),
+  );
   const peak = Math.max(...minutes.values());
 
   return (
     <div className="flex flex-col gap-1">
-      {years.map((year) => (
+      {rows.map((labels) => (
         <div
-          key={year}
+          key={labels[0]}
           className="grid grid-cols-5 gap-0.5 max-content:grid-cols-4"
         >
-          {seasons
-            .filter((season) => season.code.startsWith(`${year}S`))
-            .map((season) => {
-              const played = minutes.get(season.code) ?? 0;
-              return (
-                <div
-                  key={season.key}
-                  style={
-                    played > 0
-                      ? {
-                          backgroundColor: `color-mix(in srgb, var(--color-action) ${15 + (played / peak) * 35}%, var(--color-surface-2))`,
-                        }
-                      : undefined
-                  }
-                  className={`flex h-5 items-center justify-between gap-1 rounded-sm bg-surface-2 px-1.5 font-mono text-label leading-none ${
-                    played > 0 ? "text-text" : "text-text-muted"
-                  }`}
-                >
-                  <span>{season.code}</span>
-                  {played > 0 && (
-                    <span className="whitespace-nowrap max-content:hidden">
-                      {formatPlaytime(played)}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+          {labels.map((label) => {
+            const played = minutes.get(label) ?? 0;
+            return (
+              <div
+                key={label}
+                style={
+                  played > 0
+                    ? {
+                        backgroundColor: `color-mix(in srgb, var(--color-action) ${15 + (played / peak) * 35}%, var(--color-surface-2))`,
+                      }
+                    : undefined
+                }
+                className={`flex h-5 items-center justify-between gap-1 rounded-sm bg-surface-2 px-1.5 font-mono text-label leading-none ${
+                  played > 0 ? "text-text" : "text-text-muted"
+                }`}
+              >
+                <span>{label}</span>
+                {played > 0 && (
+                  <span className="whitespace-nowrap max-content:hidden">
+                    {formatPlaytime(played)}
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
       ))}
     </div>
@@ -90,7 +100,7 @@ export function PlaytimeModal({ onClose }: { onClose: () => void }) {
   const firstPlayed = Math.min(...entries.map((entry) => entry.firstPlayed));
 
   return (
-    <Modal wide title="Play time" onClose={onClose}>
+    <Modal wide onClose={onClose}>
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-4 gap-2 max-content:grid-cols-2">
           <Stat label="All time" value={formatPlaytime(total)} />

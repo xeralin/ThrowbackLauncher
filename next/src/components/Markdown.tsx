@@ -50,7 +50,7 @@ const components: Partial<Components> = {
           : "border-border bg-surface-2"
       }`}
     >
-      {checked && <StrokeIcon d={CHECK} className="size-3 [&]:stroke-[3]" />}
+      {checked && <StrokeIcon d={CHECK} className="size-3 stroke-3" />}
     </span>
   ),
   summary: ({ children }) => (
@@ -86,6 +86,12 @@ export function renderInline(text: string) {
   return renderNodes(parseInline(text));
 }
 
-export function Markdown({ nodes }: { nodes: RootContent[] }) {
-  return <div className={`notes ${stepBox} bg-well`}>{renderNodes(nodes)}</div>;
+export function Markdown({
+  nodes,
+  className = `${stepBox} bg-well`,
+}: {
+  nodes: RootContent[];
+  className?: string;
+}) {
+  return <div className={`notes ${className}`}>{renderNodes(nodes)}</div>;
 }

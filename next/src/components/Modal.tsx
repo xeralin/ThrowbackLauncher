@@ -39,7 +39,7 @@ export function Modal({
   onClose,
   onConfirm,
 }: {
-  title: ReactNode;
+  title?: ReactNode;
   children?: ReactNode;
   footer?: ReactNode;
   aside?: ReactNode;
@@ -121,7 +121,7 @@ export function Modal({
           tabIndex={-1}
           className={`flex min-h-0 max-h-[calc(100dvh-3rem)] ${wide ? wideModalWidth : modalWidth} flex-col ${panel} p-6 outline-none`}
         >
-          <h2 className={`mb-3 shrink-0 ${modalTitle}`}>{title}</h2>
+          {title && <h2 className={`mb-3 shrink-0 ${modalTitle}`}>{title}</h2>}
           {children && (
             <div className="scroll-fade -mx-6 -my-5 max-h-[25.5rem] min-h-0 overflow-y-auto px-6 py-5">
               {children}

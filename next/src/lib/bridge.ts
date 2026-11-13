@@ -20,7 +20,6 @@ export type Season = {
   hm: boolean;
   code: string;
   name: string;
-  label: string;
   sizeGb: number;
   build: string;
   hmAvailable: boolean;
@@ -251,7 +250,6 @@ export type SettingsObject = {
   bar_nyan_changed: QtSignal;
   accent_changed: QtSignal;
   settings_error: QtSignal;
-  logged_out: QtSignal;
   cache_cleared: QtSignal;
   prefix_removed: QtSignal;
   libraries_changed: QtSignal;
@@ -346,12 +344,17 @@ type LiberatorObject = {
   restore(): void;
 };
 
-export type UpdateComponent = {
-  name: string;
-  target: string;
+type ReleaseNotes = {
   body: string;
   repository: string;
+  url: string;
+  date: string;
 };
+
+export type UpdateComponent = ReleaseNotes & { name: string; target: string };
+
+export type Release = ReleaseNotes & { version: string };
+export type ComponentHistory = { name: string; releases: Release[] };
 
 type UpdateSnapshot = {
   busy: boolean;
@@ -364,11 +367,16 @@ type UpdateSnapshot = {
   selfUpdatable: boolean;
 };
 
-export type InstalledComponent = { name: string; version: string };
+export type InstalledComponent = {
+  name: string;
+  version: string;
+  repository: string;
+};
 
 type UpdateObject = {
   snapshot(callback: (snapshot: UpdateSnapshot) => void): void;
   installed(callback: (components: InstalledComponent[]) => void): void;
+  history(): void;
   check(force: boolean): void;
   apply(name: string): void;
 };
@@ -376,7 +384,6 @@ type UpdateObject = {
 type RvpnSnapshot = {
   state: string;
   installed: boolean;
-  hasInstaller: boolean;
   step: string;
   version: string;
 };
@@ -647,30 +654,27 @@ export function useProtons(): [ProtonOption[] | null, () => void] {
 function useBridgeHandle<K extends keyof Bridge>(
   name: K,
   hooks: {
-    init?: (obj: Bridge[K], alive: () => boolean) => void;
-    onEvent: (event: string, args: unknown[], alive: () => boolean) => void;
+    init?: (obj: Bridge[K]) => void;
+    onEvent: (event: string, args: unknown[]) => void;
   },
 ): [RefObject<Bridge[K] | null>, boolean] {
   const [ready, setReady] = useState(false);
   const objRef = useRef<Bridge[K] | null>(null);
-  const init = useEffectEvent((obj: Bridge[K], alive: () => boolean) =>
-    hooks.init?.(obj, alive),
-  );
+  const init = useEffectEvent((obj: Bridge[K]) => hooks.init?.(obj));
   const onEvent = useEffectEvent(hooks.onEvent);
 
   useEffect(() => {
     let mounted = true;
-    const alive = () => mounted;
 
     onBridgeReady((bridge) => {
       if (!mounted) return;
       objRef.current = bridge[name];
       setReady(bridge[name] != null);
-      init(bridge[name], alive);
+      init(bridge[name]);
     });
 
     const offEvent = onBridgeEvent(name, (event, args) => {
-      onEvent(event, args, alive);
+      onEvent(event, args);
     });
     return () => {
       mounted = false;
@@ -717,10 +721,10 @@ let lastProgress: DownloadProgress = { progress: 0, step: 0, steps: 0 };
 export function useDownloadProgress(): DownloadProgress {
   const [progress, setProgress] = useState<DownloadProgress>(lastProgress);
   useBridgeHandle("downloader", {
-    init: (obj, alive) =>
+    init: (obj) =>
       obj.snapshot(({ progress, step, steps }) => {
         lastProgress = { progress, step, steps };
-        if (alive()) setProgress(lastProgress);
+        setProgress(lastProgress);
       }),
     onEvent: (event, args) => {
       if (event === "progress") {
@@ -752,10 +756,7 @@ export function useDownloader(events?: DownloaderEvents): Downloader {
     downloaderSnap = snap;
   }, [snap]);
   const [objRef, ready] = useBridgeHandle("downloader", {
-    init: (obj, alive) =>
-      obj.snapshot((snapshot) => {
-        if (alive()) setSnap(snapshot);
-      }),
+    init: (obj) => obj.snapshot(setSnap),
     onEvent: (event, args) => {
       const value = args[0];
       switch (event) {
@@ -856,12 +857,12 @@ export function useLiberator(): Liberator {
   const gotState = useRef(false);
   const gotTree = useRef(false);
   const [objRef, ready] = useBridgeHandle("liberator", {
-    init: (obj, alive) => {
+    init: (obj) => {
       obj.snapshot((snapshot) => {
-        if (alive() && !gotState.current) setState(snapshot);
+        if (!gotState.current) setState(snapshot);
       });
       obj.tree_snapshot((tree) => {
-        if (alive() && !gotTree.current) setTree(tree);
+        if (!gotTree.current) setTree(tree);
       });
     },
     onEvent: (event, args) => {
@@ -910,13 +911,9 @@ export function useLaunch(): Launch {
   const [running, setRunning] = useState<EditionRef[]>([]);
   const [launching, setLaunching] = useState<EditionRef | null>(null);
   const [objRef, ready] = useBridgeHandle("launch", {
-    init: (obj, alive) => {
-      obj.running((refs) => {
-        if (alive()) setRunning(refs);
-      });
-      obj.launching((ref) => {
-        if (alive()) setLaunching(ref);
-      });
+    init: (obj) => {
+      obj.running(setRunning);
+      obj.launching(setLaunching);
     },
     onEvent: (event, args) => {
       if (event === "running") setRunning(args[0] as EditionRef[]);
@@ -1068,19 +1065,15 @@ const UPDATE_DEFAULT: UpdateSnapshot = {
 export function useUpdate(): Update {
   const [snap, setSnap] = useState<UpdateSnapshot>(UPDATE_DEFAULT);
   const [objRef, ready] = useBridgeHandle("update", {
-    init: (obj, alive) => {
-      obj.snapshot((snapshot) => {
-        if (alive()) setSnap(snapshot);
-      });
+    init: (obj) => {
+      obj.snapshot(setSnap);
       obj.check(false);
     },
-    onEvent: (event, args, alive) => {
+    onEvent: (event, args) => {
       if (event === "progress") {
         setSnap((prev) => ({ ...prev, progress: args[0] as number }));
       } else if (event === "changed") {
-        objRef.current?.snapshot((snapshot) => {
-          if (alive()) setSnap(snapshot);
-        });
+        setSnap(args[0] as UpdateSnapshot);
       }
     },
   });
@@ -1103,25 +1096,29 @@ export function useUpdate(): Update {
 
 export function useUpdateBusy(): boolean {
   const [busy, setBusy] = useState(false);
-  const [objRef] = useBridgeHandle("update", {
-    init: (obj, alive) =>
-      obj.snapshot((snapshot) => {
-        if (alive()) setBusy(snapshot.busy);
-      }),
-    onEvent: (event, _args, alive) => {
-      if (event === "changed")
-        objRef.current?.snapshot((snapshot) => {
-          if (alive()) setBusy(snapshot.busy);
-        });
+  useBridgeHandle("update", {
+    init: (obj) => obj.snapshot((snapshot) => setBusy(snapshot.busy)),
+    onEvent: (event, args) => {
+      if (event === "changed") setBusy((args[0] as UpdateSnapshot).busy);
     },
   });
   return busy;
 }
 
+export function useReleaseHistory(): ComponentHistory[] {
+  const [history, setHistory] = useState<ComponentHistory[]>([]);
+  useBridgeHandle("update", {
+    init: (obj) => obj.history(),
+    onEvent: (event, args) => {
+      if (event === "history") setHistory(args[0] as ComponentHistory[]);
+    },
+  });
+  return history;
+}
+
 const RVPN_DEFAULT: RvpnSnapshot = {
   state: "idle",
   installed: false,
-  hasInstaller: false,
   step: "",
   version: "",
 };
@@ -1139,9 +1136,8 @@ export function useRvpn(): Rvpn {
   const [hydrated, setHydrated] = useState(false);
   const gotEvent = useRef(false);
   const [objRef] = useBridgeHandle("rvpn", {
-    init: (obj, alive) => {
+    init: (obj) => {
       obj?.snapshot((snapshot) => {
-        if (!alive()) return;
         if (!gotEvent.current) setSnap(snapshot);
         setHydrated(true);
       });

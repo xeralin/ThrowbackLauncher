@@ -23,13 +23,15 @@ _RESTART_DELAY_MS = 800
 
 
 class UpdateController(QObject):
-    changed = Signal()
+    changed = Signal("QVariantMap")
     progress = Signal(int)
     done = Signal(bool, str, str)
     error = Signal(str)
+    history_done = Signal("QVariantList")
     _check_done_in = Signal(object, str, str)
     _apply_done_in = Signal(bool, str, str, bool)
     _progress_in = Signal(float)
+    _history_done_in = Signal("QVariantList")
 
     def __init__(self) -> None:
         super().__init__()
@@ -41,11 +43,12 @@ class UpdateController(QObject):
         self._applying = ""
         outcome = take_outcome()
         if outcome is not None:
-            message = "" if outcome else f"{APP_NAME} update failed, previous version kept"
+            message = "" if outcome else f"{APP_NAME} update failed"
             QTimer.singleShot(0, lambda: self.done.emit(outcome, APP_NAME, message))
         self._check_done_in.connect(self._on_check_done)
         self._apply_done_in.connect(self._on_apply_done)
         self._progress_in.connect(self._emit_progress)
+        self._history_done_in.connect(self.history_done)
 
     def set_peers(
         self, settings_bridge: QObject, downloader: QObject, uninstaller: QObject
@@ -83,17 +86,38 @@ class UpdateController(QObject):
     @Slot(result="QVariantList")
     def installed(self) -> list:
         return [
-            {"name": c.name, "version": version}
+            {
+                "name": c.name,
+                "version": version,
+                "repository": update_backend.repository(c.release_url),
+            }
             for c in update_backend.COMPONENTS
             if (version := c.current())
         ]
+
+    @Slot()
+    def history(self) -> None:
+        threading.Thread(target=self._history_work, daemon=True).start()
+
+    def _history_work(self) -> None:
+        self._history_done_in.emit(
+            [
+                {
+                    "name": name,
+                    "releases": [
+                        {"version": version, **asdict(notes)} for version, notes in releases
+                    ],
+                }
+                for name, releases in update_backend.history()
+            ]
+        )
 
     @Slot(bool)
     def check(self, force: bool) -> None:
         if self.busy or self._checking:
             return
         self._checking = True
-        self.changed.emit()
+        self.changed.emit(self.snapshot())
         threading.Thread(target=self._check_work, args=(force,), daemon=True).start()
 
     def _check_work(self, force: bool = False) -> None:
@@ -110,7 +134,7 @@ class UpdateController(QObject):
         self._check_error = error
         self._check_detail = detail
         self._checking = False
-        self.changed.emit()
+        self.changed.emit(self.snapshot())
 
     @Slot(str)
     def apply(self, name: str) -> None:
@@ -129,14 +153,15 @@ class UpdateController(QObject):
         self._applying = name
         self._progress = 0
         self.progress.emit(0)
-        self.changed.emit()
+        self.changed.emit(self.snapshot())
         threading.Thread(target=self._apply_work, args=(component,), daemon=True).start()
 
     def _apply_work(self, component: update_backend.Component) -> None:
         ok = False
         message = ""
         try:
-            ok = component.apply(Reporter(progress=self._progress_in.emit))
+            component.apply(Reporter(progress=self._progress_in.emit))
+            ok = True
         except RateLimitError as e:
             message = e.message()
         except OSError as e:
@@ -153,7 +178,7 @@ class UpdateController(QObject):
             self._pending = [p for p in self._pending if p[0].name != name]
         self._checking = True
         self._applying = ""
-        self.changed.emit()
+        self.changed.emit(self.snapshot())
         self.done.emit(ok, name, message)
         threading.Thread(target=self._check_work, daemon=True).start()
 

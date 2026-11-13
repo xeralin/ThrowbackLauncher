@@ -20,7 +20,6 @@ def _season_entry(download: dict, hm: bool) -> dict:
         "hm": hm,
         "code": code,
         "name": name or label,
-        "label": label,
         "sizeGb": download["size_gb"],
         "build": download["build"],
         "hmAvailable": "hm_version" in download,

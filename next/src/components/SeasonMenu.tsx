@@ -10,6 +10,7 @@ import {
 import { createPortal } from "react-dom";
 import { iconButton } from "@/components/Button";
 import {
+  CLOCK,
   COPY,
   FolderIcon,
   PROTON,
@@ -54,6 +55,7 @@ export function SeasonMenu({
     loaded,
     checkingHm,
     hmActive,
+    anyPlaytime,
     editionInstall,
     playingSeason,
     downloadingSeason,
@@ -69,6 +71,12 @@ export function SeasonMenu({
     openFolder,
     modals,
   } = useSeasonManage(season, season.hm);
+  const playtimeTool: MenuTool = {
+    label: "Play time",
+    icon: <StrokeIcon d={CLOCK} />,
+    disabled: !anyPlaytime,
+    onSelect: () => setModal({ kind: "playtime" }),
+  };
 
   const tools: MenuTool[] = [];
   if (transferring) {
@@ -92,6 +100,7 @@ export function SeasonMenu({
             disabled: playingSeason,
             onSelect: verify,
           },
+      playtimeTool,
       {
         label: "Copy crash log",
         icon: <StrokeIcon d={COPY} />,
@@ -115,12 +124,15 @@ export function SeasonMenu({
       },
     );
   } else if (editionInstall.partial && !queuedEdition) {
-    tools.push({
-      label: "Remove",
-      icon: <RemoveIcon />,
-      disabled: playingSeason,
-      onSelect: () => setModal({ kind: "removeDownload" }),
-    });
+    tools.push(
+      {
+        label: "Remove",
+        icon: <RemoveIcon />,
+        disabled: playingSeason,
+        onSelect: () => setModal({ kind: "removeDownload" }),
+      },
+      playtimeTool,
+    );
   }
   const shownTools = tools.filter((tool) => !tool.hidden);
 

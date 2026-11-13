@@ -159,11 +159,10 @@ function resetToList() {
 }
 
 type CardAction = {
-  kind:
-    "pause" | "continue" | "dequeue" | "verify" | "cancel" | "play" | "stop";
   label: string;
   primary: boolean;
   disabled?: boolean;
+  run: () => void;
 };
 
 const DashCard = memo(function DashCard({
@@ -386,7 +385,7 @@ const DashCard = memo(function DashCard({
         >
           <StrokeIcon
             d="M3.75 20.25H9A11.25 11.25 0 0 0 20.25 9V3.75"
-            className="size-full [&]:stroke-[7.5]"
+            className="size-full stroke-[7.5]"
           />
         </span>
       )}
@@ -665,41 +664,50 @@ export function SeasonBrowser({
   }, [seasons, selected, open, setEdition]);
 
   function cardAction(season: Season): CardAction | null {
-    const activeEdition = editionActive(dl, season.key, season.hm);
+    const { key, hm } = season;
+    const activeEdition = editionActive(dl, key, hm);
+    const cancel = { label: "Cancel", primary: false, run: dl.cancel };
     if (season.partial) {
       if (dl.running && activeEdition) {
-        return dl.state === "downloading"
-          ? { kind: "pause", label: "Pause", primary: false }
-          : null;
+        if (dl.state !== "downloading") return null;
+        return dl.verifying
+          ? cancel
+          : { label: "Pause", primary: false, run: () => dl.setPaused(true) };
       }
       if (activeEdition && dl.state === "paused") {
-        return { kind: "continue", label: "Continue", primary: false };
-      }
-      if (editionQueued(dl, season.key, season.hm)) {
         return {
-          kind: "dequeue",
-          label: "Remove from queue",
+          label: "Continue",
           primary: false,
+          run: () => dl.setPaused(false),
         };
       }
-      return { kind: "verify", label: "Verify", primary: false };
+      if (editionQueued(dl, key, hm)) {
+        return {
+          label: "Remove from queue",
+          primary: false,
+          run: () => dl.dequeue(key, hm),
+        };
+      }
+      return {
+        label: "Verify",
+        primary: false,
+        disabled:
+          lc.running.some((ref) => ref.key === key) ||
+          lc.launching?.key === key,
+        run: () => dl.enqueue(key, hm, ""),
+      };
     }
     if (dl.running && activeEdition) {
-      return dl.state === "downloading"
-        ? { kind: "cancel", label: "Cancel", primary: false }
-        : null;
+      return dl.state === "downloading" ? cancel : null;
     }
-    if (
-      editionRunning(lc, season.key, season.hm) ||
-      editionLaunching(lc, season.key, season.hm)
-    ) {
-      return { kind: "stop", label: "Stop", primary: true };
+    if (editionRunning(lc, key, hm) || editionLaunching(lc, key, hm)) {
+      return { label: "Stop", primary: true, run: () => lc.stop(key) };
     }
     return {
-      kind: "play",
       label: "Play",
       primary: true,
-      disabled: updateBusy || (dl.running && dl.activeKey === season.key),
+      disabled: updateBusy || (dl.running && dl.activeKey === key),
+      run: () => lc.launch(key, hm),
     };
   }
 
@@ -752,7 +760,11 @@ export function SeasonBrowser({
     () =>
       seasons && trimmed
         ? seasons.filter((season) =>
-            [season.label, season.hmAvailable ? "heated metal hm" : ""]
+            [
+              season.code,
+              season.name,
+              season.hmAvailable ? "heated metal hm" : "",
+            ]
               .join(" ")
               .toLowerCase()
               .includes(trimmed),
@@ -788,8 +800,6 @@ export function SeasonBrowser({
     draftOrder,
     effectiveOrder,
     cardAction,
-    dl,
-    lc,
   });
   useLayoutEffect(() => {
     latest.current = {
@@ -797,38 +807,11 @@ export function SeasonBrowser({
       draftOrder,
       effectiveOrder,
       cardAction,
-      dl,
-      lc,
     };
   });
 
   const runAction = useCallback((season: Season) => {
-    const { cardAction, dl, lc } = latest.current;
-    const action = cardAction(season);
-    if (!action) return;
-    switch (action.kind) {
-      case "pause":
-        dl.setPaused(true);
-        break;
-      case "continue":
-        dl.setPaused(false);
-        break;
-      case "dequeue":
-        dl.dequeue(season.key, season.hm);
-        break;
-      case "verify":
-        dl.enqueue(season.key, season.hm, "");
-        break;
-      case "cancel":
-        dl.cancel();
-        break;
-      case "play":
-        lc.launch(season.key, season.hm);
-        break;
-      case "stop":
-        lc.stop(season.key);
-        break;
-    }
+    latest.current.cardAction(season)?.run();
   }, []);
 
   const moveDragged = useCallback((overId: string) => {
@@ -996,6 +979,15 @@ export function SeasonBrowser({
           hm={selected.hm}
           onHmChange={setEdition}
           onBack={back}
+          onUninstalled={(otherInstalled) => {
+            const { key } = selected.season;
+            if (
+              layout === "dashboard" &&
+              !otherInstalled &&
+              seasons?.some((season) => season.key !== key)
+            )
+              back();
+          }}
         />
       ) : (
         <>
