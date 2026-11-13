@@ -59,7 +59,7 @@ class BrowserView(QWebEngineView):
         page.scripts().insert(_platform_script())
         page.newWindowRequested.connect(lambda request: _open_external(request.requestedUrl()))
 
-        channel = QWebChannel(page)
+        channel = QWebChannel(page, propertyUpdateInterval=0)
         for name, obj in objects.items():
             obj.setParent(self)
             channel.registerObject(name, obj)

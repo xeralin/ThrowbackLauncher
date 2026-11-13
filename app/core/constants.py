@@ -1,6 +1,5 @@
 import hashlib
 import os
-import platform
 import re
 import sys
 from pathlib import Path
@@ -57,7 +56,7 @@ DEFAULT_DOWNLOADS_DIR = DATA_ROOT / "downloads"
 
 
 _OS = "windows" if IS_WINDOWS else "linux"
-_ARCH = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "x64"
+_ARCH = "arm64" if not IS_WINDOWS and os.uname().machine in ("arm64", "aarch64") else "x64"
 
 TL_DIR = BIN_DIR / "tl"
 DD_MEMBER = "DepotDownloader.exe" if IS_WINDOWS else "DepotDownloader"
@@ -145,7 +144,7 @@ GIB = 2**30
 BUSY_MESSAGE = "A download is running for this season"
 DOWNLOAD_RUNNING = "A download is running"
 UPDATE_RUNNING = "An update is running"
-UNINSTALL_RUNNING = "Uninstall is running"
+UNINSTALL_RUNNING = "An uninstall is running"
 TRANSFER_RUNNING = "A download or update is running"
 CACHE_CLEARING = "The cache is being cleared"
 REMOVING_FILES = "Files are still being removed"
