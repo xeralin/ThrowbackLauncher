@@ -341,7 +341,8 @@ class Installer(QThread):
             raise CancelledError
 
     def run(self) -> None:
-        archive = Path(tempfile.gettempdir()) / RUNTIME_ASSET
+        root = self.root
+        archive = root / RUNTIME_ASSET
         last_pct = -1
 
         def on_progress(fraction: float) -> None:
@@ -352,13 +353,16 @@ class Installer(QThread):
                 self.progress.emit(pct)
 
         try:
-            self.root.mkdir(parents=True, exist_ok=True)
-            url = self.url or _latest_release()[1]
-            self.message.emit("Downloading")
-            fetch_to(url, archive, on_progress=on_progress, cancelled=lambda: self._cancel)
-            self._check()
-            root = self.root
-            self._extract(archive, root)
+            root.mkdir(parents=True, exist_ok=True)
+            try:
+                url = self.url or _latest_release()[1]
+                self.message.emit("Downloading")
+                fetch_to(url, archive, on_progress=on_progress, cancelled=lambda: self._cancel)
+                self._check()
+                self._extract(archive, root)
+            finally:
+                with contextlib.suppress(OSError):
+                    archive.unlink()
             if (lnk := start_menu_shortcut()) is not None:
                 with contextlib.suppress(OSError):
                     _write_shortcut(lnk, root)
@@ -368,9 +372,9 @@ class Installer(QThread):
             _register_uninstall(root)
             self.done.emit()
         except Exception as e:
-            shutil.rmtree(self.root / PENDING_SUBDIR, ignore_errors=True)
+            shutil.rmtree(root / PENDING_SUBDIR, ignore_errors=True)
             with contextlib.suppress(OSError):
-                self.root.rmdir()
+                root.rmdir()
             if not self._cancel:
                 message = (
                     e.message()
@@ -378,9 +382,6 @@ class Installer(QThread):
                     else f"{type(e).__name__}: {e}"[:ERROR_TEXT_MAX]
                 )
                 self.failed.emit(message)
-        finally:
-            with contextlib.suppress(OSError):
-                archive.unlink()
 
     def _extract(self, archive: Path, root: Path) -> None:
         app = root / APP_SUBDIR
@@ -734,6 +735,7 @@ class InstallerWindow(QWidget):
         self._installer.desktop = self._desktop.isChecked()
         self._message_text.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self._on_message("Preparing")
+        self._close.setText("Cancel")
         self._installer.start()
 
     def _on_done(self) -> None:
