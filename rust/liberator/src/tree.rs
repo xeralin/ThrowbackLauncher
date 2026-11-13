@@ -23,6 +23,11 @@ pub fn branch(text: &str, children: Vec<TNode>) -> TNode {
     }
 }
 
+pub fn map_branch(text: &str, mut maps: Vec<TNode>) -> TNode {
+    sort_by_name(&mut maps);
+    branch(text, maps)
+}
+
 pub fn get_path_mut<'a>(node: &'a mut TNode, path: &[usize]) -> Option<&'a mut TNode> {
     let mut cur = node;
     for &i in path {
@@ -175,7 +180,7 @@ pub fn tree_event(roots: &mut [TNode]) -> String {
     format!("{{\"event\":\"tree\",\"tree\":[{}]}}", tn_list(roots))
 }
 
-fn sort_gametypes_by_name(nodes: &mut [TNode]) {
+pub fn sort_by_name(nodes: &mut [TNode]) {
     nodes.sort_by(|a, b| a.text.cmp(&b.text));
 }
 
@@ -233,8 +238,9 @@ pub fn label_multiplayer(node: &mut TNode, season: i32) {
             )
         });
         trim_season_maps(&mut gametype.children, season);
+        sort_by_name(&mut gametype.children);
     }
-    sort_gametypes_by_name(&mut node.children);
+    sort_by_name(&mut node.children);
 }
 
 pub fn label_terrorist_hunt(node: &mut TNode, season: i32) {
@@ -251,7 +257,7 @@ pub fn label_terrorist_hunt(node: &mut TNode, season: i32) {
             for mode in &mut map.children {
                 label_gametypes(mode);
             }
-            sort_gametypes_by_name(&mut map.children);
+            sort_by_name(&mut map.children);
         }
         trim_season_maps(&mut difficulty.children, season);
         if season == 10 {
@@ -261,6 +267,7 @@ pub fn label_terrorist_hunt(node: &mut TNode, season: i32) {
             set_text(difficulty, &[18], "Hereford Base - Rework");
             set_text(difficulty, &[17], "Villa");
         }
+        sort_by_name(&mut difficulty.children);
     }
 }
 
@@ -321,6 +328,7 @@ pub fn label_gym(node: &mut TNode, season: i32) {
             for map in &mut child.children {
                 map.text = map_display(&map.text);
             }
+            sort_by_name(&mut child.children);
         } else {
             child.text = map_display(&child.text);
         }
@@ -333,6 +341,8 @@ pub fn label_gym(node: &mut TNode, season: i32) {
         rm(node, &[], 0);
     }
     relabel_lighting(node);
+    let lighting = if season >= SEASON_Y2S3 { 0 } else { 2 };
+    sort_by_name(node.children.get_mut(lighting..).unwrap_or_default());
 }
 
 pub fn label_video_review(node: &mut TNode) {
@@ -342,6 +352,7 @@ pub fn label_video_review(node: &mut TNode) {
         for map in &mut child.children {
             map.text = map_display(&map.text);
         }
+        sort_by_name(&mut child.children);
     }
 }
 

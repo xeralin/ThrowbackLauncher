@@ -3571,8 +3571,8 @@ fn y9s4_enc_handle_uid(uid: u64) -> u64 {
     match (image_key() ^ 0xE7CDD0584E71162C_u64.wrapping_sub(peb_key())) % 6 {
         0 => shuffle_bytes(uid, PI).rotate_right(52).wrapping_sub(KEY),
         1 => shuffle_bytes(uid.rotate_right(52), PI).wrapping_sub(KEY),
-        2 => shuffle_bytes(uid, PI).wrapping_sub(KEY).rotate_right(52),
-        3 => shuffle_bytes(uid.wrapping_sub(KEY), PI).rotate_right(52),
+        2 => shuffle_bytes(uid.wrapping_sub(KEY), PI).rotate_right(52),
+        3 => shuffle_bytes(uid, PI).wrapping_sub(KEY).rotate_right(52),
         4 => shuffle_bytes(uid.rotate_right(52).wrapping_sub(KEY), PI),
         _ => shuffle_bytes(uid.wrapping_sub(KEY).rotate_right(52), PI),
     }
@@ -4026,6 +4026,7 @@ static EVENT_FORGES: &[(u64, &str)] = &[
     (0xB3555E074, "evn03_doktorscurse_events"),
     (0x3E005881AF, "evn04_gangdestruction_events"),
     (0x3EE107746E, "evn05_stadium2_events"),
+    (0x3EE107746E, "pvp27_stadium2021"),
     (0x40DC810C48, "evn06_morpheus_events"),
     (0x40DC810C48, "evn06_muteprotocol_events"),
     (0x431BA741C3, "evn07_telly_events"),
@@ -6385,13 +6386,13 @@ fn build_profile_tree_json(game: &GameProfile, installed: impl Fn(u64) -> bool) 
         .iter()
         .enumerate()
         .map(|(m, &(name, mode))| match game.tdm_maps {
-            tdm if mode == WARMUP_MODE && !tdm.is_empty() => branch(
+            tdm if mode == WARMUP_MODE && !tdm.is_empty() => map_branch(
                 "Team Deathmatch",
                 tdm.iter()
                     .map(|&map| leaf(game.maps[map].0, format!("{tag}:mp:{m}:{map}")))
                     .collect(),
             ),
-            _ => branch(name, maps(format!("{tag}:mp:{m}"), mode == WARMUP_MODE)),
+            _ => map_branch(name, maps(format!("{tag}:mp:{m}"), mode == WARMUP_MODE)),
         })
         .collect();
     let tdm = multiplayer.pop().unwrap_or_default();
@@ -6408,7 +6409,7 @@ fn build_profile_tree_json(game: &GameProfile, installed: impl Fn(u64) -> bool) 
                 .filter(|&&map| installed(game.maps[map].1))
                 .map(|&map| leaf(game.maps[map].0, format!("{tag}:arc:{a}:{map}")))
                 .collect();
-            branch(name, leaves)
+            map_branch(name, leaves)
         })
         .collect();
     multiplayer.push(branch("Arcade", modes));
@@ -6430,7 +6431,7 @@ fn build_profile_tree_json(game: &GameProfile, installed: impl Fn(u64) -> bool) 
                     branch(game.maps[map].0, levels)
                 })
                 .collect();
-            branch(name, maps)
+            map_branch(name, maps)
         })
         .collect();
     let mut events: Vec<TNode> = Vec::new();
@@ -6452,12 +6453,13 @@ fn build_profile_tree_json(game: &GameProfile, installed: impl Fn(u64) -> bool) 
         if node.children.len() == 1 {
             node.id = node.children.remove(0).id;
         }
+        sort_by_name(&mut node.children);
     }
     let mut roots = vec![branch("Multiplayer", multiplayer)];
     if !game.thunt_maps.is_empty() {
         roots.push(branch("Terrorist Hunt", hunt));
     }
-    roots.push(branch("Development", gym));
+    roots.push(map_branch("Development", gym));
     if !events.is_empty() {
         roots.push(branch("Events", events));
     }

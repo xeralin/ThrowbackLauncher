@@ -175,7 +175,7 @@ class LiberatorController(QObject):
             self._sock = sock
             threading.Thread(target=self._reader, args=(sock,), daemon=True).start()
         except Exception as e:
-            self._error_in.emit(log.fail("Attach failed", e))
+            self._error_in.emit(log.fail("Liberator loading failed", e))
             self._kill_in.emit(None)
         finally:
             if listener is not None:
