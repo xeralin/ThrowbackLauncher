@@ -53,7 +53,7 @@ export function SteamLoginModal() {
 
   const dl = useDownloader({
     onLogin: setOverride,
-    onDone: () => setOverride(null),
+    onDone: reset,
   });
 
   const loginKind = override === undefined ? dl.loginKind || null : override;
@@ -119,7 +119,7 @@ export function SteamLoginModal() {
     >
       {isMobile ? (
         <p className="text-body text-text-muted">
-          Confirm the login with the Steam Mobile App
+          Confirm the login with the Steam Mobile App.
         </p>
       ) : loginKind === "account" ? (
         <>

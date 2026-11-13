@@ -191,7 +191,7 @@ class DownloadController(QObject):
         self._picking = False
         self._hm_resume: Callable[[], None] | None = None
         self._rate_limit_hit = False
-        self._switching = ""
+        self._outcome = ""
         self._paused = bool(get_setting(settings, "queue_paused", False))
         known = {d["key"] for d in downloads}
         self._queue: list[QueueEntry] = [
@@ -271,9 +271,9 @@ class DownloadController(QObject):
         updater.changed.connect(self._start_next)
         settings_bridge.steam_account_changed.connect(self._start_next)
         settings_bridge.cache_cleared.connect(self._start_next)
-        uninstaller.done.connect(lambda *_: self._start_next())
-        shears.cut_done.connect(lambda *_: self._start_next())
-        launch.running_changed.connect(lambda *_: self._start_next())
+        uninstaller.done.connect(self._start_next)
+        shears.cut_done.connect(self._start_next)
+        launch.running_changed.connect(self._start_next)
         QTimer.singleShot(0, self._start_next)
 
     def _peer_blocker(self, season_key: str) -> str | None:
@@ -545,7 +545,7 @@ class DownloadController(QObject):
                 for path in targets:
                     shutil.rmtree(path)
             except OSError as e:
-                self._deleted_in.emit(season_key, hm, False, log.fail("Remove failed", e))
+                self._deleted_in.emit(season_key, hm, False, log.fail("File removal failed", e))
             else:
                 self._deleted_in.emit(season_key, hm, True, "")
 
@@ -682,7 +682,7 @@ class DownloadController(QObject):
         self._clear_paused_flag(save=False)
         self._generation += 1
         self._download = download
-        self._switching = ""
+        self._outcome = ""
         self._set_active_hm(enable_hm)
         self._set_verifying(verify)
         self._target = target
@@ -714,11 +714,11 @@ class DownloadController(QObject):
 
     def _prepare(self, generation: int, enable_hm: bool, pre: Callable[[], None] | None) -> None:
         try:
-            if pre is not None:
-                pre()
             ensure_depotdownloader()
             if not enable_hm:
                 ensure_tl()
+            if pre is not None:
+                pre()
         except RateLimitError as e:
             self._rate_limited_in.emit(e.message())
             self._prepare_done_in.emit(generation, str(e))
@@ -841,6 +841,7 @@ class DownloadController(QObject):
         account = account.strip()
         if not NAME_PATTERN.match(account):
             self.error.emit("Invalid Steam account")
+            self.login_required.emit("account")
             return
         self._login_kind = ""
         self._settings_bridge.set_steam_account(account)
@@ -1007,7 +1008,7 @@ class DownloadController(QObject):
             self.error.emit("Heated Metal is not available for this season")
             return
         if installed_path(season_key, True) is not None:
-            self.error.emit("Heated Metal is already installed")
+            self.error.emit("Already installed as Heated Metal")
             return
         if partial_path(season_key, True) is not None:
             self.error.emit(PARTIAL_EXISTS)
@@ -1020,7 +1021,7 @@ class DownloadController(QObject):
         self.dequeue(season_key, True)
         target = folder.parent / edition_folder(season_key, True)
         self._begin_run(download, season_key, target, True, False, "applying")
-        self._switching = "hm"
+        self._outcome = "switched_hm"
 
         def move_to_hm() -> None:
             folder.rename(target)
@@ -1060,7 +1061,7 @@ class DownloadController(QObject):
                 raise OSError(log.fail("Switch failed", e)) from e
 
         self._start_run(download, season_key, target, False, verify=True, pre=pre)
-        self._switching = "tb"
+        self._outcome = "switched_tb"
 
     @deferred_slot(str)
     def restore_hm(self, season_key: str) -> None:
@@ -1083,6 +1084,8 @@ class DownloadController(QObject):
         if not self._ensure_hm_archive(download, lambda: self._restore_hm(season_key, verify)):
             return
         self._begin_run(download, season_key, target, True, verify, "applying")
+        if not verify:
+            self._outcome = "updated"
         self._start_apply()
 
     @deferred_slot(str)
@@ -1094,7 +1097,6 @@ class DownloadController(QObject):
             return
         download = self._find_download(season_key)
         if download is None or download.get("hm_version") != HM_UNSTABLE:
-            self.error.emit("Heated Metal beta is not available for this season")
             return
         if is_season_running(season_key):
             self.error.emit(SEASON_RUNNING)
@@ -1175,13 +1177,7 @@ class DownloadController(QObject):
             )
             self._set_state("failed")
         else:
-            outcome = (
-                f"switched_{self._switching}"
-                if self._switching
-                else "verified"
-                if verifying
-                else "done"
-            )
+            outcome = self._outcome or ("verified" if verifying else "done")
             if self._paused and self._enter_paused_from_queue():
                 self._set_state("paused")
                 self.queue_changed.emit(self.queued_items())
