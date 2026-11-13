@@ -68,7 +68,4 @@ def migrate(settings: dict) -> None:
             set_setting(settings, name, renamed)
             changed = True
     if changed:
-        try:
-            save_settings(settings)
-        except OSError as e:
-            log.fail("Settings save failed", e)
+        save_settings(settings)

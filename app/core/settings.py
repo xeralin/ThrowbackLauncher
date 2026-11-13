@@ -19,8 +19,7 @@ def load_settings() -> dict:
     except FileNotFoundError:
         return {}
     except OSError as e:
-        warning = log.fail("Settings read failed", e)
-        return {}
+        raise RuntimeError(log.fail("Settings read failed", e)) from e
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
         log.fail("Settings were malformed", e)
         broken = SETTINGS_FILE.with_name(SETTINGS_FILE.name + ".broken")
@@ -74,7 +73,10 @@ def write_atomic(path: Path, text: str) -> None:
 
 
 def save_settings(settings: dict) -> None:
-    write_atomic(SETTINGS_FILE, toml_section(["settings"], settings.get("settings", {})) + "\n")
+    try:
+        write_atomic(SETTINGS_FILE, toml_section(["settings"], settings.get("settings", {})) + "\n")
+    except OSError as e:
+        log.fail("Settings save failed", e)
 
 
 def get_setting[T](settings: dict, key: str, default: T) -> T:

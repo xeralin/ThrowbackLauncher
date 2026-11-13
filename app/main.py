@@ -1,4 +1,5 @@
 import contextlib
+import ctypes
 import os
 import sys
 import threading
@@ -99,7 +100,13 @@ FORWARDS = {
         "launching_changed": "launching",
         "files_missing": "files_missing",
     },
-    "update": {"changed": "changed", "progress": "progress", "done": "done", "error": "error"},
+    "update": {
+        "changed": "changed",
+        "progress": "progress",
+        "done": "done",
+        "error": "error",
+        "history_done": "history",
+    },
     "uninstall": {"done": "done"},
     "shears": {"scan_done": "scan", "cut_done": "cut"},
     "cheatengine": {"done": "done", "error": "error"},
@@ -144,6 +151,8 @@ def main() -> int:
     lock = QLockFile(str(DATA_ROOT / ".lock"))
     lock.setStaleLockTime(0)
     if not lock.tryLock(30_000 if RELAUNCH_ARG in sys.argv else 0):
+        if IS_WINDOWS:
+            ctypes.windll.user32.AllowSetForegroundWindow(-1)
         peer = QLocalSocket()
         peer.connectToServer(INSTANCE_KEY)
         peer.waitForConnected(300)
@@ -152,14 +161,14 @@ def main() -> int:
 
     with contextlib.suppress(OSError):
         DEFAULT_DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    settings = load_settings()
-    set_libraries(get_setting(settings, "libraries", []))
-    migrate(settings)
     try:
+        settings = load_settings()
         downloads = load_downloads()
     except RuntimeError as e:
         QMessageBox.critical(None, APP_NAME, str(e))
         return 1
+    set_libraries(get_setting(settings, "libraries", []))
+    migrate(settings)
     threading.Thread(target=prune_prefixes, daemon=True).start()
     threading.Thread(target=refresh_registry, daemon=True).start()
 
