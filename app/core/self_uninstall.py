@@ -7,7 +7,14 @@ from core import log
 from core.constants import BIN_DIR, DEFAULT_DOWNLOADS_DIR, FROZEN, IS_WINDOWS
 from core.depot import wipe_depot_token
 from core.winspawn import spawn_detached
-from layout import APP_SUBDIR, DIR_NAME, UNINSTALL_KEY, desktop_shortcut, start_menu_shortcut
+from layout import (
+    APP_SUBDIR,
+    DIR_NAME,
+    EXE_NAME,
+    UNINSTALL_KEY,
+    desktop_shortcut,
+    start_menu_shortcut,
+)
 
 
 def _registered_dir() -> Path | None:
@@ -57,6 +64,8 @@ def run() -> None:
         f"{kill} >nul 2>&1\n"
         "set n=0\n"
         ":retry\n"
+        f'del /f /q "{bat_dir}\\{APP_SUBDIR}\\{EXE_NAME}" >nul 2>&1\n'
+        f'if exist "{bat_dir}\\{APP_SUBDIR}\\{EXE_NAME}" goto wait\n'
         f'for /d %%d in ("{bat_dir}\\*") do '
         f'if /i not "%%~nxd"=="{keep}" rmdir /s /q "%%~fd" >nul 2>&1\n'
         f'del /f /q /a "{bat_dir}\\*" >nul 2>&1\n'
@@ -64,6 +73,7 @@ def run() -> None:
         f'rmdir "{bat_dir}" >nul 2>&1\n'
         f'if not exist "{bat_dir}\\{APP_SUBDIR}" '
         f'if not exist "{bat_dir}\\{BIN_DIR.name}" goto done\n'
+        ":wait\n"
         "set /a n+=1\n"
         "if %n% lss 10 (ping 127.0.0.1 -n 2 >nul & goto retry)\n"
         ":done\n"

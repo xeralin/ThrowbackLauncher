@@ -19,6 +19,7 @@ from core.constants import (
     STEAM_DIR,
     STEAM_ROOTS,
     SYSTEM_COMPAT_DIRS,
+    TL_LAUNCHER,
 )
 from core.manifest import edition_folder, hm_folder_name, is_installed, is_season_folder
 from core.settings import get_setting, libraries
@@ -276,6 +277,7 @@ def uninstall(key: str, hm: bool) -> str:
         return SEASON_RUNNING
     for path in installs:
         try:
+            (path / TL_LAUNCHER).unlink(missing_ok=True)
             shutil.rmtree(path)
         except OSError as e:
             return log.fail("File removal failed", e)
