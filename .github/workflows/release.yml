@@ -4,9 +4,14 @@ on:
   push:
     tags: ["v*"]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  NUITKA_VERSION: "4.2"
+  NUITKA_VERSION: "4.3.5"
   RUFF_VERSION: "0.16.8"
+  RUST_VERSION: "1.98.1"
   APPIMAGETOOL_VERSION: "1.9.1"
   APPIMAGETOOL_SHA256: "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
   NUITKA_COMMON: >-
@@ -14,6 +19,7 @@ env:
     --include-data-files=manifest.toml=manifest.toml
     --include-data-files=.github/icon.png=icon.png
     --include-data-files=Liberator.exe=Liberator.exe
+    --noinclude-data-files=*.qm
 
 jobs:
   frontend:
@@ -46,10 +52,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.98.1"
-          targets: x86_64-pc-windows-gnu
+      - name: Install Rust
+        run: |
+          rustup toolchain install $RUST_VERSION --profile minimal --no-self-update --target x86_64-pc-windows-gnu
+          rustup default $RUST_VERSION
       - name: Install mingw and git-crypt
         run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 git-crypt
       - name: Unlock Liberator sources
@@ -61,7 +67,7 @@ jobs:
       - name: Build Liberator
         env:
           RUSTFLAGS: -Awarnings
-        run: sh src/liberator/build.sh
+        run: sh rust/liberator/build.sh 2>/dev/null
       - uses: actions/upload-artifact@v7
         with:
           name: liberator
@@ -71,10 +77,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Install mingw
-        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64
+      - name: Install Rust
+        run: |
+          rustup toolchain install $RUST_VERSION --profile minimal --no-self-update --target i686-pc-windows-msvc,x86_64-pc-windows-msvc
+          rustup default $RUST_VERSION
       - name: Build Radmin VPN helpers
-        run: sh src/rvpn/build.sh
+        run: sh rust/rvpn/build.sh
       - uses: actions/upload-artifact@v7
         with:
           name: rvpn
@@ -117,10 +125,11 @@ jobs:
           sudo apt-get update && sudo apt-get install -y patchelf
       - name: Nuitka build (standalone)
         run: |
-          python -m nuitka --deployment --standalone --enable-plugin=pyside6 --assume-yes-for-downloads \
+          python -m nuitka --deployment --standalone --enable-plugin=pyside6 --assume-yes-for-downloads --lto=yes \
             $NUITKA_COMMON \
             --include-data-files=rvpn/*=rvpn/ \
             --output-filename=ThrowbackLauncher --output-dir=nuitka-out app/main.py
+          find nuitka-out/main.dist/qtwebengine_locales -name '*.pak' ! -name en-US.pak -delete
       - name: Package AppImage
         run: |
           appdir=build/AppDir
@@ -167,13 +176,14 @@ jobs:
         run: python -m pip install -r app/requirements.txt nuitka==${{ env.NUITKA_VERSION }}
       - name: Nuitka build app (standalone)
         shell: bash
-        run: python -m nuitka --deployment --standalone --enable-plugin=pyside6 --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=.github/icon.ico --product-name="Throwback Launcher" --file-version=${GITHUB_REF_NAME#v} --product-version=${GITHUB_REF_NAME#v} --file-description="Throwback Launcher" $NUITKA_COMMON --output-filename=ThrowbackLauncher.exe --output-dir=app-out app/main.py
+        run: python -m nuitka --deployment --standalone --enable-plugin=pyside6 --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=.github/icon.ico --product-name="Throwback Launcher" --file-version=${GITHUB_REF_NAME#v} --product-version=${GITHUB_REF_NAME#v} --file-description="Throwback Launcher" $NUITKA_COMMON "--noinclude-data-files=*.debug.pak" --output-filename=ThrowbackLauncher.exe --output-dir=app-out app/main.py
       - name: Nuitka build installer (onefile)
         shell: bash
         run: python -m nuitka --deployment --onefile --enable-plugin=pyside6 --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=.github/icon.ico --product-name="Throwback Launcher" --file-version=${GITHUB_REF_NAME#v} --product-version=${GITHUB_REF_NAME#v} --file-description="Throwback Installer" --include-data-dir=app/assets/fonts=assets/fonts --output-filename=ThrowbackLauncher.exe --output-dir=out app/installer.py
       - name: Package
-        shell: pwsh
-        run: Compress-Archive -Path app-out/main.dist/* -DestinationPath out/Runtime.zip -Force
+        run: |
+          Remove-Item app-out/main.dist/PySide6/translations/qtwebengine_locales/* -Exclude en-US.pak
+          Compress-Archive -Path app-out/main.dist/* -DestinationPath out/Runtime.zip
       - name: Verify Runtime.zip layout
         run: >
           python -c "import zipfile; names = zipfile.ZipFile('out/Runtime.zip').namelist();

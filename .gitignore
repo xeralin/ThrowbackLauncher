@@ -1,5 +1,4 @@
 __pycache__/
-*.pyc
 .venv/
 .ruff_cache/
 /rvpn/
@@ -9,7 +8,6 @@ __pycache__/
 /build/
 /out/
 /appimagetool
-/src/rvpn/build/
-/src/liberator/target/
-/src/liberator/shadow/target/
-/src/liberator/shadow/Shadow.dll
+/rust/**/target/
+/rust/launcher/vendor/
+/rust/liberator/shadow/Shadow.dll
