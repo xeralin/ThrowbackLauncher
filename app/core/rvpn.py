@@ -33,6 +33,7 @@ _SYS32 = RVPN_PREFIX / "drive_c" / "windows" / "system32"
 _SYSWOW = RVPN_PREFIX / "drive_c" / "windows" / "syswow64"
 _DRIVERS = _SYS32 / "drivers"
 _FONTS_DIR = RVPN_PREFIX / "drive_c" / "windows" / "Fonts"
+_QWINDOWS = _RVPN_APP / "platforms" / "qwindows.dll"
 _REG_NAME = "rvpn.reg"
 _REG_FILE = RVPN_PREFIX / "drive_c" / _REG_NAME
 
@@ -60,6 +61,33 @@ _CLASS_KEY = rf"HKLM\SYSTEM\CurrentControlSet\Control\Class\{_NET_CLASS}\0099"
 _SERVICE_KEY = r"HKLM\SYSTEM\CurrentControlSet\Services\rvpnnetmp"
 _MEMORY_KEY = r"HKLM\System\CurrentControlSet\Control\Session Manager\Memory Management"
 
+_QT_NAME_SITE = 0x5E90D
+_QT_NAME_READ = bytes.fromhex("8b83d400000003c36aff50")
+_QT_NAME_JUMP = bytes.fromhex("e97729fbff909090909090")
+_QT_NAME_CAVE = 0x11289
+_QT_NAME_CHECK = bytes.fromhex(
+    "8b83d40000003d00000100730d03c368ffffffff50e975d604006a0053e96dd60400"
+)
+
+_NFT_INPUT_CHAINS = (
+    'nft list chains | awk \'$1 == "table" { f = $2; t = $3 } $1 == "chain" { c = $2 } '
+    "/type filter hook input/ && f ~ /^(ip|inet)$/ { print f, t, c }'"
+)
+_FIREWALL_CLOSE = (
+    f"firewall-cmd --zone=trusted --remove-interface={_TAP}; "
+    f"{_NFT_INPUT_CHAINS} | while read -r f t c; do nft -a list chain $f $t $c | "
+    "sed -n 's/.*\"radminvpn\" # handle //p' | while read -r h; do "
+    "nft delete rule $f $t $c handle $h; done; done; "
+    f"iptables -D INPUT -i {_TAP} -j ACCEPT"
+)
+_FIREWALL_OPEN = (
+    f"if firewall-cmd --state; then firewall-cmd --zone=trusted --change-interface={_TAP}; "
+    f"else {_NFT_INPUT_CHAINS} | while read -r f t c; do "
+    f"nft insert rule $f $t $c iifname {_TAP} accept comment radminvpn; done; "
+    "command -v nft && iptables --version | grep -q nf_tables || "
+    f"iptables -I INPUT -i {_TAP} -j ACCEPT; fi"
+)
+
 
 def _single_root(tmp_dir: Path) -> Path:
     entries = list(tmp_dir.iterdir())
@@ -68,15 +96,24 @@ def _single_root(tmp_dir: Path) -> Path:
     return tmp_dir
 
 
+def preflight() -> None:
+    if shutil.which("pkexec") is None:
+        raise OSError(
+            log.fail("pkexec not found, a polkit agent is required", "missing dependency")
+        )
+    if shutil.which("ip") is None:
+        raise OSError(log.fail("iproute2 not found", "missing dependency"))
+
+
 def ensure_wine(reporter: Reporter, cancelled: Callable[[], bool]) -> None:
     if WINE_BIN.exists():
         return
 
     reporter.update("Fetching Wine")
-    BIN_DIR.mkdir(parents=True, exist_ok=True)
     archive = BIN_DIR / "_wine.tar.xz"
     tmp_dir = BIN_DIR / ".wine.tmp"
     try:
+        BIN_DIR.mkdir(parents=True, exist_ok=True)
         _, asset_url = github_asset(
             f"https://api.github.com/repos/Kron4ek/Wine-Builds/releases/tags/{_WINE_TAG}",
             "staging-amd64-wow64.tar.xz",
@@ -169,6 +206,16 @@ def _is_fifo(path: str) -> bool:
         return stat.S_ISFIFO(Path(path).stat().st_mode)
     except OSError:
         return False
+
+
+def _patch_qt_font_names() -> None:
+    data = bytearray(_QWINDOWS.read_bytes())
+    site = data[_QT_NAME_SITE : _QT_NAME_SITE + len(_QT_NAME_READ)]
+    cave = data[_QT_NAME_CAVE : _QT_NAME_CAVE + len(_QT_NAME_CHECK)]
+    if site == _QT_NAME_READ and cave == b"\xcc" * len(_QT_NAME_CHECK):
+        data[_QT_NAME_SITE : _QT_NAME_SITE + len(_QT_NAME_JUMP)] = _QT_NAME_JUMP
+        data[_QT_NAME_CAVE : _QT_NAME_CAVE + len(_QT_NAME_CHECK)] = _QT_NAME_CHECK
+        _QWINDOWS.write_bytes(data)
 
 
 def _privatize_desktop() -> None:
@@ -321,7 +368,6 @@ class Session:
         self, installer: Path | None, reporter: Reporter, *, on_running: Callable[[], None]
     ) -> None:
         try:
-            self._preflight()
             _kill_helpers(self._env)
             self._ensure_installed(installer, reporter)
             if self._cancel.is_set():
@@ -357,14 +403,6 @@ class Session:
         self._cancel.set()
         _terminate(self._gui_proc)
         _terminate(self._service_proc)
-
-    def _preflight(self) -> None:
-        if shutil.which("pkexec") is None:
-            raise OSError(
-                log.fail("pkexec not found, a polkit agent is required", "missing dependency")
-            )
-        if shutil.which("ip") is None:
-            raise OSError(log.fail("iproute2 (ip) is not available", "missing dependency"))
 
     def _ensure_installed(self, installer: Path | None, reporter: Reporter) -> None:
         if is_installed():
@@ -441,6 +479,7 @@ class Session:
             _FONTS_DIR.mkdir(parents=True, exist_ok=True)
             for name in _BUNDLED_FONTS:
                 _copy(RVPN_BIN_DIR / name, _FONTS_DIR / name)
+            _patch_qt_font_names()
             self._scrub_ndis()
         except OSError as e:
             raise OSError(log.fail("Radmin VPN setup failed", e)) from e
@@ -479,9 +518,10 @@ class Session:
                 f"ip link set {_TAP} allmulticast on",
                 f"sysctl -w net.ipv4.conf.{_TAP}.rp_filter=0",
                 f"sysctl -w net.ipv4.conf.{_TAP}.accept_local=1",
-                f"ip maddr add 224.0.2.60 dev {_TAP}",
                 f"ip route add 224.0.2.60/32 dev {_TAP}",
                 f"nmcli device set {_TAP} managed no",
+                _FIREWALL_CLOSE,
+                _FIREWALL_OPEN,
             ]
         )
         stale = _tap_ifindex()
@@ -573,7 +613,7 @@ class Session:
     def _relay_loop(self) -> None:
         while not self._relay_stop.is_set():
             with contextlib.suppress(OSError):
-                if Path(_CMD_FILE).is_file():
+                if Path(_CMD_FILE).stat().st_size:
                     Path(_CMD_FILE).rename(_CMD_PROC)
                     for line in Path(_CMD_PROC).read_text().splitlines():
                         self._apply_netsh(line)
@@ -596,9 +636,9 @@ class Session:
         env = dict(self._env)
         env["WINEDLLOVERRIDES"] = "mscoree=;mshtml=;netsh.exe=n"
         env["WINE_LARGE_ADDRESS_AWARE"] = "1"
-        shims = ":".join(str(RVPN_BIN_DIR / name) for name in ("dns_shim.so", "reuseport_shim.so"))
+        shim = str(RVPN_BIN_DIR / "net_shim.so")
         preload = env.get("LD_PRELOAD", "")
-        env["LD_PRELOAD"] = f"{shims}:{preload}" if preload else shims
+        env["LD_PRELOAD"] = f"{shim}:{preload}" if preload else shim
         try:
             self._service_proc = subprocess.Popen(
                 ["wine", "rvpn_launcher.exe", "/run"],
@@ -672,7 +712,7 @@ class Session:
         _stop_proc(self._gui_proc)
         _stop_proc(self._service_proc)
         _stop_proc(self._bridge_proc)
-        self._root.run(f"ip link delete {_TAP}")
+        self._root.run(f"ip link delete {_TAP}; {_FIREWALL_CLOSE}")
         self._root.close()
         for path in _RUNTIME_FILES:
             _rm(path)
@@ -701,5 +741,5 @@ class Session:
     def _scrub_ndis(self) -> None:
         if not (_DRIVERS / "RvNetMP60.sys").exists():
             return
-        self._wine(["reg", "delete", r"HKLM\SYSTEM\CurrentControlSet\Services\RvNetMP60", "/f"])
         _rm(_DRIVERS / "RvNetMP60.sys")
+        self._wine(["reg", "delete", r"HKLM\SYSTEM\CurrentControlSet\Services\RvNetMP60", "/f"])

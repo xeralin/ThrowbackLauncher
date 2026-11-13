@@ -1,0 +1,9 @@
+[package]
+name = "net_shim"
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+libc.workspace = true

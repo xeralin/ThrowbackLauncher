@@ -1,0 +1,3 @@
+[target.'cfg(windows)']
+linker = "rust-lld"
+rustflags = ["-C", "link-arg=/NODEFAULTLIB", "-C", "link-arg=/DEBUG:NONE", "-C", "link-arg=/Brepro"]

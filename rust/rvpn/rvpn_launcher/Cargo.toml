@@ -1,0 +1,13 @@
+[package]
+name = "rvpn_launcher"
+edition.workspace = true
+
+[dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Security",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Environment",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+] }

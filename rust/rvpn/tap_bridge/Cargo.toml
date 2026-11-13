@@ -1,0 +1,6 @@
+[package]
+name = "tap_bridge"
+edition.workspace = true
+
+[dependencies]
+libc.workspace = true

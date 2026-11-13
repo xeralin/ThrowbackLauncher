@@ -1,0 +1,28 @@
+[workspace]
+resolver = "3"
+members = [
+    "adapter_hook",
+    "drvinst",
+    "net_shim",
+    "netsh",
+    "rvpn_launcher",
+    "rvpnnetmp",
+    "tap_bridge",
+]
+
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
+libc = { version = "0.2", default-features = false }
+windows-sys = "0.61"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+opt-level = "s"
+panic = "abort"
+lto = true
+codegen-units = 1
+strip = true

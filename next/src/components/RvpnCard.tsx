@@ -24,9 +24,7 @@ export function RvpnCard() {
   const active = running || building;
   const jobRunning = rvpn.state !== "idle";
 
-  const content = !rvpn.ready ? null : rvpn.installed ||
-    active ||
-    rvpn.hasInstaller ? (
+  const content = !rvpn.ready ? null : rvpn.installed || active ? (
     <div className="flex min-w-0 items-center gap-3">
       {building && rvpn.step && (
         <code className="chip animate-pulse">{rvpn.step}</code>

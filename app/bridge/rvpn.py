@@ -13,6 +13,7 @@ from core.rvpn import (
     ensure_wine,
     is_installed,
     is_radmin_installer,
+    preflight,
     service_version,
     uninstall,
 )
@@ -45,7 +46,6 @@ class RvpnController(QObject):
         return {
             "state": state,
             "installed": is_installed(),
-            "hasInstaller": bool(self._installer and self._installer.is_file()),
             "step": "",
             "version": service_version(),
         }
@@ -68,7 +68,7 @@ class RvpnController(QObject):
         if not picked:
             return
         if not is_radmin_installer(picked):
-            self.error.emit(log.fail("This is not a Radmin VPN installer", picked))
+            self.error.emit("Radmin VPN installer not found")
             return
         self._installer = Path(picked)
         self.run()
@@ -119,6 +119,7 @@ class RvpnController(QObject):
     def _run(self) -> None:
         reporter = Reporter(fail=self._error_in.emit, update=self._step_in.emit)
         try:
+            preflight()
             ensure_wine(reporter, self._cancel.is_set)
             self._session = Session()
             if self._cancel.is_set():
@@ -134,6 +135,8 @@ class RvpnController(QObject):
             self._error_in.emit(log.fail("Radmin VPN failed", e))
         finally:
             self._session = None
+            if not is_installed():
+                self._installer = None
             self._idle_in.emit()
 
     def _on_error_in(self, text: str) -> None:

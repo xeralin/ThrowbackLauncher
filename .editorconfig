@@ -6,13 +6,10 @@ end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
 
-[*.{py,c,h,rs,sh,toml}]
+[*.{py,rs,sh,toml}]
 indent_style = space
 indent_size = 4
 
 [*.{ts,tsx,js,mjs,css,json,yml}]
 indent_style = space
 indent_size = 2
-
-[Makefile]
-indent_style = tab
