@@ -1,3 +1,4 @@
+import contextlib
 import re
 import shutil
 import struct
@@ -55,10 +56,10 @@ def ensure_tl(reporter: Reporter | None = None, force: bool = False) -> None:
         return
 
     reporter = reporter or Reporter()
-    TL_DIR.mkdir(parents=True, exist_ok=True)
     zip_path = TL_DIR / "tl.zip"
     tmp_dir = TL_DIR / ".tl.tmp"
     try:
+        TL_DIR.mkdir(parents=True, exist_ok=True)
         _, asset_url = github_asset(TL_API_URL, ".zip")
         fetch_to(asset_url, zip_path, on_progress=reporter.progress)
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -72,7 +73,8 @@ def ensure_tl(reporter: Reporter | None = None, force: bool = False) -> None:
     except Exception as e:
         raise OSError(log.fail("ThrowbackLoader download failed", e)) from e
     finally:
-        zip_path.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            zip_path.unlink()
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 

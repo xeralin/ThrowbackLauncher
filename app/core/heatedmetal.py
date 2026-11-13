@@ -48,8 +48,8 @@ def ensure_7z(reporter: Reporter, force: bool = False) -> Path:
     if SEVENZ_BIN.exists() and not force:
         return SEVENZ_BIN
 
-    BIN_DIR.mkdir(parents=True, exist_ok=True)
     try:
+        BIN_DIR.mkdir(parents=True, exist_ok=True)
         _, asset_url = github_asset(SEVENZ_API_URL, SEVENZ_ASSET)
         if IS_WINDOWS:
             fetch_to(asset_url, SEVENZ_BIN, on_progress=reporter.progress)
@@ -109,18 +109,19 @@ def _7z_error(proc: subprocess.CompletedProcess) -> str:
 def _fetch_hm_mod(hm_version: str, tmp_dir: Path, reporter: Reporter) -> tuple[str, Path]:
     tag, asset_url = resolve_hm_release(hm_version)
 
-    BIN_DIR.mkdir(parents=True, exist_ok=True)
     archive_path = BIN_DIR / f"{_ARCHIVE_PREFIX}{tag}.7z"
     if not archive_path.exists():
         try:
+            BIN_DIR.mkdir(parents=True, exist_ok=True)
             fetch_to(asset_url, archive_path, on_progress=reporter.progress)
         except RateLimitError:
             raise
         except Exception as e:
             raise OSError(log.fail("Heated Metal download failed", e)) from e
-        for old in BIN_DIR.glob(f"{_ARCHIVE_PREFIX}*.7z"):
-            if old != archive_path:
-                old.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            for old in BIN_DIR.glob(f"{_ARCHIVE_PREFIX}*.7z"):
+                if old != archive_path:
+                    old.unlink()
     return tag, _extract_hm_archive(archive_path, tmp_dir, reporter)
 
 
@@ -200,10 +201,10 @@ def _extract_hm_archive(archive: Path, tmp_dir: Path, reporter: Reporter) -> Pat
     except OSError:
         intact = False
     if intact:
-        raise HmFilesRemovedError(
-            log.fail("Heated Metal extraction failed", "files missing after extraction")
-        )
-    archive.unlink(missing_ok=True)
+        detail = _7z_error(proc) if proc.returncode != 0 else "files missing after extraction"
+        raise HmFilesRemovedError(log.fail("Heated Metal extraction failed", detail))
+    with contextlib.suppress(OSError):
+        archive.unlink()
     detail = (
         _7z_error(proc)
         if proc.returncode != 0
