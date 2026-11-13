@@ -101,6 +101,7 @@ def _move(src: Path, dst: Path, deadline: float) -> bool:
 def _remove(path: Path) -> None:
     with contextlib.suppress(OSError):
         if path.is_dir():
+            (path / EXE_NAME).unlink(missing_ok=True)
             shutil.rmtree(path, ignore_errors=True)
         else:
             path.unlink(missing_ok=True)
@@ -137,11 +138,25 @@ def helper_argv(target: Path, bounce: int = 0) -> list[str]:
     return [str(exe), RELAUNCH_ARG, str(os.getpid()), str(bounce)]
 
 
+def _hand_over(exe: Path) -> bool:
+    deadline = time.monotonic() + _MOVE_DEADLINE_S
+    while not exe.is_file() and time.monotonic() < deadline:
+        time.sleep(_POLL_INTERVAL)
+    try:
+        spawn_detached([str(exe)])
+    except OSError:
+        return _helper_running()
+    return True
+
+
 def maybe_apply_pending() -> bool:
     if not (IS_WINDOWS and FROZEN):
         return False
     app, pending, previous = _paths()
-    if Path(sys.executable).resolve().parent != app:
+    here = Path(sys.executable).resolve().parent
+    if here in (pending, previous) and _hand_over(app / EXE_NAME):
+        return True
+    if here != app:
         return False
     _clear(previous, time.monotonic() + _PREVIOUS_CLEAR_S)
     if not _pending_ok(pending) or not (pending / EXE_NAME).is_file():
