@@ -22,9 +22,9 @@ def ensure_depotdownloader(reporter: Reporter | None = None, force: bool = False
         return DD_BIN
 
     reporter = reporter or Reporter()
-    BIN_DIR.mkdir(parents=True, exist_ok=True)
     part = DD_BIN.with_name(DD_BIN.name + ".part")
     try:
+        BIN_DIR.mkdir(parents=True, exist_ok=True)
         _, asset_url = github_asset(DD_API_URL, DD_ASSET)
         fetch_to(asset_url, DD_ZIP, on_progress=reporter.progress)
         with zipfile.ZipFile(DD_ZIP) as z, z.open(DD_MEMBER) as src, part.open("wb") as f:
@@ -70,7 +70,7 @@ def depot_commands(
     ]
 
 
-def wipe_depot_token() -> tuple[bool, str]:
+def wipe_depot_token() -> str:
     iso_dir = user_data_base() / "IsolatedStorage"
     stores = {p.parent.parent for p in iso_dir.rglob("AssemFiles/account.config")}
     error = ""
@@ -79,4 +79,4 @@ def wipe_depot_token() -> tuple[bool, str]:
             shutil.rmtree(store)
         except OSError as e:
             error = log.fail("Steam token removal failed", e)
-    return bool(stores), error
+    return error

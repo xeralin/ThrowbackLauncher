@@ -20,6 +20,7 @@ from core.constants import (
     DOWNLOADS_MIN,
     ERRORS_FILE,
     FOLDER_NOT_FOUND,
+    GAME_RUNNING,
     HEX_PATTERN,
     MAX_USERNAME_LENGTH,
     NAME_CHARS,
@@ -93,7 +94,6 @@ class SettingsController(QObject):
     close_to_tray_changed = Signal()
     reduce_motion_changed = Signal()
     settings_error = Signal(str, str)
-    logged_out = Signal(str)
     cache_cleared = Signal()
     prefix_removed = Signal()
     libraries_changed = Signal()
@@ -267,8 +267,7 @@ class SettingsController(QObject):
         protons = list_protons()
         if internal not in {p["internal"] for p in protons}:
             return
-        current = resolve_proton(self._settings, protons)
-        if current is not None and internal == current["internal"]:
+        if internal == get_setting(self._settings, "proton", ""):
             return
         self._store("proton", internal)
         self._default_proton = internal
@@ -313,10 +312,7 @@ class SettingsController(QObject):
     def _store_color(self, key: str, value: str, changed: Signal) -> None:
         default = PREF_DEFAULTS[key]
         color = value.strip().lower()
-        if not HEX_PATTERN.match(color):
-            self.settings_error.emit(key, f"Enter a color like {default}")
-            return
-        if color != default and color == self._color(key):
+        if not HEX_PATTERN.match(color) or (color != default and color == self._color(key)):
             return
         if self._store_pref(key, color):
             changed.emit()
@@ -381,12 +377,7 @@ class SettingsController(QObject):
         if not value:
             self.settings_error.emit("username", "Username is empty")
             return
-        if len(value) > MAX_USERNAME_LENGTH:
-            self.settings_error.emit(
-                "username", f"Username is too long (max {MAX_USERNAME_LENGTH} characters)"
-            )
-            return
-        if value == self.username:
+        if len(value) > MAX_USERNAME_LENGTH or value == self.username:
             return
         self._store_pref("username", value)
         for d in installed_downloads():
@@ -405,24 +396,14 @@ class SettingsController(QObject):
 
     @Slot(int)
     def set_max_downloads(self, value: int) -> None:
-        if not DOWNLOADS_MIN <= value <= DOWNLOADS_MAX:
-            self.settings_error.emit(
-                "max_downloads", f"Parallel downloads must be {DOWNLOADS_MIN}–{DOWNLOADS_MAX}"
-            )
-            return
-        if value == self.max_downloads:
+        if not DOWNLOADS_MIN <= value <= DOWNLOADS_MAX or value == self.max_downloads:
             return
         self._store_pref("max_downloads", value)
         self.max_downloads_changed.emit()
 
     @Slot(int)
     def set_scale(self, value: int) -> None:
-        if value not in SCALE_LEVELS:
-            self.settings_error.emit(
-                "scale", f"Scale must be one of {', '.join(map(str, SCALE_LEVELS))}"
-            )
-            return
-        if value == self.scale:
+        if value not in SCALE_LEVELS or value == self.scale:
             return
         self._store_pref("scale", value)
         self.scale_changed.emit()
@@ -453,14 +434,14 @@ class SettingsController(QObject):
         self._logging_out = True
 
         def work() -> None:
-            found, error = wipe_depot_token()
-            self._logged_out_in.emit(error or ("Logged out" if found else "No Steam token found"))
+            self._logged_out_in.emit(wipe_depot_token())
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _on_logged_out(self, message: str) -> None:
+    def _on_logged_out(self, error: str) -> None:
         self._logging_out = False
-        self.logged_out.emit(message)
+        if error:
+            self.settings_error.emit("logout", error)
 
     def _transfers_busy(self) -> bool:
         return bool(self._downloader.running or self._updater.busy)
@@ -501,7 +482,9 @@ class SettingsController(QObject):
         if path in roots:
             self.settings_error.emit("libraries", "Folder is already a library")
             return
-        if any(path.is_relative_to(root) or root.is_relative_to(path) for root in roots):
+        if any(
+            path.is_relative_to(root) or root.is_relative_to(path) for root in (*roots, DATA_ROOT)
+        ):
             self.settings_error.emit("libraries", "Library folders cannot contain each other")
             return
         self._save_libraries([*roots, path])
@@ -542,6 +525,9 @@ class SettingsController(QObject):
             return
         if self._downloader.uses_library(target):
             self.settings_error.emit("libraries", "A download is using this library")
+            return
+        if is_game_running():
+            self.settings_error.emit("libraries", GAME_RUNNING)
             return
         self._save_libraries([root for root in roots if root != target])
 
