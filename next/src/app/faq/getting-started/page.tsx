@@ -70,7 +70,7 @@ const faqs: FaqItem[] = [
     a: <p>No. Each downloaded season runs on its own, like a separate game.</p>,
   },
   {
-    id: "operators-locked",
+    id: "locked-operators",
     q: "Why are my operators locked?",
     a: (
       <p>

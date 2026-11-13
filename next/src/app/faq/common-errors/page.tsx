@@ -5,6 +5,7 @@ import { FaqHero } from "@/components/FaqHero";
 import { Note } from "@/components/Note";
 import { FaqAccordion, type FaqItem } from "@/components/FaqAccordion";
 import { ExternalLink } from "@/components/ExternalLink";
+import { OnWindows } from "@/components/OnPlatform";
 
 export const metadata: Metadata = FAQ_PAGES["common-errors"];
 
@@ -14,25 +15,10 @@ const faqs: FaqItem[] = [
     q: "Why does my game keep crashing?",
     platform: "windows",
     a: (
-      <p>
-        External overlays like Overwolf may be incompatible with the old R6S
-        build, so disable them before launching the game.
-      </p>
-    ),
-  },
-  {
-    id: "msvcr-dll",
-    q: (
-      <>
-        How do I fix the <code>MSVCRXXX.dll</code> error?
-      </>
-    ),
-    platform: "windows",
-    a: (
       <>
         <p>
-          This error means your system is missing a required Microsoft Visual
-          C++ Redistributable package.
+          If your game crashes or you get an <code>MSVCRXXX.dll</code> or{" "}
+          <code>D3DCOMPILER_43.dll</code> error, follow these steps.
         </p>
         <ol>
           <li>
@@ -42,42 +28,61 @@ const faqs: FaqItem[] = [
             </ExternalLink>{" "}
             and run it as administrator
           </li>
-          <li>Restart your computer and try launching the game again</li>
-        </ol>
-        <Note className="my-3">
-          If the error persists, make sure Windows is fully up to date.
-        </Note>
-      </>
-    ),
-  },
-  {
-    id: "d3dcompiler-dll",
-    q: (
-      <>
-        How do I fix the <code>D3DCOMPILER_43.dll</code> error?
-      </>
-    ),
-    platform: "windows",
-    a: (
-      <>
-        <p>
-          This error means your system is missing a legacy DirectX library that
-          is not included in Windows.
-        </p>
-        <ol>
           <li>
             Download the{" "}
             <ExternalLink href="https://www.microsoft.com/en-US/download/details.aspx?id=35">
               DirectX End-User Runtime Web Installer
             </ExternalLink>{" "}
-            from Microsoft
+            from Microsoft and run <code>dxwebsetup.exe</code>
           </li>
           <li>
-            Run <code>dxwebsetup.exe</code>
+            Disable external overlays like Overwolf, since they may be
+            incompatible with the old R6S build
           </li>
           <li>Restart your computer and try launching the game again</li>
         </ol>
+        <Note className="my-3">
+          If the problem persists, make sure Windows is fully up to date.
+        </Note>
       </>
+    ),
+  },
+  {
+    id: "download-errors",
+    q: "I am getting errors while downloading. What should I do?",
+    a: (
+      <ul>
+        <li>
+          <strong>Could not connect to Steam</strong> — Check your internet
+          connection and try again, since the Steam servers may be briefly
+          unreachable
+        </li>
+        <li>
+          <strong>Too many login attempts</strong> — Steam is blocking further
+          logins, so wait a while before trying again
+        </li>
+        <li>
+          <strong>Steam login failed</strong> — Check your password and Steam
+          Guard code, then log in again
+        </li>
+        <li>
+          <strong>You do not own R6S on Steam</strong> — You need a Steam
+          account that owns R6S
+        </li>
+        <li>
+          <strong>A file is already in use</strong> — Close any program that
+          might be interfering, such as
+          <OnWindows> your antivirus or</OnWindows> another game instance
+        </li>
+        <li>
+          <strong>Not enough disk space</strong> — Free up storage space with
+          Shears or pick a different library
+        </li>
+        <li>
+          <strong>Download failed</strong> — Press <strong>Verify</strong> to
+          continue the download
+        </li>
+      </ul>
     ),
   },
   {
@@ -132,7 +137,7 @@ const faqs: FaqItem[] = [
         </ul>
         <ol>
           <li>
-            Delete the specified <code>.dll</code> file from the season folder
+            Delete the specified <code>.dll</code> file from the game folder
           </li>
           <li>
             Use <strong>Verify</strong> in the <strong>Manage</strong> tab of

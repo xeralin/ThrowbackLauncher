@@ -143,7 +143,7 @@ export default function HeatedMetal() {
         <ul>
           <li>
             Press <strong>F1</strong> to open the context menu (console,
-            inventory, and more)
+            inventory and more)
           </li>
           <li>
             Press <strong>F3</strong> to open the map editor
