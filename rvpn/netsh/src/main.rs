@@ -5,7 +5,7 @@
 #[path = "../../common/mem.rs"]
 mod mem;
 
-use core::net::Ipv4Addr;
+use core::net::{Ipv4Addr, Ipv6Addr};
 use core::panic::PanicInfo;
 use core::ptr::{null, null_mut};
 
@@ -19,8 +19,11 @@ use windows_sys::Win32::System::Threading::{ExitProcess, Sleep};
 
 const CMDLINE_MAX: usize = 2048;
 const CMD_DELAY_MS: u32 = 500;
-const LINE_PREFIX: &[u8] = b"ip addr add ";
-const LINE_SUFFIX: &[u8] = b"/8 dev radminvpn0\n";
+const LINE_V4: Line = (b"ip addr add ", b"/8 dev radminvpn0\n");
+const LINE_V6: Line = (b"ip -6 addr add ", b"/64 dev radminvpn0\n");
+const ADDRESS_MAX: usize = 45;
+
+type Line = (&'static [u8], &'static [u8]);
 
 #[panic_handler]
 fn panic(_: &PanicInfo) -> ! {
@@ -32,7 +35,7 @@ fn after<'a>(cmd: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
     Some(&cmd[at + key.len()..])
 }
 
-fn address(cmd: &[u8]) -> Option<&[u8]> {
+fn address(cmd: &[u8]) -> Option<(&[u8], Line)> {
     after(cmd, b"interface")?;
     let value = if after(cmd, b"set address").is_some() {
         after(cmd, b"address=")?
@@ -41,8 +44,13 @@ fn address(cmd: &[u8]) -> Option<&[u8]> {
         after(cmd, b"addr=").or_else(|| after(cmd, b"address="))?
     };
     let value = value.split(|&byte| byte == b' ').next()?;
-    str::from_utf8(value).ok()?.parse::<Ipv4Addr>().ok()?;
-    Some(value)
+    let text = str::from_utf8(value).ok()?;
+    if text.parse::<Ipv4Addr>().is_ok() {
+        return Some((value, LINE_V4));
+    }
+    let v6 = text.parse::<Ipv6Addr>().ok()?;
+    let listed = after(cmd, b"ipv6").is_some() && !v6.is_unicast_link_local();
+    listed.then_some((value, LINE_V6))
 }
 
 #[unsafe(no_mangle)]
@@ -67,13 +75,13 @@ extern "C" fn mainCRTStartup() -> u32 {
         cmd[len] = byte;
         len += 1;
     }
-    if let Some(value) = address(&cmd[..len]) {
-        let mut line = [0; LINE_PREFIX.len() + 15 + LINE_SUFFIX.len()];
-        let end = LINE_PREFIX.len() + value.len();
-        line[..LINE_PREFIX.len()].copy_from_slice(LINE_PREFIX);
-        line[LINE_PREFIX.len()..end].copy_from_slice(value);
-        line[end..end + LINE_SUFFIX.len()].copy_from_slice(LINE_SUFFIX);
-        let written = (end + LINE_SUFFIX.len()) as u32;
+    if let Some((value, (prefix, suffix))) = address(&cmd[..len]) {
+        let mut line = [0; LINE_V6.0.len() + ADDRESS_MAX + LINE_V6.1.len()];
+        let end = prefix.len() + value.len();
+        line[..prefix.len()].copy_from_slice(prefix);
+        line[prefix.len()..end].copy_from_slice(value);
+        line[end..end + suffix.len()].copy_from_slice(suffix);
+        let written = (end + suffix.len()) as u32;
         unsafe {
             let file = CreateFileA(
                 c"Z:\\tmp\\rvpn_netsh_cmd".as_ptr().cast(),
