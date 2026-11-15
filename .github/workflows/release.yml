@@ -9,44 +9,29 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NUITKA_VERSION: "4.3.5"
-  RUFF_VERSION: "0.16.8"
   RUST_VERSION: "1.98.1"
   APPIMAGETOOL_VERSION: "1.9.1"
   APPIMAGETOOL_SHA256: "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
-  NUITKA_COMMON: >-
-    --include-data-dir=next/out=next/out
-    --include-data-files=manifest.toml=manifest.toml
-    --include-data-files=.github/icon.png=icon.png
-    --include-data-files=Liberator.exe=Liberator.exe
-    --noinclude-data-files=*.qm
 
 jobs:
-  frontend:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          package_json_file: next/package.json
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - name: Lint frontend
+      - name: Install Rust
         run: |
-          pnpm -C next install --frozen-lockfile
-          pnpm -C next lint
-          pnpm -C next format:check
-      - name: Lint app
+          rustup toolchain install $RUST_VERSION --profile minimal --no-self-update --component clippy,rustfmt
+          rustup default $RUST_VERSION
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig-dev libxkbcommon-dev
+      - name: Lint
+        working-directory: app
         run: |
-          pipx run ruff==$RUFF_VERSION check app/
-          pipx run ruff==$RUFF_VERSION format --check app/
-      - name: Build frontend
-        run: pnpm -C next build
-      - uses: actions/upload-artifact@v7
-        with:
-          name: next-out
-          path: next/out
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        working-directory: app
+        run: cargo test --workspace --locked
 
   liberator:
     runs-on: ubuntu-latest
@@ -67,11 +52,11 @@ jobs:
       - name: Build Liberator
         env:
           RUSTFLAGS: -Awarnings
-        run: sh rust/liberator/build.sh 2>/dev/null
+        run: sh liberator/build.sh 2>/dev/null
       - uses: actions/upload-artifact@v7
         with:
           name: liberator
-          path: Liberator.exe
+          path: build/Liberator.exe
 
   rvpn:
     runs-on: ubuntu-latest
@@ -82,64 +67,46 @@ jobs:
           rustup toolchain install $RUST_VERSION --profile minimal --no-self-update --target i686-pc-windows-msvc,x86_64-pc-windows-msvc
           rustup default $RUST_VERSION
       - name: Build Radmin VPN helpers
-        run: sh rust/rvpn/build.sh
+        run: sh rvpn/build.sh
       - uses: actions/upload-artifact@v7
         with:
           name: rvpn
-          path: rvpn
+          path: build/rvpn
 
   linux:
-    needs: [frontend, liberator, rvpn]
+    needs: rvpn
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    container: ubuntu:22.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - name: Pin version to tag
+        run: printf '%s\n' "${GITHUB_REF_NAME#v}" > app/VERSION
+      - name: Install build dependencies
         run: |
-          sed -i "s/^VERSION = .*/VERSION = \"${GITHUB_REF_NAME#v}\"/" app/layout.py
-          grep -q "^VERSION = \"${GITHUB_REF_NAME#v}\"" app/layout.py
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.14"
-      - name: Verify asset names against layout.py
-        run: >
-          python -c "import sys; sys.path.insert(0, 'app'); import layout;
-          assert layout.RUNTIME_ASSET == 'Runtime.zip', layout.RUNTIME_ASSET;
-          assert layout.APPIMAGE_ASSET == 'ThrowbackLauncher.AppImage', layout.APPIMAGE_ASSET;
-          assert layout.EXE_NAME == 'ThrowbackLauncher.exe', layout.EXE_NAME"
-      - uses: actions/download-artifact@v8
-        with:
-          name: next-out
-          path: next/out
-      - uses: actions/download-artifact@v8
-        with:
-          name: liberator
-          path: .
+          apt-get update
+          apt-get install -y build-essential curl file libfontconfig-dev libxkbcommon-dev pkg-config
+      - name: Install Rust
+        run: |
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain $RUST_VERSION
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@v8
         with:
           name: rvpn
-          path: rvpn
-      - name: Install deps + Nuitka
-        run: |
-          python -m pip install -r app/requirements.txt nuitka==${{ env.NUITKA_VERSION }}
-          sudo apt-get update && sudo apt-get install -y patchelf
-      - name: Nuitka build (standalone)
-        run: |
-          python -m nuitka --deployment --standalone --enable-plugin=pyside6 --assume-yes-for-downloads --lto=yes \
-            $NUITKA_COMMON \
-            --include-data-files=rvpn/*=rvpn/ \
-            --output-filename=ThrowbackLauncher --output-dir=nuitka-out app/main.py
-          find nuitka-out/main.dist/qtwebengine_locales -name '*.pak' ! -name en-US.pak -delete
+          path: build/rvpn
+      - name: Build Launcher
+        working-directory: app
+        run: cargo build --release --locked --features packaged
       - name: Package AppImage
         run: |
           appdir=build/AppDir
           mkdir -p "$appdir/usr/bin"
-          cp -a nuitka-out/main.dist/. "$appdir/usr/bin/"
+          cp app/target/release/launcher "$appdir/usr/bin/ThrowbackLauncher"
+          cp -r build/rvpn "$appdir/usr/bin/rvpn"
           chmod +x "$appdir/usr/bin/rvpn/tap_bridge"
+          ln -s usr/bin/ThrowbackLauncher "$appdir/AppRun"
           cp .github/icon.png "$appdir/ThrowbackLauncher.png"
           printf '[Desktop Entry]\nType=Application\nName=Throwback Launcher\nExec=ThrowbackLauncher\nIcon=ThrowbackLauncher\nTerminal=false\nCategories=Game;\nStartupWMClass=ThrowbackLauncher\n' > "$appdir/ThrowbackLauncher.desktop"
-          printf '#!/usr/bin/env bash\nHERE="$(dirname "$(readlink -f "$0")")"\nexport QTWEBENGINE_DISABLE_SANDBOX=1\nexec "$HERE/usr/bin/ThrowbackLauncher" "$@"\n' > "$appdir/AppRun"
-          chmod +x "$appdir/AppRun"
           curl -fsSL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-x86_64.AppImage"
           echo "$APPIMAGETOOL_SHA256  appimagetool" | sha256sum -c -
           chmod +x appimagetool
@@ -151,43 +118,31 @@ jobs:
           path: out/ThrowbackLauncher.AppImage
 
   windows:
-    needs: [frontend, liberator]
+    needs: liberator
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - name: Pin version to tag
         shell: bash
+        run: printf '%s\n' "${GITHUB_REF_NAME#v}" > app/VERSION
+      - name: Install Rust
+        shell: bash
         run: |
-          sed -i "s/^VERSION = .*/VERSION = \"${GITHUB_REF_NAME#v}\"/" app/layout.py
-          grep -q "^VERSION = \"${GITHUB_REF_NAME#v}\"" app/layout.py
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.14"
-      - uses: actions/download-artifact@v8
-        with:
-          name: next-out
-          path: next/out
+          rustup toolchain install $RUST_VERSION --profile minimal --no-self-update
+          rustup default $RUST_VERSION
       - uses: actions/download-artifact@v8
         with:
           name: liberator
-          path: .
-      - name: Install deps + Nuitka
-        run: python -m pip install -r app/requirements.txt nuitka==${{ env.NUITKA_VERSION }}
-      - name: Nuitka build app (standalone)
-        shell: bash
-        run: python -m nuitka --deployment --standalone --enable-plugin=pyside6 --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=.github/icon.ico --product-name="Throwback Launcher" --file-version=${GITHUB_REF_NAME#v} --product-version=${GITHUB_REF_NAME#v} --file-description="Throwback Launcher" $NUITKA_COMMON "--noinclude-data-files=*.debug.pak" --output-filename=ThrowbackLauncher.exe --output-dir=app-out app/main.py
-      - name: Nuitka build installer (onefile)
-        shell: bash
-        run: python -m nuitka --deployment --onefile --enable-plugin=pyside6 --assume-yes-for-downloads --windows-console-mode=disable --windows-icon-from-ico=.github/icon.ico --product-name="Throwback Launcher" --file-version=${GITHUB_REF_NAME#v} --product-version=${GITHUB_REF_NAME#v} --file-description="Throwback Installer" --include-data-dir=app/assets/fonts=assets/fonts --output-filename=ThrowbackLauncher.exe --output-dir=out app/installer.py
+          path: build
+      - name: Build Launcher
+        working-directory: app
+        run: cargo build --release --locked --features packaged
       - name: Package
         run: |
-          Remove-Item app-out/main.dist/PySide6/translations/qtwebengine_locales/* -Exclude en-US.pak
-          Compress-Archive -Path app-out/main.dist/* -DestinationPath out/Runtime.zip
-      - name: Verify Runtime.zip layout
-        run: >
-          python -c "import zipfile; names = zipfile.ZipFile('out/Runtime.zip').namelist();
-          assert 'ThrowbackLauncher.exe' in names, names[:3]"
+          New-Item -ItemType Directory out | Out-Null
+          Copy-Item app/target/release/launcher.exe out/ThrowbackLauncher.exe
+          Compress-Archive -Path out/ThrowbackLauncher.exe, build/Liberator.exe -DestinationPath out/Runtime.zip
       - uses: actions/upload-artifact@v7
         with:
           name: windows
@@ -196,7 +151,7 @@ jobs:
             out/Runtime.zip
 
   release:
-    needs: [linux, windows]
+    needs: [check, linux, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -204,7 +159,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
-          pattern: "{appimage,windows}"
+          pattern: "{appimage,windows,liberator}"
       - name: Create draft release with binaries
         env:
           GH_TOKEN: ${{ github.token }}
@@ -215,5 +170,6 @@ jobs:
           gh release upload "$GITHUB_REF_NAME" \
             "artifacts/appimage/ThrowbackLauncher.AppImage" \
             "artifacts/windows/ThrowbackLauncher.exe" \
+            "artifacts/liberator/Liberator.exe" \
             "artifacts/windows/Runtime.zip" \
             --clobber
