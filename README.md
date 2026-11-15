@@ -18,14 +18,12 @@
 
 **Building**
 
-For a local run on Linux you need [Node.js](https://nodejs.org/), [pnpm](https://pnpm.io/) and Python 3.14 or newer.
+For a local run on Linux you need [Rust](https://www.rust-lang.org/tools/install) and the development packages of `fontconfig` and `xkbcommon`. The Launcher needs a Wayland session.
 
 ```sh
 git clone https://github.com/xeralin/ThrowbackLauncher.git
-cd ThrowbackLauncher
-pnpm -C next install
-python -m venv .venv && .venv/bin/pip install -r app/requirements.txt
-./run.sh
+cd ThrowbackLauncher/app
+cargo run --release
 ```
 
 <p>
