@@ -1,0 +1,42 @@
+[package]
+name = "backend"
+edition = "2024"
+
+[features]
+packaged = []
+
+[dependencies]
+anyhow = "1"
+blake2 = "0.10"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+shlex = "2"
+sysinfo = { version = "0.40", default-features = false, features = ["system"] }
+toml = { version = "0.8", features = ["preserve_order"] }
+ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier", "socks-proxy", "win-system-proxy"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+lzma-rust2 = { version = "0.25", default-features = false, features = ["std", "optimization", "xz"] }
+md-5 = "0.10"
+tar = { version = "0.4", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+tempfile = "3"
