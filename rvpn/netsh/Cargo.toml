@@ -2,6 +2,11 @@
 name = "netsh"
 edition.workspace = true
 
+[[bin]]
+name = "netsh"
+test = false
+bench = false
+
 [dependencies]
 windows-sys = { workspace = true, features = [
     "Win32_Security",

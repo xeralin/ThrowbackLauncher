@@ -1,3 +1,4 @@
+#![cfg(windows)]
 #![no_std]
 
 mod ffi;

@@ -2,7 +2,7 @@ use core::ffi::{c_char, c_void};
 
 #[allow(dead_code)]
 #[cfg_attr(
-    target_arch = "x86",
+    all(windows, target_arch = "x86"),
     link(
         name = "ntdll.dll",
         kind = "raw-dylib",
@@ -11,7 +11,7 @@ use core::ffi::{c_char, c_void};
     )
 )]
 #[cfg_attr(
-    not(target_arch = "x86"),
+    all(windows, not(target_arch = "x86")),
     link(name = "ntdll.dll", kind = "raw-dylib", modifiers = "+verbatim")
 )]
 unsafe extern "C" {

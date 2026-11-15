@@ -2,6 +2,11 @@
 name = "rvpn_launcher"
 edition.workspace = true
 
+[[bin]]
+name = "rvpn_launcher"
+test = false
+bench = false
+
 [dependencies]
 windows-sys = { workspace = true, features = [
     "Win32_Security",

@@ -4,3 +4,5 @@ edition.workspace = true
 
 [lib]
 crate-type = ["cdylib"]
+test = false
+bench = false

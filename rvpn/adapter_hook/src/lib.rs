@@ -1,3 +1,4 @@
+#![cfg(all(windows, target_arch = "x86"))]
 #![no_std]
 
 #[path = "../../common/mem.rs"]
