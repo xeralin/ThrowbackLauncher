@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use backend::env::{APP_NAME, CACHE_CLEARING, DOWNLOAD_RUNNING, Paths, UNINSTALL_RUNNING};
 use backend::self_update::take_outcome;
-use backend::update::{self, Component, Failure, Install, Pending, Release};
+use backend::update::{self, Check, Component, Failure, Install, Pending, Release};
 use gpui::{App, AppContext, Context, EventEmitter, SharedString, Task};
 
 use super::Launcher;
@@ -17,8 +17,8 @@ pub enum UpdateEvent {
 
 impl EventEmitter<UpdateEvent> for Launcher {}
 
-trait Work: Send + Sync {
-    fn available(&self, install: &Install, force: bool) -> (Vec<Pending>, Option<Failure>);
+pub(crate) trait Work: Send + Sync {
+    fn available(&self, install: &Install, force: bool) -> Check;
 
     fn apply(
         &self,
@@ -33,7 +33,7 @@ trait Work: Send + Sync {
 struct Live;
 
 impl Work for Live {
-    fn available(&self, install: &Install, force: bool) -> (Vec<Pending>, Option<Failure>) {
+    fn available(&self, install: &Install, force: bool) -> Check {
         update::available(install, force)
     }
 
@@ -56,6 +56,7 @@ pub struct Updater {
     checking: bool,
     pending: Vec<Pending>,
     failure: Option<Failure>,
+    history: Vec<(Component, Vec<Release>)>,
     progress: u8,
     applying: Option<Component>,
     work: Arc<dyn Work>,
@@ -67,6 +68,7 @@ impl Default for Updater {
             checking: false,
             pending: Vec::new(),
             failure: None,
+            history: Vec::new(),
             progress: 0,
             applying: None,
             work: Arc::new(Live),
@@ -89,6 +91,10 @@ impl Updater {
 
     pub fn failure(&self) -> Option<&Failure> {
         self.failure.as_ref()
+    }
+
+    pub fn history(&self) -> &[(Component, Vec<Release>)] {
+        &self.history
     }
 
     pub fn progress(&self) -> u8 {
@@ -127,12 +133,19 @@ impl Launcher {
         let (work, install) = (self.update.work.clone(), install(self));
         let check = cx.background_spawn(async move { work.available(&install, force) });
         cx.spawn(async move |this, cx| {
-            let (pending, failure) = check.await;
+            let check = check.await;
             this.update(cx, |this, cx| {
-                if failure.is_none() || !pending.is_empty() {
-                    this.update.pending = pending;
+                if check.failure.is_none() || !check.pending.is_empty() {
+                    this.update.pending = check.pending;
                 }
-                this.update.failure = failure;
+                if check
+                    .history
+                    .iter()
+                    .any(|(_, releases)| !releases.is_empty())
+                {
+                    this.update.history = check.history;
+                }
+                this.update.failure = check.failure;
                 this.update.checking = false;
                 cx.notify();
             })
@@ -179,11 +192,6 @@ impl Launcher {
                 .ok();
         })
         .detach();
-    }
-
-    pub fn release_history(&self, cx: &App) -> Task<Vec<(Component, Vec<Release>)>> {
-        let install = install(self);
-        cx.background_spawn(async move { update::history(&install) })
     }
 
     pub fn installed_versions(&self, cx: &App) -> Task<Vec<(Component, String)>> {
@@ -243,6 +251,13 @@ impl Updater {
             ..Self::default()
         }
     }
+
+    pub fn with_work(work: Arc<dyn Work>) -> Self {
+        Self {
+            work,
+            ..Self::default()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -264,7 +279,6 @@ mod tests {
     use crate::model::download::{Downloader, State};
     use crate::model::uninstall::Uninstaller;
 
-    type Check = (Vec<Pending>, Option<Failure>);
     type Apply = (Vec<f64>, Result<(), String>);
 
     #[derive(Default)]
@@ -341,6 +355,14 @@ mod tests {
         }
     }
 
+    fn result(pending: Vec<Pending>, failure: Option<Failure>) -> Check {
+        Check {
+            pending,
+            failure,
+            history: Vec::new(),
+        }
+    }
+
     fn found(component: Component) -> Pending {
         Pending {
             component,
@@ -401,7 +423,7 @@ mod tests {
                 .checks
                 .lock()
                 .unwrap()
-                .push_back((pending, None));
+                .push_back(result(pending, None));
             self.check(false, cx);
             cx.run_until_parked();
             self.seen();
@@ -435,7 +457,7 @@ mod tests {
     #[gpui::test]
     fn a_check_runs_alone_and_lists_what_it_found(cx: &mut TestAppContext) {
         let bench = Bench::new(cx);
-        bench.answer((vec![found(Component::SevenZip)], None));
+        bench.answer(result(vec![found(Component::SevenZip)], None));
         bench.check(false, cx);
         bench.check(true, cx);
         assert_eq!(bench.state(cx), "checking [] None");
@@ -455,13 +477,13 @@ mod tests {
         let bench = Bench::new(cx);
         bench.list(&[Component::SevenZip], cx);
 
-        bench.answer((Vec::new(), Some(Failure::Error)));
+        bench.answer(result(Vec::new(), Some(Failure::Error)));
         bench.check(false, cx);
         cx.run_until_parked();
         assert_eq!(bench.state(cx), "idle [\"7z\"] Some(Error)");
 
         let limit = Failure::RateLimit("GitHub rate limit reached, try again later".to_owned());
-        bench.answer((vec![found(Component::ThrowbackLoader)], Some(limit)));
+        bench.answer(result(vec![found(Component::ThrowbackLoader)], Some(limit)));
         bench.check(false, cx);
         cx.run_until_parked();
         assert_eq!(
@@ -473,6 +495,52 @@ mod tests {
         bench.check(false, cx);
         cx.run_until_parked();
         assert_eq!(bench.state(cx), "idle [] None");
+    }
+
+    #[gpui::test]
+    fn a_check_keeps_the_last_history_when_it_brings_none(cx: &mut TestAppContext) {
+        let bench = Bench::new(cx);
+        let release = |version: &str| Release {
+            version: version.to_owned(),
+            notes: ReleaseNotes::default(),
+        };
+        let history = |cx: &mut TestAppContext| {
+            bench
+                .launcher
+                .read_with(cx, |launcher, _| launcher.update.history().to_vec())
+        };
+        let first = vec![
+            (Component::Launcher, vec![release("0.2.3")]),
+            (Component::SevenZip, Vec::new()),
+        ];
+        bench.answer(Check {
+            history: first.clone(),
+            ..Check::default()
+        });
+        bench.check(false, cx);
+        cx.run_until_parked();
+        assert_eq!(history(cx), first);
+
+        bench.answer(Check {
+            failure: Some(Failure::Error),
+            history: vec![(Component::Launcher, Vec::new())],
+            ..Check::default()
+        });
+        bench.check(true, cx);
+        cx.run_until_parked();
+        assert_eq!(history(cx), first);
+
+        let newer = vec![(
+            Component::Launcher,
+            vec![release("0.2.4"), release("0.2.3")],
+        )];
+        bench.answer(Check {
+            history: newer.clone(),
+            ..Check::default()
+        });
+        bench.check(false, cx);
+        cx.run_until_parked();
+        assert_eq!(history(cx), newer);
     }
 
     #[gpui::test]
@@ -559,7 +627,7 @@ mod tests {
         let bench = Bench::new(cx);
         bench.list(&[Component::SevenZip, Component::ThrowbackLoader], cx);
         bench.outcome(&[0.004, 0.5, 0.509, 0.2, 1.], Ok(()));
-        bench.answer((Vec::new(), Some(Failure::Error)));
+        bench.answer(result(Vec::new(), Some(Failure::Error)));
         bench.apply(Component::SevenZip, cx);
         cx.run_until_parked();
         assert_eq!(
@@ -585,7 +653,7 @@ mod tests {
         let bench = Bench::new(cx);
         bench.list(&[Component::HeatedMetal], cx);
         bench.outcome(&[0.3], Err("Stop R6S first"));
-        bench.answer((Vec::new(), Some(Failure::Error)));
+        bench.answer(result(Vec::new(), Some(Failure::Error)));
         bench.apply(Component::HeatedMetal, cx);
         cx.run_until_parked();
         assert_eq!(
@@ -640,7 +708,7 @@ mod tests {
         let bench = Bench::new(cx);
         bench.list(&[Component::Launcher], cx);
         bench.outcome(&[], Err("Throwback Launcher update failed"));
-        bench.answer((vec![found(Component::Launcher)], None));
+        bench.answer(result(vec![found(Component::Launcher)], None));
         bench.apply(Component::Launcher, cx);
         cx.executor().advance_clock(RESTART_DELAY * 2);
         assert_eq!(

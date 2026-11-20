@@ -10,21 +10,13 @@ use std::time::SystemTime;
 use anyhow::{Context, Result, anyhow, bail};
 
 use crate::env::{
-    DEFAULTARGS_DLL, HM_API_URL, IS_WINDOWS, Paths, SEVENZ_API_URL, copy_with_times,
+    DEFAULTARGS_DLL, HM_API_URL, HM_ASSET, Paths, SEVENZ_API_URL, SEVENZ_ASSET, copy_with_times,
     remove_if_present, resolve, same_path,
 };
 use crate::github::{Progress, download_error, fetch_to, github_asset};
 use crate::log::fail;
 use crate::throwbackloader::{apply_tl, ensure_tl, write_launcher};
 use crate::winspawn::hidden;
-
-const SEVENZ_ASSET: &str = if IS_WINDOWS {
-    "7zr.exe"
-} else if cfg!(target_arch = "aarch64") {
-    "linux-arm64.tar.xz"
-} else {
-    "linux-x64.tar.xz"
-};
 
 pub const HM_LATEST: &str = "latest";
 pub const HM_UNSTABLE: &str = "unstable";
@@ -76,7 +68,7 @@ pub fn resolve_hm_release(paths: &Paths, hm_version: &str) -> Result<(String, St
     } else {
         format!("https://api.github.com/repos/DataCluster0/HeatedMetal/releases/tags/{hm_version}")
     };
-    let release = github_asset(paths, &api_url, ".7z")
+    let release = github_asset(paths, &api_url, HM_ASSET)
         .map_err(|error| download_error("Heated Metal release lookup failed", error))?;
     if latest {
         *latest_release() = Some(release.clone());

@@ -44,7 +44,7 @@ const LIBRARY: &str = "Y5S3_ShadowLegacy,Y9S2_HeatedMetal";
 const ZONE: &str = "Europe/Berlin";
 const API_CACHE: &str = include_str!("qa/api_cache.json");
 const FETCHED: &str = "\"secs_since_epoch\": ";
-const NOTES_RELEASE: &str = "https://api.github.com/repos/xeralin/ThrowbackLoader/releases/latest";
+const NOTES_RELEASE: &str = "https://api.github.com/repos/xeralin/ThrowbackLoader/releases";
 
 struct Sandbox {
     home: PathBuf,
@@ -93,7 +93,7 @@ impl Sandbox {
             let body = std::fs::read_to_string(notes).expect("notes fixture");
             let mut cache: serde_json::Value =
                 serde_json::from_str(&answers).expect("release answers");
-            cache[NOTES_RELEASE]["data"]["body"] = body.into();
+            cache[NOTES_RELEASE]["data"][0]["body"] = body.into();
             answers = cache.to_string();
         }
         std::fs::write(paths.api_cache_file(), answers).expect("sandbox release answers");

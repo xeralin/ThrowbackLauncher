@@ -9,8 +9,8 @@ use toml::{Table, Value};
 use zip::ZipArchive;
 
 use crate::env::{
-    DEFAULTARGS_DLL, HM_FOLDER_SUFFIX, IS_WINDOWS, Paths, TL_API_URL, TL_DLLS_COMMON, TL_LAUNCHER,
-    TL_LOADERS, TL_TOML, copy_with_times,
+    DEFAULTARGS_DLL, HM_FOLDER_SUFFIX, IS_WINDOWS, Paths, TL_API_URL, TL_ASSET, TL_DLLS_COMMON,
+    TL_LAUNCHER, TL_LOADERS, TL_TOML, copy_with_times,
 };
 use crate::github::{Progress, download_error, fetch_to, github_asset};
 
@@ -88,7 +88,7 @@ fn download(
     tmp_dir: &Path,
 ) -> Result<()> {
     fs::create_dir_all(folder)?;
-    let (_, asset_url) = github_asset(paths, TL_API_URL, ".zip")?;
+    let (_, asset_url) = github_asset(paths, TL_API_URL, TL_ASSET)?;
     fetch_to(&asset_url, zip_path, progress, None)?;
     let _ = fs::remove_dir_all(tmp_dir);
     extract(zip_path, folder, tmp_dir)

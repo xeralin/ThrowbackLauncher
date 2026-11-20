@@ -239,10 +239,6 @@ pub fn github_asset(paths: &Paths, api_url: &str, suffix: &str) -> Result<(Strin
     bail!("no release asset matching *{suffix}")
 }
 
-pub fn github_tag(paths: &Paths, api_url: &str) -> Result<String> {
-    Ok(github_json::<Release>(paths, api_url, false)?.tag_name)
-}
-
 fn via_part(dest: &Path, write: impl FnOnce(&mut File) -> Result<()>) -> Result<()> {
     let part = dest.with_added_extension("part");
     let written = File::create(&part)
@@ -472,6 +468,10 @@ mod tests {
     const PYTHON_CACHE: &str =
         r#"{"URL": {"data": {"tag_name": "v0.2.1", "assets": []}, "ts": 1794534530.666341}}"#;
 
+    fn latest_tag(paths: &Paths, api_url: &str) -> Result<String> {
+        Ok(github_json::<Release>(paths, api_url, false)?.tag_name)
+    }
+
     fn paths(folder: &TempDir) -> Paths {
         Paths::new(folder.path().join("asset"), folder.path().join("data"))
     }
@@ -619,7 +619,7 @@ mod tests {
         let url = server.url("/repos/xeralin/ThrowbackLauncher/releases/latest");
         let other = "https://api.github.com/repos/ip7z/7zip/releases/latest";
         seed(&paths, other, &[]);
-        let tag = || github_tag(&paths, &url).unwrap();
+        let tag = || latest_tag(&paths, &url).unwrap();
         let aged = |age: u64| backdate(&paths, &url, SystemTime::now() - Duration::from_secs(age));
         assert_eq!(tag(), "v0");
         assert_eq!(tag(), "v0");
@@ -648,7 +648,7 @@ mod tests {
         seed(&paths, &url, &[]);
         backdate(&paths, &url, UNIX_EPOCH);
         let before = fs::read(paths.api_cache_file()).unwrap();
-        assert!(github_tag(&paths, &url).is_err());
+        assert!(latest_tag(&paths, &url).is_err());
         assert_eq!(fs::read(paths.api_cache_file()).unwrap(), before);
         assert_eq!(server.paths().len(), 1);
     }
@@ -660,7 +660,7 @@ mod tests {
         let paths = paths(&folder);
         let url = server.url("/releases/latest");
         assert!(github_json::<Vec<Value>>(&paths, &url, false).is_err());
-        assert_eq!(github_tag(&paths, &url).unwrap(), "v1");
+        assert_eq!(latest_tag(&paths, &url).unwrap(), "v1");
         assert_eq!(server.paths().len(), 1);
     }
 
@@ -672,8 +672,8 @@ mod tests {
         let url = server.url("/releases/latest");
         fs::create_dir_all(paths.bin_dir()).unwrap();
         fs::write(paths.api_cache_file(), PYTHON_CACHE.replace("URL", &url)).unwrap();
-        assert_eq!(github_tag(&paths, &url).unwrap(), "v0.3.0");
-        assert_eq!(github_tag(&paths, &url).unwrap(), "v0.3.0");
+        assert_eq!(latest_tag(&paths, &url).unwrap(), "v0.3.0");
+        assert_eq!(latest_tag(&paths, &url).unwrap(), "v0.3.0");
         assert_eq!(server.paths().len(), 1);
     }
 

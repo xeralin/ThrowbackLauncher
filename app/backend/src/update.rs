@@ -12,15 +12,16 @@ use serde::Deserialize;
 
 use crate::depot::ensure_depotdownloader;
 use crate::env::{
-    APP_NAME, DD_API_URL, EXE_NAME, GAME_RUNNING, HM_API_URL, IS_WINDOWS, NOT_INSTALLED_HM,
-    PACKAGED, Paths, RELAUNCH_ARG, SEVENZ_API_URL, TL_API_URL, VERSION, parse_version,
+    APP_NAME, DD_API_URL, DD_ASSET, EXE_NAME, GAME_RUNNING, HM_API_URL, HM_ASSET, IS_WINDOWS,
+    NOT_INSTALLED_HM, PACKAGED, Paths, RELAUNCH_ARG, SEVENZ_API_URL, SEVENZ_ASSET, TL_API_URL,
+    TL_ASSET, VERSION, parse_version,
 };
 use crate::github::{
-    Progress, RateLimitError, download_error, fetch_to, github_asset, github_json, github_tag,
+    Progress, RateLimitError, download_error, fetch_to, github_asset, github_json,
     invalidate_api_cache,
 };
 use crate::heatedmetal::{
-    HM_LATEST, apply_hm, clear_release_cache, ensure_7z, hm_installed_version, resolve_hm_release,
+    HM_LATEST, apply_hm, clear_release_cache, ensure_7z, hm_installed_version,
 };
 use crate::log::fail;
 use crate::manifest::{Download, hm_folder_name, installed_downloads, is_installed};
@@ -80,12 +81,21 @@ impl From<Published> for ReleaseNotes {
 }
 
 #[derive(Deserialize)]
+struct Asset {
+    name: String,
+}
+
+#[derive(Deserialize)]
 struct Listed {
     tag_name: String,
     prerelease: bool,
+    #[serde(default)]
+    assets: Vec<Asset>,
     #[serde(flatten)]
     notes: ReleaseNotes,
 }
+
+type Probe = (Component, bool, Result<(Vec<Listed>, Option<String>)>);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pending {
@@ -104,6 +114,13 @@ pub struct Release {
 pub enum Failure {
     RateLimit(String),
     Error,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Check {
+    pub pending: Vec<Pending>,
+    pub failure: Option<Failure>,
+    pub history: Vec<(Component, Vec<Release>)>,
 }
 
 pub struct Install {
@@ -198,7 +215,7 @@ fn program(paths: &Paths) -> Option<PathBuf> {
     appimage.map(PathBuf::from)
 }
 
-pub fn self_updatable(paths: &Paths) -> bool {
+fn self_updatable(paths: &Paths) -> bool {
     PACKAGED && program(paths).is_some()
 }
 
@@ -347,43 +364,52 @@ impl Component {
         }
     }
 
-    fn latest(self, paths: &Paths) -> Result<String> {
+    fn releases(self, paths: &Paths) -> Result<Vec<Listed>> {
+        let url = self.release_url().trim_end_matches("/latest");
+        github_json(paths, url, false)
+    }
+
+    fn asset(self) -> &'static str {
         match self {
-            Self::Launcher => numbered(&github_asset(paths, UPDATE_API_URL, PROGRAM_ASSET)?.0),
-            Self::DepotDownloader => {
-                let tag = github_tag(paths, DD_API_URL)?;
-                Ok(tag
-                    .strip_prefix("DepotDownloader_")
-                    .unwrap_or(&tag)
-                    .to_owned())
-            }
-            Self::SevenZip => github_tag(paths, SEVENZ_API_URL),
-            Self::ThrowbackLoader => numbered(&github_tag(paths, TL_API_URL)?),
-            Self::HeatedMetal => Ok(resolve_hm_release(paths, HM_LATEST)?.0),
+            Self::Launcher => PROGRAM_ASSET,
+            Self::DepotDownloader => DD_ASSET,
+            Self::SevenZip => SEVENZ_ASSET,
+            Self::ThrowbackLoader => TL_ASSET,
+            Self::HeatedMetal => HM_ASSET,
         }
     }
 
-    fn past_releases(self, install: &Install) -> Result<Vec<Release>> {
-        let url = self.release_url().trim_end_matches("/latest");
-        let listed: Vec<Listed> = github_json(&install.paths, url, false)?;
-        let current = self.current(install);
-        let releases = listed
-            .into_iter()
-            .filter(|release| !release.prerelease)
-            .map(|release| Release {
-                version: release
-                    .tag_name
-                    .trim_start_matches(|letter: char| !letter.is_ascii_digit())
-                    .to_owned(),
-                notes: release.notes,
-            });
-        Ok(releases
-            .filter(|release| {
-                current
-                    .as_deref()
-                    .is_none_or(|current| !newer(&release.version, current))
-            })
-            .collect())
+    fn latest(self, listed: &[Listed]) -> Result<(String, ReleaseNotes)> {
+        let newest = listed
+            .iter()
+            .find(|release| !release.prerelease)
+            .context("no published release")?;
+        let suffix = self.asset();
+        let mut assets = newest.assets.iter();
+        ensure!(
+            assets.any(|asset| asset.name.ends_with(suffix)),
+            "no release asset matching *{suffix}"
+        );
+        let tag = newest.tag_name.as_str();
+        let version = match self {
+            Self::Launcher | Self::ThrowbackLoader => numbered(tag)?,
+            Self::DepotDownloader => tag
+                .strip_prefix("DepotDownloader_")
+                .unwrap_or(tag)
+                .to_owned(),
+            Self::SevenZip | Self::HeatedMetal => tag.to_owned(),
+        };
+        Ok((version, newest.notes.clone()))
+    }
+
+    fn offer(self, listed: &[Listed], current: Option<&str>) -> Result<Option<Pending>> {
+        let (target, notes) = self.latest(listed)?;
+        let newer = current.is_none_or(|current| newer(&target, current));
+        Ok(newer.then_some(Pending {
+            component: self,
+            target,
+            notes,
+        }))
     }
 
     pub fn apply(self, install: &Install, progress: Progress) -> Result<()> {
@@ -429,84 +455,84 @@ impl Component {
     }
 }
 
-fn pending(
-    install: &Install,
-    probes: impl Iterator<Item = (Component, Result<String>)>,
-) -> (Vec<Pending>, Option<Failure>) {
-    let mut updates = Vec::new();
-    let mut failure = None;
-    for (component, latest) in probes {
-        match latest {
-            Ok(target) => {
-                let current = component.current(install);
-                if current.is_none_or(|current| newer(&target, &current)) {
-                    let url = component.release_url();
-                    let notes = github_json(&install.paths, url, false).unwrap_or_default();
-                    updates.push(Pending {
-                        component,
-                        target,
-                        notes,
-                    });
-                }
-            }
-            Err(error) => {
-                let failed = match error.downcast_ref::<RateLimitError>() {
-                    Some(limit) => Failure::RateLimit(limit.to_string()),
-                    None => {
-                        fail(
-                            &format!("{} check failed", component.name()),
-                            format!("{error:#}"),
-                        );
-                        Failure::Error
-                    }
-                };
-                if !matches!(failure, Some(Failure::RateLimit(_))) {
-                    failure = Some(failed);
-                }
-            }
-        }
-    }
-    (updates, failure)
+fn published(listed: Vec<Listed>, current: Option<&str>) -> Vec<Release> {
+    let releases = listed
+        .into_iter()
+        .filter(|release| !release.prerelease)
+        .map(|release| Release {
+            version: release
+                .tag_name
+                .trim_start_matches(|letter: char| !letter.is_ascii_digit())
+                .to_owned(),
+            notes: release.notes,
+        });
+    releases
+        .filter(|release| current.is_none_or(|current| !newer(&release.version, current)))
+        .collect()
 }
 
-fn check(install: &Install, force: bool) -> (Vec<Pending>, Option<Failure>) {
+impl Check {
+    fn failed(&mut self, component: Component, error: &anyhow::Error, present: bool) {
+        let limit = error.downcast_ref::<RateLimitError>();
+        if limit.is_none() {
+            fail(
+                &format!("{} check failed", component.name()),
+                format!("{error:#}"),
+            );
+        }
+        if present && !matches!(self.failure, Some(Failure::RateLimit(_))) {
+            let failure = limit.map_or(Failure::Error, |limit| {
+                Failure::RateLimit(limit.to_string())
+            });
+            self.failure = Some(failure);
+        }
+    }
+}
+
+fn assess(probes: impl Iterator<Item = Probe>) -> Check {
+    let mut check = Check::default();
+    for (component, present, found) in probes {
+        let releases = match found {
+            Ok((listed, current)) => {
+                if present {
+                    match component.offer(&listed, current.as_deref()) {
+                        Ok(offered) => check.pending.extend(offered),
+                        Err(error) => check.failed(component, &error, true),
+                    }
+                }
+                published(listed, current.as_deref())
+            }
+            Err(error) => {
+                check.failed(component, &error, present);
+                Vec::new()
+            }
+        };
+        check.history.push((component, releases));
+    }
+    check
+}
+
+fn check(install: &Install, force: bool) -> Check {
     let paths = &install.paths;
     if force && let Err(error) = invalidate_api_cache(paths) {
         fail("Update check failed", format!("{error:#}"));
-        return (Vec::new(), Some(Failure::Error));
+        return Check {
+            failure: Some(Failure::Error),
+            ..Check::default()
+        };
     }
-    let present: Vec<Component> = Component::ALL
-        .into_iter()
-        .filter(|component| component.present(install))
-        .collect();
-    let latest = in_parallel(&present, |component| component.latest(paths));
-    pending(install, present.into_iter().zip(latest))
+    let present = Component::ALL.map(|component| component.present(install));
+    let found = in_parallel(&Component::ALL, |component| {
+        let listed = component.releases(paths)?;
+        Ok((listed, component.current(install)))
+    });
+    let probes = Component::ALL.into_iter().zip(present).zip(found);
+    assess(probes.map(|((component, present), found)| (component, present, found)))
 }
 
-pub fn available(install: &Install, force: bool) -> (Vec<Pending>, Option<Failure>) {
+pub fn available(install: &Install, force: bool) -> Check {
     clear_release_cache();
     check(install, force)
-}
-
-pub fn history(install: &Install) -> Vec<(Component, Vec<Release>)> {
-    let loaded = in_parallel(&Component::ALL, |component| {
-        component.past_releases(install)
-    });
-    let components = Component::ALL.into_iter().zip(loaded);
-    components
-        .map(|(component, releases)| {
-            let releases = releases.unwrap_or_else(|error| {
-                if !error.is::<RateLimitError>() {
-                    fail(
-                        &format!("{} history check failed", component.name()),
-                        format!("{error:#}"),
-                    );
-                }
-                Vec::new()
-            });
-            (component, releases)
-        })
-        .collect()
 }
 
 pub fn installed(install: &Install) -> Vec<(Component, String)> {
@@ -630,6 +656,24 @@ mod tests {
             url: url.to_owned(),
             date: date.to_owned(),
         }
+    }
+
+    fn entry(tag: &str, assets: &[&str]) -> Value {
+        let assets: Vec<Value> = assets.iter().map(|name| json!({"name": name})).collect();
+        json!({"tag_name": tag, "prerelease": false, "assets": assets})
+    }
+
+    fn parsed(entries: Value) -> Vec<Listed> {
+        serde_json::from_value(entries).unwrap()
+    }
+
+    fn lists(paths: &Paths, lists: [Value; 5]) {
+        let urls = Component::ALL.map(|component| {
+            let url = component.release_url();
+            url.strip_suffix("/latest").unwrap()
+        });
+        let answers: Vec<(&str, Value)> = urls.into_iter().zip(lists).collect();
+        seed(paths, &answers);
     }
 
     #[test]
@@ -833,64 +877,109 @@ mod tests {
     }
 
     #[test]
-    fn the_newest_version_comes_from_the_release_tag() {
-        let bench = bench();
-        let paths = &bench.install.paths;
-        let latest = |component: Component| component.latest(paths).ok();
-        let program = [("Runtime.zip", "a"), (PROGRAM_ASSET, "b")];
-        seed(
-            paths,
-            &[
-                (UPDATE_API_URL, release("v0.3.0", &program)),
-                (DD_API_URL, release("DepotDownloader_3.4.0", &[])),
-                (SEVENZ_API_URL, release("26.03", &[])),
-                (TL_API_URL, release("v0.1.9", &[])),
-            ],
+    fn the_newest_version_comes_from_the_newest_published_release() {
+        let latest = |component: Component, entries: Value| {
+            let found = component.latest(&parsed(entries));
+            found.ok().map(|(version, _)| version)
+        };
+        let program = ["Runtime.zip", PROGRAM_ASSET];
+        let sevenz = format!("7z2603-{SEVENZ_ASSET}");
+        let early = json!({"tag_name": "0.4.3-1", "prerelease": true, "assets": [{"name": "HeatedMetal.7z"}]});
+        assert_eq!(
+            latest(Component::Launcher, json!([entry("v0.3.0", &program)])).as_deref(),
+            Some("0.3.0")
         );
-        assert_eq!(latest(Component::Launcher).as_deref(), Some("0.3.0"));
-        assert_eq!(latest(Component::DepotDownloader).as_deref(), Some("3.4.0"));
-        assert_eq!(latest(Component::SevenZip).as_deref(), Some("26.03"));
-        assert_eq!(latest(Component::ThrowbackLoader).as_deref(), Some("0.1.9"));
+        assert_eq!(
+            latest(
+                Component::DepotDownloader,
+                json!([entry("DepotDownloader_3.4.0", &[DD_ASSET])])
+            )
+            .as_deref(),
+            Some("3.4.0")
+        );
+        assert_eq!(
+            latest(Component::SevenZip, json!([entry("26.03", &[&sevenz])])).as_deref(),
+            Some("26.03")
+        );
+        assert_eq!(
+            latest(
+                Component::ThrowbackLoader,
+                json!([entry("v0.1.9", &["ThrowbackLoader-0.1.9.zip"])])
+            )
+            .as_deref(),
+            Some("0.1.9")
+        );
+        assert_eq!(
+            latest(
+                Component::HeatedMetal,
+                json!([early, entry("0.4.2.2", &["HeatedMetal.7z"])])
+            )
+            .as_deref(),
+            Some("0.4.2.2")
+        );
 
-        seed(
-            paths,
-            &[
-                (UPDATE_API_URL, release("v0.3.0-rc1", &program)),
-                (TL_API_URL, release("nightly", &[])),
-            ],
-        );
-        assert_eq!(latest(Component::Launcher), None);
-        assert_eq!(latest(Component::ThrowbackLoader), None);
+        let missing = [
+            (Component::Launcher, entry("v0.3.0", &["Runtime.zip"])),
+            (Component::Launcher, entry("v0.3.0-rc1", &program)),
+            (
+                Component::DepotDownloader,
+                entry("DepotDownloader_3.4.0", &[]),
+            ),
+            (Component::SevenZip, entry("26.03", &["7z2603-mac.tar.xz"])),
+            (
+                Component::ThrowbackLoader,
+                entry("nightly", &["ThrowbackLoader.zip"]),
+            ),
+            (Component::ThrowbackLoader, entry("v0.1.9", &[])),
+            (Component::HeatedMetal, entry("0.4.2.2", &[])),
+        ];
+        for (component, release) in missing {
+            assert_eq!(
+                latest(component, json!([release])),
+                None,
+                "{}",
+                component.name()
+            );
+        }
+        assert_eq!(latest(Component::SevenZip, json!([])), None);
     }
 
     #[test]
-    fn pending_lists_what_is_newer_or_unknown_together_with_a_failure() {
-        let bench = bench();
-        let install = &bench.install;
-        loader(&install.paths, [0, 1, 8]);
-        let mut loader_release = release("v0.1.9", &[]);
+    fn a_check_lists_what_is_newer_or_unknown_together_with_a_failure() {
+        let limit = |minutes| Err(RateLimitError { minutes }.into());
+        let found = |entries: Value, current: Option<&str>| {
+            Ok((parsed(entries), current.map(str::to_owned)))
+        };
+        let mut loader_release = entry("v0.1.9", &["ThrowbackLoader-0.1.9.zip"]);
         loader_release["body"] = "## Changed".into();
         loader_release["html_url"] = "https://github.com/loader".into();
         loader_release["published_at"] = "2026-11-10T08:00:00Z".into();
-        let mut depot_release = release("DepotDownloader_3.4.0", &[]);
+        let mut depot_release = entry("DepotDownloader_3.4.0", &[DD_ASSET]);
         depot_release["body"] = "".into();
         depot_release["html_url"] = "https://github.com/depot".into();
-        seed(
-            &install.paths,
-            &[(TL_API_URL, loader_release), (DD_API_URL, depot_release)],
-        );
-        let limit = |minutes| Err(RateLimitError { minutes }.into());
-        let found = |target: &str| Ok(target.to_owned());
-        let probes = [
-            (Component::Launcher, found(VERSION)),
-            (Component::DepotDownloader, found("3.4.0")),
-            (Component::SevenZip, Err(anyhow!("connection reset"))),
-            (Component::ThrowbackLoader, found("0.1.9")),
-            (Component::HeatedMetal, limit(2)),
+        let installed = json!([{
+            "tag_name": format!("v{VERSION}"),
+            "prerelease": false,
+            "assets": [{"name": PROGRAM_ASSET}],
+        }]);
+        let probes: [Probe; 5] = [
+            (Component::Launcher, true, found(installed, Some(VERSION))),
+            (
+                Component::DepotDownloader,
+                true,
+                found(json!([depot_release]), None),
+            ),
+            (Component::SevenZip, true, Err(anyhow!("connection reset"))),
+            (
+                Component::ThrowbackLoader,
+                true,
+                found(json!([loader_release]), Some("0.1.8")),
+            ),
+            (Component::HeatedMetal, true, limit(2)),
         ];
-        let (listed, failure) = pending(install, probes.into_iter());
+        let check = assess(probes.into_iter());
         assert_eq!(
-            listed,
+            check.pending,
             [
                 Pending {
                     component: Component::DepotDownloader,
@@ -909,37 +998,60 @@ mod tests {
             ]
         );
         assert_eq!(
-            failure,
+            check.failure,
             Some(Failure::RateLimit(
                 "GitHub rate limit reached, try again in 2 minutes".to_owned()
             ))
         );
         assert_eq!(take_recorded(), ["7z check failed - connection reset"]);
+        let versions: Vec<(&str, Vec<&str>)> = check
+            .history
+            .iter()
+            .map(|(component, releases)| {
+                let listed = releases.iter().map(|release| release.version.as_str());
+                (component.name(), listed.collect())
+            })
+            .collect();
+        assert_eq!(
+            versions,
+            [
+                ("Throwback Launcher", vec![VERSION]),
+                ("DepotDownloader", vec!["3.4.0"]),
+                ("7z", vec![]),
+                ("ThrowbackLoader", vec![]),
+                ("Heated Metal", vec![]),
+            ]
+        );
     }
 
     #[test]
     fn the_first_rate_limit_outranks_other_failures_and_old_releases_are_skipped() {
-        let bench = bench();
-        let install = &bench.install;
-        loader(&install.paths, [0, 1, 8]);
         let limit = |minutes| Err(RateLimitError { minutes }.into());
         let failed = || Err(anyhow!("timed out"));
-        let found = |target: &str| Ok(target.to_owned());
+        let loader = |tag: &str| {
+            let release = entry(tag, &["ThrowbackLoader.zip"]);
+            Ok((parsed(json!([release])), Some("0.1.8".to_owned())))
+        };
+        let outcome = |probes: Vec<Probe>| {
+            let check = assess(probes.into_iter());
+            (check.pending, check.failure)
+        };
 
-        let probes = [
-            (Component::Launcher, failed()),
-            (Component::DepotDownloader, limit(3)),
-            (Component::SevenZip, failed()),
-            (Component::ThrowbackLoader, found("0.1.8")),
-            (Component::HeatedMetal, limit(1)),
+        let probes = vec![
+            (Component::Launcher, true, failed()),
+            (Component::DepotDownloader, true, limit(3)),
+            (Component::SevenZip, true, failed()),
+            (Component::ThrowbackLoader, true, loader("v0.1.8")),
+            (Component::HeatedMetal, true, limit(1)),
         ];
-        let (listed, failure) = pending(install, probes.into_iter());
-        assert!(listed.is_empty());
         assert_eq!(
-            failure,
-            Some(Failure::RateLimit(
-                "GitHub rate limit reached, try again in 3 minutes".to_owned()
-            ))
+            outcome(probes),
+            (
+                Vec::new(),
+                Some(Failure::RateLimit(
+                    "GitHub rate limit reached, try again in 3 minutes".to_owned()
+                ))
+            )
         );
         assert_eq!(
             take_recorded(),
@@ -949,32 +1061,41 @@ mod tests {
             ]
         );
 
-        let probes = [
-            (Component::Launcher, failed()),
-            (Component::ThrowbackLoader, found("0.1.7")),
+        let probes = vec![
+            (Component::Launcher, true, failed()),
+            (Component::ThrowbackLoader, true, loader("v0.1.7")),
         ];
+        assert_eq!(outcome(probes), (Vec::new(), Some(Failure::Error)));
+        let probes = vec![(Component::ThrowbackLoader, true, loader("v0.1.8"))];
+        assert_eq!(outcome(probes), (Vec::new(), None));
+        assert_eq!(outcome(Vec::new()), (Vec::new(), None));
+        let probes = vec![(Component::HeatedMetal, false, failed())];
+        assert_eq!(outcome(probes), (Vec::new(), None));
         assert_eq!(
-            pending(install, probes.into_iter()),
-            (Vec::new(), Some(Failure::Error))
+            take_recorded(),
+            [
+                "Throwback Launcher check failed - timed out",
+                "Heated Metal check failed - timed out"
+            ]
         );
-        let probes = [(Component::ThrowbackLoader, found("0.1.8"))];
-        assert_eq!(pending(install, probes.into_iter()), (Vec::new(), None));
-        assert_eq!(pending(install, std::iter::empty()), (Vec::new(), None));
     }
 
     #[test]
-    fn a_check_asks_the_present_components_and_lists_their_updates() {
+    fn a_check_asks_once_per_component_and_lists_the_updates_of_present_ones() {
         let bench = bench();
         let install = &bench.install;
         let paths = &install.paths;
         fs::write(paths.dd_bin(), "").unwrap();
         loader(paths, [0, 1, 8]);
         let offer = |loader_tag: &str| {
-            let mut loader_release = release(loader_tag, &[]);
+            let mut loader_release = entry(loader_tag, &["ThrowbackLoader.zip"]);
             loader_release["body"] = "## Changed".into();
-            let depot_release = release("DepotDownloader_3.4.0", &[]);
-            let answers = [(TL_API_URL, loader_release), (DD_API_URL, depot_release)];
-            seed(paths, &answers);
+            let depot = json!([entry("DepotDownloader_3.4.0", &[DD_ASSET])]);
+            let none = || json!([]);
+            lists(
+                paths,
+                [none(), depot, none(), json!([loader_release]), none()],
+            );
         };
         let listed = |pending: Vec<Pending>| -> Vec<(&str, String, String)> {
             let updates = pending.into_iter();
@@ -985,52 +1106,47 @@ mod tests {
         let depot = || ("DepotDownloader", "3.4.0".to_owned(), String::new());
 
         offer("v0.1.9");
-        let (pending, failure) = check(install, false);
+        let checked = check(install, false);
         let loader = (
             "ThrowbackLoader",
             "0.1.9".to_owned(),
             "## Changed".to_owned(),
         );
-        assert_eq!(listed(pending), [depot(), loader]);
-        assert_eq!(failure, None);
+        assert_eq!(listed(checked.pending), [depot(), loader]);
+        assert_eq!(checked.failure, None);
 
         offer("v0.1.8");
-        let (pending, failure) = check(install, false);
-        assert_eq!(listed(pending), [depot()]);
-        assert_eq!(failure, None);
+        let checked = check(install, false);
+        assert_eq!(listed(checked.pending), [depot()]);
+        assert_eq!(checked.failure, None);
         assert!(take_recorded().is_empty());
 
         offer("nightly");
-        let (pending, failure) = check(install, false);
-        assert_eq!(listed(pending), [depot()]);
-        assert_eq!(failure, Some(Failure::Error));
+        let checked = check(install, false);
+        assert_eq!(listed(checked.pending), [depot()]);
+        assert_eq!(checked.failure, Some(Failure::Error));
         let recorded = take_recorded();
         assert_eq!(recorded.len(), 1, "{recorded:?}");
         assert!(recorded[0].starts_with("ThrowbackLoader check failed - "));
     }
 
     #[test]
-    fn a_forced_check_drops_the_cached_answers_first() {
+    fn a_forced_check_stops_when_the_cached_answers_cannot_be_dropped() {
         let bench = bench();
         let install = &bench.install;
-        let cache = install.paths.api_cache_file();
-        assert_eq!(check(install, true), (Vec::new(), None));
-        seed(&install.paths, &[(TL_API_URL, release("v0.1.9", &[]))]);
-        assert_eq!(check(install, false), (Vec::new(), None));
-        assert!(cache.exists());
-        assert_eq!(check(install, true), (Vec::new(), None));
-        assert!(!cache.exists());
-        assert!(take_recorded().is_empty());
-
-        fs::create_dir(&cache).unwrap();
-        assert_eq!(check(install, true), (Vec::new(), Some(Failure::Error)));
+        fs::create_dir(install.paths.api_cache_file()).unwrap();
+        let failed = Check {
+            failure: Some(Failure::Error),
+            ..Check::default()
+        };
+        assert_eq!(check(install, true), failed);
         let recorded = take_recorded();
         assert_eq!(recorded.len(), 1, "{recorded:?}");
         assert!(recorded[0].starts_with("Update check failed - "));
     }
 
     #[test]
-    fn history_lists_published_releases_up_to_the_installed_version() {
+    fn the_history_lists_published_releases_up_to_the_installed_version() {
         let bench = bench();
         let install = &bench.install;
         let listed = |tag: &str, prerelease: bool| {
@@ -1043,24 +1159,21 @@ mod tests {
             })
         };
         let installed = format!("v{VERSION}");
-        let lists = [
-            json!([
-                listed("v99.0.0", false),
-                listed(&installed, false),
-                listed("v0.1.5", true),
-                listed("v0.1.0", false),
-            ]),
-            json!([listed("DepotDownloader_3.4.0", false)]),
-            json!({"message": "Not Found"}),
-            json!([]),
-            json!([listed("0.3.1", false), {"tag_name": "0.3.0", "prerelease": false}]),
-        ];
-        let urls = Component::ALL.map(|component| {
-            let url = component.release_url();
-            url.strip_suffix("/latest").unwrap()
-        });
-        let answers: Vec<(&str, Value)> = urls.into_iter().zip(lists).collect();
-        seed(&install.paths, &answers);
+        lists(
+            &install.paths,
+            [
+                json!([
+                    listed("v99.0.0", false),
+                    listed(&installed, false),
+                    listed("v0.1.5", true),
+                    listed("v0.1.0", false),
+                ]),
+                json!([listed("DepotDownloader_3.4.0", false)]),
+                json!({"message": "Not Found"}),
+                json!([]),
+                json!([listed("0.3.1", false), {"tag_name": "0.3.0", "prerelease": false}]),
+            ],
+        );
 
         let kept = |tag: &str, version: &str| Release {
             version: version.to_owned(),
@@ -1074,8 +1187,9 @@ mod tests {
             version: "0.3.0".to_owned(),
             notes: ReleaseNotes::default(),
         };
+        let checked = check(install, false);
         assert_eq!(
-            history(install),
+            checked.history,
             [
                 (
                     Component::Launcher,
@@ -1090,9 +1204,11 @@ mod tests {
                 (Component::HeatedMetal, vec![kept("0.3.1", "0.3.1"), bare]),
             ]
         );
+        assert!(checked.pending.is_empty());
+        assert_eq!(checked.failure, None);
         let recorded = take_recorded();
         assert_eq!(recorded.len(), 1, "{recorded:?}");
-        assert!(recorded[0].starts_with("7z history check failed - "));
+        assert!(recorded[0].starts_with("7z check failed - "));
     }
 
     #[test]

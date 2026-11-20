@@ -141,7 +141,7 @@ pub struct Palette {
     surfaces: [Srgb; 5],
     texts: [Srgb; 6],
     notice: [Srgb; 5],
-    error: [Srgb; 7],
+    error: [Srgb; 3],
     alerts: [[Srgb; 4]; 3],
 }
 
@@ -160,15 +160,7 @@ const DARK_NOTICE: [Srgb; 5] = [
     hex(0xffd966),
     hex(0xf0a500),
 ];
-const DARK_ERROR: [Srgb; 7] = [
-    hex(0x3a0000),
-    hex(0x0d0000),
-    hex(0x1a0000),
-    hex(0xc86060),
-    hex(0xe1a8a8),
-    hex(0xf06060),
-    hex(0xff8080),
-];
+const DARK_ERROR: [Srgb; 3] = [hex(0x0d0000), hex(0xc86060), hex(0xf06060)];
 const DARK_ALERTS: [[Srgb; 4]; 3] = [
     [hex(0x00060d), hex(0x7aa6cc), hex(0x8cc4f0), hex(0x5b9bd4)],
     [hex(0x000d00), hex(0x7fb87f), hex(0x8ee08e), hex(0x6abf6a)],
@@ -186,15 +178,7 @@ const LIGHT_NOTICE: [Srgb; 5] = [
     hex(0x6e4a00),
     hex(0xe09a00),
 ];
-const LIGHT_ERROR: [Srgb; 7] = [
-    hex(0xf1c4c4),
-    hex(0xfff0f0),
-    hex(0xffe1e1),
-    hex(0xa12a2a),
-    hex(0x7d1f1f),
-    hex(0xb02222),
-    hex(0x8a1515),
-];
+const LIGHT_ERROR: [Srgb; 3] = [hex(0xfff0f0), hex(0xa12a2a), hex(0xb02222)];
 
 const fn dark(surfaces: [u32; 5]) -> Palette {
     Palette {
@@ -316,13 +300,9 @@ pub const NOTICE_TEXT: Tone = Tone::Notice(1);
 pub const NOTICE_LINK: Tone = Tone::Notice(2);
 pub const NOTICE_LINK_HOVER: Tone = Tone::Notice(3);
 pub const NOTICE_EDGE: Tone = Tone::Notice(4);
-pub const ERROR_BORDER: Tone = Tone::Error(0);
-pub const ERROR_BG: Tone = Tone::Error(1);
-pub const ERROR_BG_STRONG: Tone = Tone::Error(2);
-pub const ERROR_TEXT: Tone = Tone::Error(3);
-pub const ERROR_CODE: Tone = Tone::Error(4);
-pub const ERROR_LINK: Tone = Tone::Error(5);
-pub const ERROR_LINK_HOVER: Tone = Tone::Error(6);
+pub const ERROR_BG: Tone = Tone::Error(0);
+pub const ERROR_TEXT: Tone = Tone::Error(1);
+pub const ERROR_LINK: Tone = Tone::Error(2);
 
 impl Tone {
     pub fn srgb(self) -> Srgb {
@@ -411,6 +391,23 @@ pub trait Typeface: Styled {
 
 impl<T: Styled> Typeface for T {}
 
+pub fn blend(from: Rgba, to: Rgba, amount: f32) -> Rgba {
+    let alpha = from.a + (to.a - from.a) * amount;
+    if alpha <= 0. {
+        return Rgba { a: 0., ..to };
+    }
+    let channel = |from_value: f32, to_value: f32| {
+        let start = from_value * from.a;
+        (start + (to_value * to.a - start) * amount) / alpha
+    };
+    Rgba {
+        r: channel(from.r, to.r),
+        g: channel(from.g, to.g),
+        b: channel(from.b, to.b),
+        a: alpha,
+    }
+}
+
 pub fn shadow(x: f32, y: f32, blur: f32, spread: f32, color: Hsla) -> BoxShadow {
     BoxShadow::new(px(x), px(y), color)
         .blur_radius(px(blur / 2.))
@@ -484,6 +481,54 @@ mod tests {
         for (have, want) in [(actual.r, r), (actual.g, g), (actual.b, b)] {
             assert!((have - want).abs() < 0.0005, "{have} != {want}");
         }
+    }
+
+    #[test]
+    fn blending_from_a_transparent_color_keeps_the_target_color() {
+        let clear = Rgba {
+            r: 0.,
+            g: 0.,
+            b: 0.,
+            a: 0.,
+        };
+        let red = Rgba {
+            r: 0.8,
+            g: 0.1,
+            b: 0.2,
+            a: 1.,
+        };
+        let half = blend(clear, red, 0.5);
+        close(
+            Srgb {
+                r: half.r,
+                g: half.g,
+                b: half.b,
+            },
+            0.8,
+            0.1,
+            0.2,
+        );
+        assert!((half.a - 0.5).abs() < 0.0005);
+        assert_eq!(blend(clear, red, 1.), red);
+        assert_eq!(blend(red, clear, 1.).a, 0.);
+        let grey = Rgba {
+            r: 0.2,
+            g: 0.2,
+            b: 0.2,
+            a: 0.5,
+        };
+        let mixed = blend(grey, red, 0.5);
+        close(
+            Srgb {
+                r: mixed.r,
+                g: mixed.g,
+                b: mixed.b,
+            },
+            0.6,
+            0.133_333,
+            0.2,
+        );
+        assert!((mixed.a - 0.75).abs() < 0.0005);
     }
 
     #[test]

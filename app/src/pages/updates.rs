@@ -18,22 +18,18 @@ use crate::model::update::Updater;
 use crate::notices::RATE_LIMIT;
 use crate::ui::button::{glyph_button, icon_button, primary};
 use crate::ui::icon::{CHEVRON_DOWN, GITHUB, PACKAGE, REFRESH, icon};
-use crate::ui::kit::{
-    code, disable, external, icon_box, list_row, note, ring, truncate, version_chip,
-};
+use crate::ui::kit::{disable, external, icon_box, list_row, ring, truncate, version_chip};
 use crate::ui::markdown::{self, Block};
 use crate::ui::modal::Modal;
 use crate::ui::motion::{self, EASE, EASE_IN_OUT, EASE_OUT_CUBIC, FAST, SLOW, sub};
 use crate::ui::prose;
 use crate::ui::scroll::reveal;
 use crate::ui::theme::{
-    BG, BLACK, BORDER, BRAND, ERROR_BG, ERROR_BG_STRONG, ERROR_BORDER, ERROR_CODE, ERROR_LINK,
-    ERROR_LINK_HOVER, ERROR_TEXT, FONT_BODY, FONT_DISPLAY_BOLD, REM, SURFACE, SURFACE_2, TEXT,
-    TEXT_MUTED, TEXT_UI, Theme, Typeface, WELL, shadow,
+    BG, BLACK, BORDER, FONT_BODY, FONT_DISPLAY_BOLD, REM, SURFACE, SURFACE_2, TEXT, TEXT_MUTED,
+    TEXT_UI, Theme, Typeface, WELL, shadow,
 };
 use crate::ui::toast;
 
-const LATEST_RELEASE: &str = "https://github.com/xeralin/ThrowbackLauncher/releases/latest";
 const UPDATE_TOAST: &str = "update";
 const WIDTH: f32 = 600.;
 const PAD_X: f32 = 0.6 * REM;
@@ -137,37 +133,6 @@ fn row() -> Div {
         .py(px(PAD_Y))
 }
 
-fn stale_note(window: &mut Window, cx: &mut App) -> Div {
-    let id = ElementId::from("updates-latest");
-    let hover = motion::hover(&id, FAST, window, cx);
-    let link = div()
-        .rounded(px(6.))
-        .cursor_pointer()
-        .line_height(px(1.25 * TEXT_UI))
-        .text_color(ERROR_LINK.solid())
-        .underline()
-        .hover(|style| style.text_color(ERROR_LINK_HOVER.solid()))
-        .child("latest release");
-    let file = code("ThrowbackLauncher.exe", 0.85 * TEXT_UI)
-        .border_color(ERROR_BORDER.solid())
-        .bg(ERROR_BG_STRONG.solid())
-        .text_color(ERROR_CODE.solid());
-    div().flex().mb(px(24.)).max_w(px(WIDTH)).child(
-        note()
-            .flex_shrink(1.)
-            .flex_wrap()
-            .min_w_0()
-            .border_color(BRAND.solid())
-            .bg(ERROR_BG.solid())
-            .text_color(ERROR_TEXT.solid())
-            .child("Download ")
-            .child(file)
-            .child(" from the ")
-            .child(external(id, link, LATEST_RELEASE, &hover, window, cx))
-            .child(" to receive Launcher updates."),
-    )
-}
-
 struct Offer {
     component: Component,
     target: String,
@@ -205,12 +170,6 @@ pub struct UpdatesPage {
 impl UpdatesPage {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let launcher = Launcher::handle(cx);
-        let history = launcher.read(cx).release_history(cx);
-        cx.spawn(async move |this, cx| {
-            let history = history.await;
-            this.update(cx, |this, cx| this.list(history, cx)).ok();
-        })
-        .detach();
         let subscriptions = [
             cx.observe(&launcher, Self::changed),
             cx.on_focus_lost(window, |this, window, cx| {
@@ -221,11 +180,11 @@ impl UpdatesPage {
         ];
         let now = cx.background_executor().now();
         let update = &launcher.read(cx).update;
-        Self {
+        let mut page = Self {
             checking: update.checking(),
             boxes: update.pending().len(),
+            history: update.history().to_vec(),
             launcher,
-            history: Vec::new(),
             picked: None,
             rows: Vec::new(),
             parsed: HashMap::new(),
@@ -238,7 +197,9 @@ impl UpdatesPage {
             settled: now + SETTLE,
             next_reveal: now,
             _subscriptions: subscriptions,
-        }
+        };
+        page.fresh_rows();
+        page
     }
 
     fn shown(&self) -> Option<&(Component, Vec<Release>)> {
@@ -256,12 +217,6 @@ impl UpdatesPage {
             shown: None,
         };
         self.rows = releases.iter().map(row).collect();
-    }
-
-    fn list(&mut self, history: Vec<(Component, Vec<Release>)>, cx: &mut Context<Self>) {
-        self.history = history;
-        self.fresh_rows();
-        cx.notify();
     }
 
     fn pick(&mut self, component: Component, cx: &mut Context<Self>) {
@@ -312,12 +267,17 @@ impl UpdatesPage {
     fn changed(&mut self, launcher: Entity<Launcher>, cx: &mut Context<Self>) {
         let update = &launcher.read(cx).update;
         let checking = update.checking();
-        let report = if mem::replace(&mut self.checking, checking) && !checking {
+        let done = mem::replace(&mut self.checking, checking) && !checking;
+        let report = if done {
             let found = !update.pending().is_empty();
             report(update.failure(), found, mem::take(&mut self.manual))
         } else {
             None
         };
+        if done && update.history() != self.history {
+            self.history = update.history().to_vec();
+            self.fresh_rows();
+        }
         match report {
             Some(Report::Show(text, key)) => toast::show(text, Some(key), cx),
             Some(Report::Dismiss(key)) => toast::dismiss(key, cx),
@@ -674,11 +634,11 @@ impl UpdatesPage {
 
 impl Render for UpdatesPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (offers, updatable) = {
+        let offers: Vec<Offer> = {
             let launcher = self.launcher.read(cx);
             let downloading = launcher.download.running();
             let pending = launcher.update.pending().iter();
-            let offers: Vec<Offer> = pending
+            pending
                 .map(|pending| {
                     let component = pending.component;
                     let memo = self.parsed.entry(component.name()).or_default();
@@ -694,11 +654,9 @@ impl Render for UpdatesPage {
                         stage: Stage::of(component, &launcher.update, downloading),
                     }
                 })
-                .collect();
-            (offers, backend::update::self_updatable(&launcher.paths))
+                .collect()
         };
         self.shrunk = offers.len() < mem::replace(&mut self.boxes, offers.len());
-        let note = (!updatable).then(|| stale_note(window, cx));
         let boxes = (!offers.is_empty()).then(|| {
             let mut boxes = div()
                 .flex()
@@ -713,11 +671,7 @@ impl Render for UpdatesPage {
         });
         let history = self.history(window, cx);
         let versions = self.modal.is_open().then(|| self.versions(window, cx));
-        div()
-            .children(note)
-            .children(boxes)
-            .children(history)
-            .children(versions)
+        div().children(boxes).children(history).children(versions)
     }
 }
 
@@ -726,16 +680,19 @@ mod tests {
     use std::cell::RefCell;
     use std::fs;
     use std::rc::Rc;
+    use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use backend::env::{Paths, TL_LAUNCHER, VERSION};
+    use backend::env::{Paths, SEVENZ_ASSET, TL_LAUNCHER, VERSION};
     use backend::manifest;
     use backend::settings::Settings as Store;
+    use backend::update::{Check, Install};
     use gpui::{AppContext, TestAppContext, VisualTestContext};
     use tempfile::TempDir;
 
     use super::*;
     use crate::model::download::{Downloader, State};
+    use crate::model::update::Work;
     use crate::ui::testing::{mount, press};
 
     const LOADER: Component = Component::ThrowbackLoader;
@@ -751,7 +708,7 @@ mod tests {
 
     fn release(tag: &str) -> String {
         format!(
-            r#"{{"tag_name":"{tag}","prerelease":false,"body":"- Fixed **one** thing","html_url":"https://github.com/owner/repo/releases/tag/{tag}","published_at":"2026-11-06T12:00:00Z","assets":[{{"name":"HeatedMetal.7z","url":""}}]}}"#
+            r#"{{"tag_name":"{tag}","prerelease":false,"body":"- Fixed **one** thing","html_url":"https://github.com/owner/repo/releases/tag/{tag}","published_at":"2026-11-06T12:00:00Z","assets":[{{"name":"HeatedMetal.7z","url":""}},{{"name":"7z-{SEVENZ_ASSET}","url":""}}]}}"#
         )
     }
 
@@ -880,7 +837,7 @@ mod tests {
         let rows = |cx: &mut VisualTestContext| bench.page.read_with(cx, |page, _| page.rows.len());
         assert_eq!(rows(cx), 2);
 
-        press(cx, "tab tab tab tab tab enter");
+        press(cx, "tab tab tab tab enter");
         assert_eq!(shown(&bench, cx), Some(ZIP));
         assert_eq!(rows(cx), 1);
         press(cx, "tab enter");
@@ -901,7 +858,7 @@ mod tests {
             })
         };
         assert_eq!(rows(cx), [(false, None), (false, None)]);
-        press(cx, "tab tab tab tab tab tab tab enter");
+        press(cx, "tab tab tab tab tab tab enter");
         assert_eq!(rows(cx), [(true, Some(1)), (false, None)]);
         press(cx, "enter tab enter");
         assert_eq!(rows(cx), [(false, Some(1)), (true, Some(1))]);
@@ -961,23 +918,45 @@ mod tests {
         assert!(listed(cx).is_some());
     }
 
+    #[derive(Default)]
+    struct Asked(Mutex<Vec<bool>>);
+
+    impl Work for Asked {
+        fn available(&self, _install: &Install, force: bool) -> Check {
+            self.0.lock().unwrap().push(force);
+            Check::default()
+        }
+
+        fn apply(&self, _: &Install, _: Component, _: &dyn Fn(f64)) -> Result<(), String> {
+            unreachable!("refresh never applies an update")
+        }
+
+        fn relaunch(&self, _paths: &Paths) {}
+    }
+
     #[gpui::test]
     fn refresh_checks_again_and_marks_the_check_as_asked_for(cx: &mut TestAppContext) {
         let (bench, cx) = bench(cx, |_| {});
+        let asked = Arc::new(Asked::default());
+        let work = asked.clone();
+        bench.launcher.update(cx, |launcher, _| {
+            launcher.update = Updater::with_work(work);
+        });
         let state = |cx: &mut VisualTestContext| {
             bench
                 .page
                 .read_with(cx, |page, _| (page.spins, page.manual, page.checking))
         };
+        let forced = || asked.0.lock().unwrap().clone();
         assert_eq!(state(cx), (0, false, false));
-        assert!(bench.paths.api_cache_file().exists());
         press(cx, "tab tab enter");
         assert_eq!(state(cx), (1, false, false));
-        assert!(!bench.paths.api_cache_file().exists());
+        assert_eq!(forced(), [true]);
         bench.page.update(cx, |page, cx| page.recheck(cx));
         assert_eq!(state(cx), (2, true, true));
         cx.run_until_parked();
         assert_eq!(state(cx), (2, false, false));
+        assert_eq!(forced(), [true, true]);
     }
 
     #[test]
@@ -1045,7 +1024,7 @@ mod tests {
             let refresh = bench.page.read_with(cx, |page, _| page.refresh.clone());
             (listed, cx.update(|window, _| refresh.is_focused(window)))
         };
-        press(cx, "tab tab tab tab");
+        press(cx, "tab tab tab");
         assert_eq!(check(cx), (2, false));
         fs::remove_file(bench.paths.sevenz_bin()).unwrap();
         assert_eq!(check(cx), (1, true));

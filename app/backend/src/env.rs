@@ -21,23 +21,32 @@ pub const UNINSTALL_ARG: &str = "--uninstall";
 
 pub const IS_WINDOWS: bool = cfg!(windows);
 pub const PACKAGED: bool = cfg!(feature = "packaged");
-const OS: &str = if IS_WINDOWS { "windows" } else { "linux" };
-const ARCH: &str = if !IS_WINDOWS && cfg!(target_arch = "aarch64") {
-    "arm64"
-} else {
-    "x64"
-};
-
 pub const DD_MEMBER: &str = if IS_WINDOWS {
     "DepotDownloader.exe"
 } else {
     "DepotDownloader"
 };
 pub const DD_API_URL: &str = "https://api.github.com/repos/SteamRE/DepotDownloader/releases/latest";
+pub const DD_ASSET: &str = if IS_WINDOWS {
+    "DepotDownloader-windows-x64.zip"
+} else if cfg!(target_arch = "aarch64") {
+    "DepotDownloader-linux-arm64.zip"
+} else {
+    "DepotDownloader-linux-x64.zip"
+};
 pub const TL_API_URL: &str = "https://api.github.com/repos/xeralin/ThrowbackLoader/releases/latest";
+pub const TL_ASSET: &str = ".zip";
 pub const SEVENZ_API_URL: &str = "https://api.github.com/repos/ip7z/7zip/releases/latest";
+pub const SEVENZ_ASSET: &str = if IS_WINDOWS {
+    "7zr.exe"
+} else if cfg!(target_arch = "aarch64") {
+    "linux-arm64.tar.xz"
+} else {
+    "linux-x64.tar.xz"
+};
 pub const HM_API_URL: &str =
     "https://api.github.com/repos/DataCluster0/HeatedMetal/releases/latest";
+pub const HM_ASSET: &str = ".7z";
 
 pub const DEFAULTARGS_DLL: &str = "defaultargs.dll";
 pub const TL_DLLS_COMMON: [&str; 2] = [DEFAULTARGS_DLL, "steam_api64.dll"];
@@ -326,8 +335,7 @@ impl Paths {
     }
 
     pub fn dd_zip(&self) -> PathBuf {
-        self.bin_dir()
-            .join(format!("DepotDownloader-{OS}-{ARCH}.zip"))
+        self.bin_dir().join(DD_ASSET)
     }
 
     pub fn sevenz_bin(&self) -> PathBuf {
