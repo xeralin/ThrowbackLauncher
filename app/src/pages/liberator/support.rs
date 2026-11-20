@@ -20,6 +20,8 @@ const GAP: f32 = 16.;
 const BELOW: f32 = 20.;
 const ROW: f32 = 32.;
 const EVENT: f32 = 0.78 * REM;
+const EVENT_LINE: f32 = 20.;
+const EVENT_PAD: f32 = 6.;
 
 fn season_rows(rows: &'static [SeasonRow]) -> Div {
     let events = rows.iter().any(|row| !row.events.is_empty());
@@ -29,7 +31,7 @@ fn season_rows(rows: &'static [SeasonRow]) -> Div {
             div()
                 .flex()
                 .items_center()
-                .h(px(ROW))
+                .min_h(px(ROW))
                 .px(px(0.6 * REM))
                 .border_color(BORDER.solid())
                 .when(index > 0, |cell| cell.border_t_1())
@@ -38,14 +40,19 @@ fn season_rows(rows: &'static [SeasonRow]) -> Div {
         grid = grid
             .child(cell().border_r_1().child(box_text(name)))
             .when(events, |grid| {
-                let names = div()
+                let mut names = div()
+                    .flex()
+                    .flex_col()
+                    .py(px(EVENT_PAD))
                     .face(FONT_BODY, EVENT)
                     .text_color(TEXT_MUTED.solid())
-                    .whitespace_nowrap()
-                    .child(row.events.join(", "));
+                    .whitespace_nowrap();
+                for event in row.events {
+                    names = names.child(div().line_height(px(EVENT_LINE)).child(*event));
+                }
                 grid.child(cell().border_r_1().child(names))
             })
-            .child(cell().child(code_chip(row.build)));
+            .child(cell().justify_center().child(code_chip(row.build)));
     }
     panel().mb(px(BELOW)).child(grid)
 }
