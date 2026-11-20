@@ -70,6 +70,32 @@ pub fn framed(content: Size<Pixels>) -> Size<Pixels> {
     size(content.width + rim, content.height + rim)
 }
 
+#[cfg(windows)]
+pub fn border(dim: f32, window: &mut Window, cx: &mut App) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::Graphics::Dwm::{DWMWA_BORDER_COLOR, DwmSetWindowAttribute};
+
+    let color = BORDER.mix(BLACK, dim);
+    let channel = |value: f32| (value * 255.).round() as u32;
+    let wanted = channel(color.r) | channel(color.g) << 8 | channel(color.b) << 16;
+    let shown = window.use_keyed_state("frame-border", cx, |_, _| None);
+    if *shown.read(cx) == Some(wanted) {
+        return;
+    }
+    let Ok(handle) = window.window_handle() else {
+        return;
+    };
+    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+        return;
+    };
+    let value = std::ptr::from_ref(&wanted).cast();
+    let size = size_of::<u32>() as u32;
+    let attribute = DWMWA_BORDER_COLOR as u32;
+    unsafe { DwmSetWindowAttribute(handle.hwnd.get() as HWND, attribute, value, size) };
+    shown.update(cx, |shown, _| *shown = Some(wanted));
+}
+
 pub fn outline(dim: f32, window: &Window) -> Div {
     div().size_full().when(floating(window), |outline| {
         outline

@@ -28,7 +28,7 @@ use crate::ui::motion::{self, EASE, EASE_IN_OUT, EASE_OUT_CUBIC, FAST, SLOW};
 use crate::ui::scroll::scroll;
 use crate::ui::theme::{
     BG, BORDER, FONT_BODY, FONT_BODY_MEDIUM, FONT_DISPLAY_BOLD, FONT_MONO_4, FONT_MONO_20, REM,
-    SURFACE, SURFACE_2, TEXT, TEXT_LABEL, TEXT_MICRO, TEXT_MUTED, Theme, Typeface, shadow,
+    SURFACE, SURFACE_2, TEXT, TEXT_LABEL, TEXT_MICRO, TEXT_MUTED, Theme, Typeface, blend, shadow,
 };
 use crate::ui::{Dismiss, FocusNext, FocusPrevious, modal, toast};
 
@@ -445,8 +445,20 @@ impl Shell {
         } else {
             0.
         };
-        let theme = Theme::get(cx);
         let shift = if cx.reduce_motion() { 0. } else { 4. };
+        let current = target == Some(self.page);
+        let chosen = if current { 1. } else { 0. };
+        let chosen = motion::transition(
+            motion::sub(&id, "current"),
+            chosen,
+            SLOW,
+            EASE_IN_OUT,
+            window,
+            cx,
+        );
+        let theme = Theme::get(cx);
+        let lit = hover.amount;
+        let idle = SURFACE_2.rgba(lit);
         let link = div()
             .flex()
             .items_center()
@@ -467,19 +479,21 @@ impl Shell {
                         .child(updates.to_string()),
                 )
             })
-            .children(ring);
-        let link = if target == Some(self.page) {
-            link.bg(theme.action_dim)
-                .border_l_2()
+            .children(ring)
+            .left(px(shift * lit * (1. - chosen)))
+            .bg(blend(idle, theme.action_dim, chosen))
+            .text_color(
+                TEXT_MUTED
+                    .mix(TEXT, 1. - (1. - lit) * (1. - chosen))
+                    .solid(),
+            );
+        let link = link.when(current, |link| {
+            link.border_l_2()
                 .border_color(theme.action.solid())
                 .shadow(vec![
                     shadow(0., 0., 18., -5., theme.action_glow_soft).inset(),
                 ])
-        } else {
-            link.left(px(shift * hover.amount))
-                .bg(SURFACE_2.alpha(hover.amount))
-                .text_color(TEXT_MUTED.mix(TEXT, hover.amount).solid())
-        };
+        });
         match target {
             Some(page) => link
                 .id(id)
@@ -811,7 +825,10 @@ impl Render for Shell {
             .when(narrow, |shell| shell.child(self.hamburger(window, cx)))
             .child(self.modals.clone())
             .child(toast::stack(cx));
-        frame::outline(modal::dim(window, cx), window)
+        let dim = modal::dim(window, cx);
+        #[cfg(windows)]
+        frame::border(dim, window, cx);
+        frame::outline(dim, window)
             .child(shell)
             .children(frame::edges(window))
     }
