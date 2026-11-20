@@ -3,13 +3,16 @@ mod general;
 
 use crate::ui::{bind, frame, px, units};
 use gpui::{
-    App, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window, div,
+    App, Context, Div, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
+    div, prelude::FluentBuilder,
 };
 
 use backend::env::IS_WINDOWS;
 
 use crate::model::Launcher;
+use crate::ui::kit::panel;
 use crate::ui::tabs::tabs;
+use crate::ui::theme::BORDER;
 
 use appearance::Appearance;
 use general::General;
@@ -115,7 +118,32 @@ impl Render for SettingsPage {
     }
 }
 
-fn columns(viewport: f32) -> u16 {
+fn sections(viewport: f32) -> Div {
     const BREAKPOINT: f32 = 1200.;
-    if viewport >= BREAKPOINT { 2 } else { 1 }
+    div()
+        .grid()
+        .grid_cols(if viewport >= BREAKPOINT { 2 } else { 1 })
+        .gap(px(16.))
+        .max_w(px(1160.))
+        .items_start()
+}
+
+fn column() -> Div {
+    div().flex().flex_col().gap(px(16.))
+}
+
+fn section(rows: impl IntoIterator<Item = Div>) -> Div {
+    let mut list = panel();
+    for (index, row) in rows.into_iter().enumerate() {
+        list = list.child(
+            div()
+                .px(px(16.))
+                .py(px(8.))
+                .when(index > 0, |cell| {
+                    cell.border_t_1().border_color(BORDER.solid())
+                })
+                .child(row),
+        );
+    }
+    list
 }

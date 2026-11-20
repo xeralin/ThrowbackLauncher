@@ -95,10 +95,6 @@ pub fn panel() -> Div {
         .bg(SURFACE.solid())
 }
 
-pub fn card() -> Div {
-    panel().flex().flex_col().gap(px(16.)).p(px(16.))
-}
-
 pub fn icon_box() -> Div {
     div()
         .flex()
@@ -124,6 +120,8 @@ pub fn row() -> Div {
 pub fn heading(label: &'static str) -> Div {
     div()
         .flex_none()
+        .relative()
+        .top(px(1.))
         .face(FONT_DISPLAY_BOLD, 1.05 * REM)
         .text_color(TEXT.solid())
         .child(label)
@@ -185,6 +183,8 @@ pub fn label_chip(content: impl Into<SharedString>) -> Div {
 
 pub fn box_text(content: impl Into<SharedString>) -> Div {
     div()
+        .relative()
+        .top(px(2.))
         .face(FONT_DISPLAY_BOLD, TEXT_UI)
         .text_color(TEXT.solid())
         .whitespace_nowrap()

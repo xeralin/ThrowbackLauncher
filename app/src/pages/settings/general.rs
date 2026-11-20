@@ -10,7 +10,7 @@ use gpui::{
     prelude::FluentBuilder,
 };
 
-use super::{SettingsPage, columns};
+use super::{SettingsPage, column, section, sections};
 use crate::model::Launcher;
 use crate::model::rvpn::State;
 use crate::model::settings::{Library, SettingsEvent};
@@ -20,7 +20,7 @@ use crate::ui::hint::hint;
 use crate::ui::icon::{BOOKMARK, BOOKMARK_FILLED, FOLDER, REMOVE, icon};
 use crate::ui::input::FIELD_PAD;
 use crate::ui::kit::{
-    card, chip, disable, field, focus_ring, label, list_row, note, note_external, note_link, row,
+    chip, disable, field, focus_ring, label, list_row, note, note_external, note_link, row,
     save_check, tip, truncate, version_chip,
 };
 use crate::ui::modal::{Modal, picker_row};
@@ -34,12 +34,36 @@ use crate::ui::theme::{BORDER, REM, TEXT_MUTED, Theme};
 const RADMIN_VPN_URL: &str = "https://radmin-vpn.com/";
 const FIELD_WIDTH: f32 = 230.;
 
+#[derive(Clone, Copy)]
+enum Dialog {
+    Proton,
+    Rvpn,
+}
+
 pub struct General {
     username: TextSetting,
     username_saved: Option<Instant>,
     downloads: Stepper,
-    proton_modal: Modal,
-    rvpn_modal: Modal,
+    modal: Modal,
+    dialog: Option<Dialog>,
+}
+
+impl SettingsPage {
+    fn show(&mut self, dialog: Dialog, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(general) = self.general() {
+            general.dialog = Some(dialog);
+            general.modal.open(window, cx);
+            cx.notify();
+        }
+    }
+
+    fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(general) = self.general() {
+            general.dialog = None;
+            general.modal.close(window, cx);
+            cx.notify();
+        }
+    }
 }
 
 impl General {
@@ -52,8 +76,8 @@ impl General {
             username: TextSetting::new(&name, None, window, cx),
             username_saved: None,
             downloads: Stepper::new(downloads, window, cx),
-            proton_modal: Modal::new(cx),
-            rvpn_modal: Modal::new(cx),
+            modal: Modal::new(cx),
+            dialog: None,
         }
     }
 
@@ -135,10 +159,7 @@ impl General {
                 .map(|element| hover.follow(element))
                 .on_click(cx.listener(|page, _, window, cx| {
                     SettingsPage::reload_protons(&page.launcher, cx);
-                    if let Some(general) = page.general() {
-                        general.proton_modal.open(window, cx);
-                        cx.notify();
-                    }
+                    page.show(Dialog::Proton, window, cx);
                 }))
                 .child(truncate(display))
                 .into_any_element(),
@@ -150,17 +171,7 @@ impl General {
         launcher: &Entity<Launcher>,
         window: &mut Window,
         cx: &mut Context<SettingsPage>,
-    ) -> Option<Deferred> {
-        if !self.proton_modal.is_open() {
-            return None;
-        }
-        let close = window.handler_for(&cx.entity(), |page, window, cx| {
-            if let Some(general) = page.general() {
-                general.proton_modal.close(window, cx);
-                cx.notify();
-            }
-        });
-        let close = Rc::new(close);
+    ) -> Deferred {
         let (current, protons): (SharedString, Vec<(SharedString, SharedString)>) = {
             let settings = &launcher.read(cx).settings;
             (
@@ -175,22 +186,23 @@ impl General {
         };
         let mut list = div().flex().flex_col().gap(px(8.));
         for (index, (internal, display)) in protons.into_iter().enumerate() {
-            let (launcher, close) = (launcher.clone(), close.clone());
             let selected = internal == current;
             list = list.child(
                 picker_row(("proton-option", index), display, selected, window, cx).on_click(
-                    move |_, window, cx| {
-                        launcher.update(cx, |launcher, cx| {
+                    cx.listener(move |page, _, window, cx| {
+                        page.launcher.update(cx, |launcher, cx| {
                             launcher.settings.set_proton(&internal, cx)
                         });
-                        close(window, cx);
-                    },
+                        page.close(window, cx);
+                    }),
                 ),
             );
         }
-        let sheet = self.proton_modal.sheet(list).title("Proton");
-        let sheet = sheet.on_close(move |window, cx| close(window, cx));
-        Some(sheet.show(window, cx))
+        self.modal
+            .sheet(list)
+            .title("Proton")
+            .on_close(window.handler_for(&cx.entity(), SettingsPage::close))
+            .show(window, cx)
     }
 
     fn rvpn_controls(
@@ -229,10 +241,7 @@ impl General {
         if installed {
             let manage = secondary("rvpn-manage", "Manage", window, cx)
                 .on_click(cx.listener(|page, _, window, cx| {
-                    if let Some(general) = page.general() {
-                        general.rvpn_modal.open(window, cx);
-                        cx.notify();
-                    }
+                    page.show(Dialog::Rvpn, window, cx);
                 }))
                 .when(state == State::Uninstalling, disable);
             controls = controls.child(manage);
@@ -260,17 +269,7 @@ impl General {
         launcher: &Entity<Launcher>,
         window: &mut Window,
         cx: &mut Context<SettingsPage>,
-    ) -> Option<Deferred> {
-        if !self.rvpn_modal.is_open() {
-            return None;
-        }
-        let close = window.handler_for(&cx.entity(), |page, window, cx| {
-            if let Some(general) = page.general() {
-                general.rvpn_modal.close(window, cx);
-                cx.notify();
-            }
-        });
-        let close = Rc::new(close);
+    ) -> Deferred {
         let (idle, version, autorun) = {
             let launcher = launcher.read(cx);
             (
@@ -303,13 +302,11 @@ impl General {
             cx,
         );
         let remove = icon_button("rvpn-uninstall", REMOVE, window, cx)
-            .on_click({
-                let (launcher, close) = (launcher.clone(), close.clone());
-                move |_, window, cx| {
-                    close(window, cx);
-                    launcher.update(cx, |launcher, cx| launcher.rvpn.uninstall(cx));
-                }
-            })
+            .on_click(cx.listener(|page, _, window, cx| {
+                page.close(window, cx);
+                page.launcher
+                    .update(cx, |launcher, cx| launcher.rvpn.uninstall(cx));
+            }))
             .when(!idle, disable);
         let autorun = div()
             .flex()
@@ -348,17 +345,43 @@ impl General {
                         .child(remove),
                 ),
             );
-        Some(
-            self.rvpn_modal
-                .sheet(rows)
-                .title(title)
-                .on_close(move |window, cx| close(window, cx))
-                .show(window, cx),
-        )
+        self.modal
+            .sheet(rows)
+            .title(title)
+            .on_close(window.handler_for(&cx.entity(), SettingsPage::close))
+            .show(window, cx)
     }
 
-    fn libraries(&self, launcher: &Entity<Launcher>, window: &mut Window, cx: &mut App) -> Div {
-        let libraries = launcher.read(cx).settings.libraries().to_vec();
+    fn library_rows(
+        &self,
+        launcher: &Entity<Launcher>,
+        window: &mut Window,
+        cx: &mut Context<SettingsPage>,
+    ) -> [Div; 2] {
+        let (libraries, usage, downloading) = {
+            let launcher = launcher.read(cx);
+            (
+                launcher.settings.libraries().to_vec(),
+                launcher.info.disk_usage(),
+                launcher.download.running(),
+            )
+        };
+        let add = secondary("library-add", "Add library", window, cx)
+            .on_click({
+                let launcher = launcher.clone();
+                move |_, _, cx| {
+                    launcher.update(cx, |launcher, cx| launcher.add_library(cx));
+                }
+            })
+            .when(downloading, disable);
+        let head = row().child(label("Libraries")).child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .children(usage.map(|size| chip(format!("{size} GB"))))
+                .child(add),
+        );
         let mut list = div().flex().flex_col().gap(px(8.));
         for (index, library) in libraries.into_iter().enumerate() {
             let Library {
@@ -396,11 +419,12 @@ impl General {
                 )
             };
             if !default && !fixed {
-                let (launcher, path) = (launcher.clone(), removed);
+                let launcher = launcher.clone();
                 actions = actions.child(
                     icon_button(("library-remove", index), REMOVE, window, cx).on_click(
                         move |_, _, cx| {
-                            launcher.update(cx, |launcher, cx| launcher.remove_library(&path, cx));
+                            launcher
+                                .update(cx, |launcher, cx| launcher.remove_library(&removed, cx));
                         },
                     ),
                 );
@@ -421,7 +445,22 @@ impl General {
                     .child(actions),
             );
         }
-        list
+        [head, list]
+    }
+
+    fn dialog(
+        &self,
+        launcher: &Entity<Launcher>,
+        window: &mut Window,
+        cx: &mut Context<SettingsPage>,
+    ) -> Option<Deferred> {
+        if !self.modal.is_open() {
+            return None;
+        }
+        Some(match self.dialog? {
+            Dialog::Proton => self.proton_picker(launcher, window, cx),
+            Dialog::Rvpn => self.rvpn_manage(launcher, window, cx),
+        })
     }
 
     pub fn render(
@@ -431,14 +470,12 @@ impl General {
         window: &mut Window,
         cx: &mut Context<SettingsPage>,
     ) -> Div {
-        let (downloading, discord_rpc, tray, close_to_tray, usage, account, downloads) = {
+        let (discord_rpc, tray, close_to_tray, account, downloads) = {
             let launcher = launcher.read(cx);
             (
-                launcher.download.running(),
                 launcher.settings.flag(Flag::DiscordRpc),
                 launcher.settings.tray_available,
                 launcher.settings.flag(Flag::CloseToTray),
-                launcher.info.disk_usage(),
                 launcher.settings.steam_account(),
                 launcher.settings.max_downloads(),
             )
@@ -465,152 +502,102 @@ impl General {
                 ))
         };
         let (presence, closing, parallel) = (launcher.clone(), launcher.clone(), launcher.clone());
-        let rvpn = (!IS_WINDOWS).then(|| self.rvpn_controls(launcher, window, cx));
-        let left = div()
-            .flex()
-            .flex_col()
-            .gap(px(16.))
-            .child(
-                card().child(
-                    row()
-                        .child(label("Username"))
-                        .child(self.username_field(launcher, window, cx)),
-                ),
-            )
-            .child(
-                card()
-                    .child(row().child(label("Steam session")).child(session))
-                    .child(
-                        row()
-                            .child(label("Discord presence").child(hint(
-                                "discord-hint",
-                                "Display the season you are playing as a Discord activity.",
-                                window,
-                                cx,
-                            )))
-                            .child(switch(
-                                "discord-presence",
-                                discord_rpc,
-                                move |value, _, cx| {
-                                    presence.update(cx, |launcher, cx| {
-                                        launcher.settings.set_flag(Flag::DiscordRpc, value, cx)
-                                    });
-                                },
-                                window,
-                                cx,
-                            )),
-                    )
-                    .when(tray, |card| {
-                        card.child(
-                            row()
-                                .child(label("Close to tray").child(hint(
-                                    "tray-hint",
-                                    "Keep the Launcher running in the tray when the window is closed.",
-                                    window,
-                                    cx,
-                                )))
-                                .child(switch(
-                                    "close-to-tray",
-                                    close_to_tray,
-                                    move |value, _, cx| {
-                                        closing.update(cx, |launcher, cx| {
-                                            launcher.settings.set_flag(Flag::CloseToTray, value, cx)
-                                        });
-                                    },
-                                    window,
-                                    cx,
-                                )),
-                        )
-                    }),
-            )
-            .children(
-                rvpn.map(|controls| card().child(row().child(label("Radmin VPN")).child(controls))),
-            );
-        let right = div()
-            .flex()
-            .flex_col()
-            .gap(px(16.))
-            .child(
-                card()
-                    .child(
-                        row()
-                            .child(label("Parallel downloads").child(hint(
-                                "downloads-hint",
-                                "How many file chunks are downloaded at the same time. A higher value can be faster, but uses more bandwidth and system resources.",
-                                window,
-                                cx,
-                            )))
-                            .child(self.downloads.build(
-                                "downloads",
-                                downloads,
-                                (DOWNLOADS_MIN, DOWNLOADS_MAX),
-                                Rc::new(move |next, _, cx| {
-                                    parallel.update(cx, |launcher, cx| {
-                                        launcher.settings.set_max_downloads(next, cx)
-                                    });
-                                }),
-                                window,
-                                cx,
-                            )),
-                    )
-                    .child(
-                        row()
-                            .child(label("App cache"))
-                            .child(secondary("cache-clear", "Clear", window, cx).on_click({
-                                let launcher = launcher.clone();
-                                move |_, _, cx| {
-                                    launcher.update(cx, |launcher, cx| launcher.clear_cache(cx));
-                                }
-                            })),
-                    ),
-            )
-            .when(!IS_WINDOWS, |column| {
-                column.child(
-                    card().child(
-                        row()
-                            .child(label("Proton").child(hint(
-                                "proton-hint",
-                                "Proton is a compatibility layer that runs Windows games on Linux.",
-                                window,
-                                cx,
-                            )))
-                            .children(self.proton_field(launcher, window, cx)),
-                    ),
-                )
-            })
-            .child(
-                card()
-                    .child(
-                        row().child(label("Libraries")).child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(12.))
-                                .children(usage.map(|size| chip(format!("{size} GB"))))
-                                .child(
-                                    secondary("library-add", "Add library", window, cx)
-                                        .on_click({
-                                            let launcher = launcher.clone();
-                                            move |_, _, cx| {
-                                                launcher.update(cx, |launcher, cx| {
-                                                    launcher.add_library(cx)
-                                                });
-                                            }
-                                        })
-                                        .when(downloading, disable),
-                                ),
-                        ),
-                    )
-                    .child(self.libraries(launcher, window, cx)),
-            );
+        let profile = [
+            row()
+                .child(label("Username"))
+                .child(self.username_field(launcher, window, cx)),
+            row().child(label("Steam session")).child(session),
+        ];
+        let presence_row = row()
+            .child(label("Discord presence").child(hint(
+                "discord-hint",
+                "Display the season you are playing as a Discord activity.",
+                window,
+                cx,
+            )))
+            .child(switch(
+                "discord-presence",
+                discord_rpc,
+                move |value, _, cx| {
+                    presence.update(cx, |launcher, cx| {
+                        launcher.settings.set_flag(Flag::DiscordRpc, value, cx)
+                    });
+                },
+                window,
+                cx,
+            ));
+        let tray_row = tray.then(|| {
+            row()
+                .child(label("Close to tray").child(hint(
+                    "tray-hint",
+                    "Keep the Launcher running in the tray when the window is closed.",
+                    window,
+                    cx,
+                )))
+                .child(switch(
+                    "close-to-tray",
+                    close_to_tray,
+                    move |value, _, cx| {
+                        closing.update(cx, |launcher, cx| {
+                            launcher.settings.set_flag(Flag::CloseToTray, value, cx)
+                        });
+                    },
+                    window,
+                    cx,
+                ))
+        });
+        let parallel_row = row()
+            .child(label("Parallel downloads").child(hint(
+                "downloads-hint",
+                "How many file chunks are downloaded at the same time. A higher value can be faster, but uses more bandwidth and system resources.",
+                window,
+                cx,
+            )))
+            .child(self.downloads.build(
+                "downloads",
+                downloads,
+                (DOWNLOADS_MIN, DOWNLOADS_MAX),
+                Rc::new(move |next, _, cx| {
+                    parallel.update(cx, |launcher, cx| {
+                        launcher.settings.set_max_downloads(next, cx)
+                    });
+                }),
+                window,
+                cx,
+            ));
+        let cache_row = row().child(label("App cache")).child(
+            secondary("cache-clear", "Clear", window, cx).on_click({
+                let launcher = launcher.clone();
+                move |_, _, cx| {
+                    launcher.update(cx, |launcher, cx| launcher.clear_cache(cx));
+                }
+            }),
+        );
+        let rvpn_row = (!IS_WINDOWS).then(|| {
+            row()
+                .child(label("Radmin VPN"))
+                .child(self.rvpn_controls(launcher, window, cx))
+        });
+        let proton_row = (!IS_WINDOWS).then(|| {
+            row()
+                .child(label("Proton").child(hint(
+                    "proton-hint",
+                    "Proton is a compatibility layer that runs Windows games on Linux.",
+                    window,
+                    cx,
+                )))
+                .children(self.proton_field(launcher, window, cx))
+        });
+        let left = column()
+            .child(section(profile.into_iter().chain(rvpn_row)))
+            .child(section([presence_row].into_iter().chain(tray_row)));
+        let right = column()
+            .child(section(
+                [parallel_row, cache_row].into_iter().chain(proton_row),
+            ))
+            .child(section(self.library_rows(launcher, window, cx)));
         div()
-            .grid()
-            .grid_cols(columns(viewport))
-            .gap(px(16.))
-            .max_w(px(1160.))
-            .child(left)
-            .child(right)
-            .children(self.proton_picker(launcher, window, cx))
-            .children(self.rvpn_manage(launcher, window, cx))
+            .child(sections(viewport).child(left).child(right))
+            .children(self.dialog(launcher, window, cx))
     }
 }

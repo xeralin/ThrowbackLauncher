@@ -7,13 +7,13 @@ use gpui::{
     App, Context, Div, Entity, ParentElement, StatefulInteractiveElement, Styled, Window, div,
 };
 
-use super::{SettingsPage, columns};
+use super::{SettingsPage, column, section, sections};
 use backend::settings::{Color, Flag};
 
 use crate::model::Launcher;
 use crate::ui::accent::{self, HUE_MAX, TRACK_STOPS};
 use crate::ui::button::secondary;
-use crate::ui::kit::{card, heading, label, row};
+use crate::ui::kit::{heading, label, row};
 use crate::ui::setting::HexSetting;
 use crate::ui::slider::{DoneHandler, Range, slider};
 use crate::ui::stepper::level_stepper;
@@ -200,132 +200,123 @@ impl Appearance {
                 .gap(px(8.))
         };
         let cell = || div().flex().flex_1().min_w_0().items_center().h(px(32.));
-        let bar = card().child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(16.))
-                .child(
-                    div()
-                        .flex()
-                        .gap(px(16.))
-                        .child(cell().child(heading("Progress bar")))
-                        .child(
-                            picks()
-                                .child(color_bar(
-                                    "bar-fill",
-                                    &BAR_FILLS,
-                                    fill,
-                                    store(Color::BarFill),
-                                    window,
-                                    cx,
-                                ))
-                                .child(self.fill.build(fill, store(Color::BarFill), window, cx)),
+        let bar_row = div()
+            .flex()
+            .flex_col()
+            .gap(px(16.))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(16.))
+                    .child(cell().child(heading("Progress bar")))
+                    .child(
+                        picks()
+                            .child(color_bar(
+                                "bar-fill",
+                                &BAR_FILLS,
+                                fill,
+                                store(Color::BarFill),
+                                window,
+                                cx,
+                            ))
+                            .child(self.fill.build(fill, store(Color::BarFill), window, cx)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap(px(16.))
+                    .child(
+                        cell().child(
+                            transfer_bar(
+                                "bar-preview",
+                                PREVIEW_PROGRESS,
+                                (hex(fill), hex(stripe)),
+                                false,
+                                window,
+                                cx,
+                            )
+                            .w_full(),
                         ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap(px(16.))
-                        .child(
-                            cell().child(
-                                transfer_bar(
-                                    "bar-preview",
-                                    PREVIEW_PROGRESS,
-                                    (hex(fill), hex(stripe)),
-                                    false,
-                                    window,
-                                    cx,
-                                )
-                                .w_full(),
+                    )
+                    .child(
+                        picks()
+                            .child(color_bar(
+                                "bar-stripe",
+                                &BAR_STRIPES,
+                                stripe,
+                                store(Color::BarStripe),
+                                window,
+                                cx,
+                            ))
+                            .child(
+                                self.stripe
+                                    .build(stripe, store(Color::BarStripe), window, cx),
                             ),
-                        )
-                        .child(
-                            picks()
-                                .child(color_bar(
-                                    "bar-stripe",
-                                    &BAR_STRIPES,
-                                    stripe,
-                                    store(Color::BarStripe),
-                                    window,
-                                    cx,
-                                ))
-                                .child(self.stripe.build(
-                                    stripe,
-                                    store(Color::BarStripe),
-                                    window,
-                                    cx,
-                                )),
-                        ),
-                ),
-        );
-        let motion = {
-            let (reduce, zoom) = (launcher.clone(), launcher.clone());
-            card()
-                .child(row().child(label("Reduce motion")).child(switch(
-                    "reduce-motion",
-                    reduce_motion,
-                    move |value, _, cx| {
-                        reduce.update(cx, |launcher, cx| {
-                            launcher.settings.set_flag(Flag::ReduceMotion, value, cx)
-                        });
-                    },
-                    window,
-                    cx,
-                )))
-                .child(row().child(label("Scale")).child(level_stepper(
-                    "scale",
-                    scale,
-                    &SCALE_LEVELS,
-                    Rc::new(move |value, _, cx| {
-                        zoom.update(cx, |launcher, cx| launcher.settings.set_scale(value, cx));
-                    }),
-                    window,
-                    cx,
-                )))
-        };
+                    ),
+            );
+        let (reduce, zoom) = (launcher.clone(), launcher.clone());
+        let motion_row = row().child(label("Reduce motion")).child(switch(
+            "reduce-motion",
+            reduce_motion,
+            move |value, _, cx| {
+                reduce.update(cx, |launcher, cx| {
+                    launcher.settings.set_flag(Flag::ReduceMotion, value, cx)
+                });
+            },
+            window,
+            cx,
+        ));
+        let scale_row = row().child(label("Scale")).child(level_stepper(
+            "scale",
+            scale,
+            &SCALE_LEVELS,
+            Rc::new(move |value, _, cx| {
+                zoom.update(cx, |launcher, cx| launcher.settings.set_scale(value, cx));
+            }),
+            window,
+            cx,
+        ));
         let reset = launcher.clone();
         let sliders = self.sliders(launcher, window, cx);
-        let accent_card = card().child(
-            div()
-                .flex()
-                .flex_row_reverse()
-                .gap(px(16.))
-                .child(div().flex_1().min_w_0().child(sliders))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_none()
-                        .gap(px(16.))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .h(px(32.))
-                                .child(heading("Accent")),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .h(px(32.))
-                                .gap(px(8.))
-                                .child(self.accent.build(color, store(Color::Accent), window, cx))
-                                .child(secondary("accent-reset", "Reset", window, cx).on_click(
-                                    move |_, _, cx| {
-                                        reset.update(cx, |launcher, cx| {
-                                            launcher.settings.set_color(
-                                                Color::Accent,
-                                                Color::Accent.default(),
-                                                cx,
-                                            )
-                                        });
-                                    },
-                                )),
-                        ),
-                ),
-        );
+        let accent_row = div()
+            .flex()
+            .flex_row_reverse()
+            .gap(px(16.))
+            .child(div().flex_1().min_w_0().child(sliders))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_none()
+                    .gap(px(16.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .h(px(32.))
+                            .child(heading("Accent")),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .h(px(32.))
+                            .gap(px(8.))
+                            .child(self.accent.build(color, store(Color::Accent), window, cx))
+                            .child(secondary("accent-reset", "Reset", window, cx).on_click(
+                                move |_, _, cx| {
+                                    reset.update(cx, |launcher, cx| {
+                                        launcher.settings.set_color(
+                                            Color::Accent,
+                                            Color::Accent.default(),
+                                            cx,
+                                        )
+                                    });
+                                },
+                            )),
+                    ),
+            );
         let backgrounds = PALETTES.map(|palette| palette.key);
         let tone = store(Color::Background);
         let tones = color_bar(
@@ -337,34 +328,21 @@ impl Appearance {
             cx,
         );
         let typed = self.backdrop.build(backdrop, tone, window, cx);
-        let background_card = card().child(
-            div()
-                .flex()
-                .gap(px(16.))
-                .child(cell().child(heading("Background")))
-                .child(picks().child(tones).child(typed)),
-        );
-        div()
-            .grid()
-            .grid_cols(columns(viewport))
+        let background_row = div()
+            .flex()
             .gap(px(16.))
-            .max_w(px(1160.))
-            .items_start()
+            .child(cell().child(heading("Background")))
+            .child(picks().child(tones).child(typed));
+        sections(viewport)
             .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(16.))
-                    .child(bar)
-                    .child(motion),
+                column()
+                    .child(section([bar_row]))
+                    .child(section([motion_row, scale_row])),
             )
             .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(16.))
-                    .child(accent_card)
-                    .child(background_card),
+                column()
+                    .child(section([accent_row]))
+                    .child(section([background_row])),
             )
     }
 }
