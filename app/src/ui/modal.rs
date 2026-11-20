@@ -31,6 +31,8 @@ const BODY_PAD: f32 = 20.;
 const BODY_MAX: f32 = 25.5 * REM;
 const FADE: f32 = 28.;
 const TITLE_GAP: f32 = 12.;
+const GAP: f32 = 16.;
+const SIDE: f32 = 212.;
 
 pub type Handler = Rc<dyn Fn(&mut Window, &mut App)>;
 
@@ -70,6 +72,7 @@ pub struct Sheet<'a> {
     body: AnyElement,
     footer: Vec<AnyElement>,
     aside: Option<AnyElement>,
+    side: Option<AnyElement>,
     width: f32,
     close: Option<Handler>,
     confirm: Option<Handler>,
@@ -162,6 +165,7 @@ impl Modal {
             body: body.into_any_element(),
             footer: Vec::new(),
             aside: None,
+            side: None,
             width: WIDTH,
             close: None,
             confirm: None,
@@ -185,6 +189,11 @@ impl Sheet<'_> {
 
     pub fn aside(mut self, aside: impl IntoElement) -> Self {
         self.aside = Some(aside.into_any_element());
+        self
+    }
+
+    pub fn side(mut self, side: impl IntoElement) -> Self {
+        self.side = Some(side.into_any_element());
         self
     }
 
@@ -332,16 +341,39 @@ impl Sheet<'_> {
         let aside = self
             .aside
             .map(|aside| panel().flex_none().w(width(WIDTH)).p(px(PAD)).child(aside));
+        let content = match self.side {
+            Some(side) if viewport.width >= px(self.width + GAP + SIDE + 2. * REM) => {
+                let entered =
+                    motion::entrance(("modal-side", serial), ENTRANCE, EASE_OUT, window, cx);
+                let side = div()
+                    .flex()
+                    .flex_col()
+                    .flex_none()
+                    .w(px(SIDE))
+                    .top(px(RISE * (1. - entered)))
+                    .opacity(entered)
+                    .child(side);
+                div()
+                    .flex()
+                    .min_h_0()
+                    .gap(px(GAP))
+                    .left(px((GAP + SIDE) / 2. * (shown - entered)))
+                    .child(frame)
+                    .child(side)
+                    .into_any_element()
+            }
+            _ => frame.into_any_element(),
+        };
         let stack = div()
             .track_focus(&focus)
             .occlude()
             .flex()
             .flex_col()
-            .gap(px(16.))
+            .gap(px(GAP))
             .max_h(room)
             .top(px(RISE * (1. - shown)))
             .opacity(shown)
-            .child(frame)
+            .child(content)
             .children(aside);
         let enter = self.confirm;
         let (typed, reverted) = match self.form {

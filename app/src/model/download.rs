@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use async_channel::{Receiver, Sender};
 use backend::depot::{
-    self, DepotCommand, Fault, LOGIN_FAILED, STAGING_HEADROOM, depot_commands,
-    ensure_depotdownloader,
+    self, DepotCommand, Fault, LOGIN_FAILED, QrCode, QrReader, STAGING_HEADROOM, depot_commands,
+    ensure_depotdownloader, qr_account, qr_login,
 };
 use backend::env::{
     self, BUSY_MESSAGE, CACHE_CLEARING, DOWNLOAD_RUNNING, FOLDER_NOT_FOUND, IS_WINDOWS,
@@ -236,6 +236,43 @@ impl Host for System {
     }
 }
 
+#[cfg(test)]
+struct Offline;
+
+#[cfg(test)]
+impl Host for Offline {
+    fn fetch(&self, _: &Paths, _: bool) -> Result<(), Fault> {
+        Err(Fault::Message("offline".to_owned()))
+    }
+
+    fn launch(&self, _: &Path, _: &[OsString]) -> io::Result<Launched> {
+        Err(ErrorKind::Unsupported.into())
+    }
+
+    fn apply_hm(
+        &self,
+        _: &Paths,
+        _: &Path,
+        _: &str,
+        _: &str,
+        _: Option<&Path>,
+    ) -> Result<(), Fault> {
+        Err(Fault::Message("offline".to_owned()))
+    }
+
+    fn cache_archive(&self, paths: &Paths, archive: &Path) -> Result<PathBuf, String> {
+        System.cache_archive(paths, archive)
+    }
+
+    fn season_running(&self, libraries: &[PathBuf], key: &str) -> bool {
+        System.season_running(libraries, key)
+    }
+
+    fn free_space(&self, folder: &Path) -> io::Result<u64> {
+        System.free_space(folder)
+    }
+}
+
 #[derive(Clone)]
 enum Call {
     Start {
@@ -258,6 +295,18 @@ enum Call {
         key: String,
         verify: bool,
     },
+}
+
+impl Call {
+    fn key(&self) -> &str {
+        match self {
+            Self::Start { key, .. }
+            | Self::Verify { key, .. }
+            | Self::RemoveHm { key }
+            | Self::SwitchToHm { key }
+            | Self::ReapplyHm { key, .. } => key,
+        }
+    }
 }
 
 enum Request {
@@ -349,6 +398,38 @@ struct Running {
     _pump: Task<()>,
 }
 
+impl Running {
+    fn new(
+        (process, messages): Launched,
+        handle: fn(&mut Launcher, Message, &mut Context<Launcher>),
+        cx: &mut Context<Launcher>,
+    ) -> Self {
+        let pump = cx.spawn(async move |launcher, cx| {
+            while let Ok(message) = messages.recv().await {
+                let handled = launcher.update(cx, |launcher, cx| handle(launcher, message, cx));
+                if handled.is_err() {
+                    break;
+                }
+            }
+        });
+        Self {
+            process,
+            _pump: pump,
+        }
+    }
+}
+
+#[derive(Default)]
+struct QrLogin {
+    _fetch: Option<Task<()>>,
+    process: Option<Running>,
+    buffer: Vec<u8>,
+    reader: QrReader,
+    code: Option<QrCode>,
+    expired: Option<QrCode>,
+    account: Option<String>,
+}
+
 pub struct Downloader {
     host: Arc<dyn Host>,
     state: State,
@@ -375,6 +456,7 @@ pub struct Downloader {
     outcome: Option<Outcome>,
     deleting: Option<Edition>,
     picking: bool,
+    qr: Option<QrLogin>,
 }
 
 fn library_of(folder: &Path) -> &Path {
@@ -440,7 +522,10 @@ fn error(message: impl Into<SharedString>, cx: &mut Context<Launcher>) {
 impl Default for Downloader {
     fn default() -> Self {
         Self {
+            #[cfg(not(test))]
             host: Arc::new(System),
+            #[cfg(test)]
+            host: Arc::new(Offline),
             state: State::Idle,
             active: None,
             verifying: false,
@@ -465,6 +550,7 @@ impl Default for Downloader {
             outcome: None,
             deleting: None,
             picking: false,
+            qr: None,
         }
     }
 }
@@ -529,6 +615,11 @@ impl Downloader {
         self.login
     }
 
+    pub fn qr_code(&self) -> Option<QrCode> {
+        let login = self.qr.as_ref()?;
+        login.code.clone().or_else(|| login.expired.clone())
+    }
+
     pub fn disk_shortfall(&self) -> Option<f64> {
         match self.request {
             Some(Request::Disk { shortfall, .. }) => Some(shortfall),
@@ -556,7 +647,8 @@ impl Downloader {
     }
 
     pub fn shutdown(&mut self) {
-        if let Some(mut running) = self.process.take() {
+        let qr = self.qr.take().and_then(|login| login.process);
+        for mut running in self.process.take().into_iter().chain(qr) {
             running.process.kill();
             running.process.wait(SHUTDOWN_WAIT);
         }
@@ -601,6 +693,22 @@ impl Downloader {
 }
 
 #[cfg(test)]
+struct Keys(Arc<Mutex<Vec<String>>>);
+
+#[cfg(test)]
+impl Process for Keys {
+    fn write(&mut self, line: &str) {
+        self.0.lock().unwrap().push(line.to_owned());
+    }
+
+    fn kill(&mut self) {
+        self.0.lock().unwrap().push("killed".to_owned());
+    }
+
+    fn wait(&mut self, _: Duration) {}
+}
+
+#[cfg(test)]
 impl Downloader {
     pub fn with(
         state: State,
@@ -630,20 +738,6 @@ impl Downloader {
     }
 
     pub fn loading(verifying: bool, typed: Arc<Mutex<Vec<String>>>) -> Self {
-        struct Keys(Arc<Mutex<Vec<String>>>);
-
-        impl Process for Keys {
-            fn write(&mut self, line: &str) {
-                self.0.lock().unwrap().push(line.to_owned());
-            }
-
-            fn kill(&mut self) {
-                self.0.lock().unwrap().push("killed".to_owned());
-            }
-
-            fn wait(&mut self, _: Duration) {}
-        }
-
         Self {
             state: State::Downloading,
             active: Some(edition("Y1S0_Vanilla", false)),
@@ -651,6 +745,20 @@ impl Downloader {
             process: Some(Running {
                 process: Box::new(Keys(typed)),
                 _pump: Task::ready(()),
+            }),
+            ..Self::default()
+        }
+    }
+
+    pub fn signing_in(typed: Arc<Mutex<Vec<String>>>) -> Self {
+        Self {
+            login: Some(LoginKind::Account),
+            qr: Some(QrLogin {
+                process: Some(Running {
+                    process: Box::new(Keys(typed)),
+                    _pump: Task::ready(()),
+                }),
+                ..QrLogin::default()
             }),
             ..Self::default()
         }
@@ -726,6 +834,14 @@ impl Downloader {
                         .collect();
                 }
                 "log" => self.history = value.split('|').map(str::to_owned).collect(),
+                "qr" => {
+                    let mut reader = QrReader::default();
+                    let text = fs::read_to_string(value).unwrap_or_default();
+                    self.qr = Some(QrLogin {
+                        code: text.lines().find_map(|line| reader.read(line)),
+                        ..QrLogin::default()
+                    });
+                }
                 _ => {}
             }
         }
@@ -999,6 +1115,7 @@ impl Launcher {
         download.login = None;
         download.password.clear();
         cx.notify();
+        self.stop_qr_login();
         if let Some(Request::Disk { .. }) = request {
             self.persist_queue();
             Self::start_next_later(cx);
@@ -1026,6 +1143,7 @@ impl Launcher {
             cx.emit(DownloadEvent::LoginRequired(Some(LoginKind::Account)));
             return;
         }
+        self.stop_qr_login();
         self.download.login = None;
         cx.notify();
         self.settings.set_steam_account(account, cx);
@@ -1033,6 +1151,112 @@ impl Launcher {
         if let Some(Request::Account(call)) = self.download.request.take() {
             self.resume_call(call, cx);
         }
+    }
+
+    pub fn start_qr_login(&mut self, cx: &mut Context<Self>) {
+        let download = &mut self.download;
+        let Some(Request::Account(call)) = &download.request else {
+            return;
+        };
+        let season = self
+            .downloads
+            .iter()
+            .find(|season| season.key == call.key());
+        let Some(season) = season.filter(|_| download.qr.is_none()).cloned() else {
+            return;
+        };
+        let (host, paths) = (download.host.clone(), self.paths.clone());
+        let fetch = cx.background_spawn(async move { host.fetch(&paths, false) });
+        let launch = cx.spawn(async move |launcher, cx| {
+            let fetched = fetch.await.is_ok();
+            launcher
+                .update(cx, |launcher, cx| {
+                    launcher.launch_qr_login(&season, fetched, cx);
+                })
+                .ok();
+        });
+        download.qr = Some(QrLogin {
+            _fetch: Some(launch),
+            ..QrLogin::default()
+        });
+    }
+
+    fn launch_qr_login(&mut self, season: &Download, fetched: bool, cx: &mut Context<Self>) {
+        let (bin, folder) = (self.paths.dd_bin(), self.qr_folder());
+        let download = &mut self.download;
+        let Some(login) = download.qr.as_mut() else {
+            return;
+        };
+        match fetched.then(|| download.host.launch(&bin, &qr_login(season, &folder))) {
+            Some(Ok(launched)) => {
+                login.process = Some(Running::new(launched, Self::qr_message, cx));
+            }
+            Some(Err(cause)) => {
+                log::fail(
+                    "DepotDownloader failed to start",
+                    format!("{}: {cause}", bin.display()),
+                );
+                self.stop_qr_login();
+                cx.notify();
+            }
+            None => {
+                self.stop_qr_login();
+                cx.notify();
+            }
+        }
+    }
+
+    fn qr_message(&mut self, message: Message, cx: &mut Context<Self>) {
+        let Some(login) = &mut self.download.qr else {
+            return;
+        };
+        let bytes = match message {
+            Message::Output(bytes) => bytes,
+            Message::Exited(_) => {
+                login.process = None;
+                let (account, expired) = (login.account.take(), login.code.take());
+                self.stop_qr_login();
+                if let Some(account) = account {
+                    cx.emit(DownloadEvent::LoginRequired(None));
+                    self.submit_account_login(&account, "", cx);
+                } else if expired.is_some() {
+                    self.start_qr_login(cx);
+                    if let Some(login) = &mut self.download.qr {
+                        login.expired = expired;
+                    }
+                }
+                cx.notify();
+                return;
+            }
+        };
+        login.buffer.extend_from_slice(&bytes);
+        for line in depot::take_lines(&mut login.buffer) {
+            if let Some(code) = login.reader.read(&line) {
+                login.code = Some(code);
+                cx.notify();
+            }
+            if let Some(account) = qr_account(&line) {
+                login.account = Some(account.to_owned());
+            } else if depot::logged_on(&line)
+                && login.account.is_some()
+                && let Some(running) = &mut login.process
+            {
+                running.process.kill();
+            }
+        }
+    }
+
+    pub fn stop_qr_login(&mut self) {
+        if let Some(login) = self.download.qr.take()
+            && let Some(mut running) = login.process
+        {
+            running.process.kill();
+        }
+        let _ = fs::remove_dir_all(self.qr_folder());
+    }
+
+    fn qr_folder(&self) -> PathBuf {
+        self.paths.bin_dir().join("qr")
     }
 
     pub fn confirm_disk_space(&mut self, cx: &mut Context<Self>) {
@@ -1546,21 +1770,8 @@ impl Launcher {
         cx.notify();
         let bin = self.paths.dd_bin();
         match download.host.launch(&bin, &command.args) {
-            Ok((process, messages)) => {
-                let pump = cx.spawn(async move |launcher, cx| {
-                    while let Ok(message) = messages.recv().await {
-                        let handled = launcher.update(cx, |launcher, cx| {
-                            launcher.depot_message(message, cx);
-                        });
-                        if handled.is_err() {
-                            break;
-                        }
-                    }
-                });
-                download.process = Some(Running {
-                    process,
-                    _pump: pump,
-                });
+            Ok(launched) => {
+                download.process = Some(Running::new(launched, Self::depot_message, cx));
             }
             Err(cause) => {
                 let detail = format!("{}: {cause}", bin.display());
@@ -1779,6 +1990,9 @@ mod tests {
     const BLOOD_HM: &str = "Y9S2_HeatedMetal";
     const ACCOUNT: &str = "steam_account = 'ash'\n";
     const LIMIT: &str = "GitHub rate limit reached, try again in 2 minutes";
+    const QR_BLOCK: &str = "Use the Steam Mobile App to sign in with this QR code:\n██  \n  ██\n";
+    const QR_DONE: &str =
+        "Success! Next time you can login with -username ash -remember-password instead of -qr.\n";
 
     #[derive(Default)]
     struct Fake {
@@ -2029,9 +2243,15 @@ mod tests {
             runs.last().unwrap().input.lock().unwrap().clone()
         }
 
-        fn killed(&self) -> bool {
+        fn killed(&self, run: usize) -> bool {
             let runs = self.host.runs.lock().unwrap();
-            runs.last().unwrap().killed.load(Ordering::SeqCst)
+            runs[run].killed.load(Ordering::SeqCst)
+        }
+
+        fn qr(&self, cx: &mut TestAppContext) -> (bool, Option<QrCode>) {
+            self.launcher.read_with(cx, |it, _| {
+                (it.download.qr.is_some(), it.download.qr_code())
+            })
         }
 
         fn enqueue(&self, cx: &mut TestAppContext, key: &str, hm: bool, library: &str) {
@@ -2360,7 +2580,7 @@ mod tests {
         rig.feed(cx, "Enter account password for \"ash\": ");
         assert_eq!(kind(cx), Some(LoginKind::Password));
         rig.act(cx, |it, cx| it.cancel_download(cx));
-        assert!(rig.killed());
+        assert!(rig.killed(0));
         assert_eq!(
             rig.seen(),
             [
@@ -2475,7 +2695,7 @@ mod tests {
         assert!(rig.launcher.read_with(cx, |it, _| it.download.verifying()));
         assert_eq!(rig.stored(), ["Y1S0_Vanilla @lib verify"]);
         rig.act(cx, |it, cx| it.set_paused(true, cx));
-        assert!(!rig.killed());
+        assert!(!rig.killed(0));
         assert_eq!(rig.state(cx), State::Downloading);
         assert!(rig.store().queue_paused());
         *rig.host.free.lock().unwrap() = None;
@@ -2773,7 +2993,7 @@ mod tests {
             it.set_paused(true, cx);
             it.set_paused(true, cx);
         });
-        assert!(rig.killed());
+        assert!(rig.killed(0));
         assert_eq!(rig.seen(), [done(VANILLA, Outcome::Cancelled)]);
         assert_eq!(rig.state(cx), State::Paused);
         assert_eq!(rig.active(cx), Some(edition(VANILLA, false)));
@@ -3428,7 +3648,7 @@ mod tests {
         rig.download(cx, VANILLA);
         rig.enqueue(cx, ICE, false, "");
         rig.act(cx, |it, _| it.download.shutdown());
-        assert!(rig.killed());
+        assert!(rig.killed(0));
         assert_eq!(rig.typed(), ["waited 2"]);
         assert!(rig.seen().is_empty());
         assert_eq!(rig.state(cx), State::Downloading);
@@ -3436,5 +3656,159 @@ mod tests {
             rig.stored(),
             ["Y1S0_Vanilla @lib download", "Y1S1_BlackIce @ download"]
         );
+    }
+
+    #[gpui::test]
+    fn a_qr_login_signs_in_and_resumes_the_download(cx: &mut TestAppContext) {
+        let rig = rig(cx, "", |_, _| {});
+        rig.enqueue(cx, VANILLA, false, "");
+        assert_eq!(rig.seen(), [login(LoginKind::Account)]);
+        assert_eq!(rig.qr(cx), (false, None));
+        rig.act(cx, |it, cx| it.start_qr_login(cx));
+        rig.act(cx, |it, cx| it.start_qr_login(cx));
+        assert_eq!(rig.calls(), ["fetch loader=false"]);
+        assert_eq!(rig.runs(), 1);
+        let args = rig.args(0);
+        let folder = rig.paths.bin_dir().join("qr").display().to_string();
+        assert_eq!(args[7..10], ["-qr", "-remember-password", "-manifest-only"]);
+        assert_eq!(args.last(), Some(&folder));
+        assert_eq!(rig.qr(cx), (true, None));
+        rig.feed(cx, &format!("Logging in with QR code...\n{QR_BLOCK}"));
+        let ready = |cx: &mut TestAppContext| match rig.qr(cx) {
+            (true, Some(code)) => [code.dark(0, 0), code.dark(1, 0), code.dark(1, 1)],
+            other => panic!("no QR code: {other:?}"),
+        };
+        assert_eq!(ready(cx), [true, false, true]);
+        rig.feed(
+            cx,
+            &format!(
+                "\nThe QR code has changed:\n{}",
+                QR_BLOCK.replace("██  ", "████")
+            ),
+        );
+        assert_eq!(ready(cx), [true, true, true]);
+        rig.feed(cx, "Connecting to Steam3... Done!\n");
+        rig.feed(cx, QR_DONE);
+        assert!(!rig.killed(0));
+        assert_eq!(rig.store().steam_account(), "");
+        rig.feed(cx, " Done!\n");
+        assert!(rig.killed(0));
+        assert_eq!(rig.store().steam_account(), "ash");
+        assert_eq!(rig.seen(), [DownloadEvent::LoginRequired(None)]);
+        assert_eq!(rig.qr(cx), (false, None));
+        assert_eq!((rig.state(cx), rig.runs()), (State::Downloading, 2));
+        assert_eq!(rig.args(1)[8], "ash");
+    }
+
+    #[gpui::test]
+    fn a_qr_login_ended_before_its_fetch_never_starts_and_shutdown_kills_a_running_one(
+        cx: &mut TestAppContext,
+    ) {
+        let rig = rig(cx, "", |_, _| {});
+        rig.enqueue(cx, VANILLA, false, "");
+        rig.launcher.update(cx, |it, cx| {
+            it.start_qr_login(cx);
+            it.cancel_download(cx);
+            it.enqueue(VANILLA, false, "", cx);
+            it.start_qr_login(cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(rig.runs(), 1);
+        rig.act(cx, |it, _| it.download.shutdown());
+        assert!(rig.killed(0));
+        assert_eq!(rig.typed(), ["waited 2"]);
+    }
+
+    #[gpui::test]
+    fn an_expired_qr_session_is_replaced_and_its_code_shown_until_the_next_one(
+        cx: &mut TestAppContext,
+    ) {
+        let rig = rig(cx, "", |_, _| {});
+        rig.enqueue(cx, VANILLA, false, "");
+        rig.act(cx, |it, cx| it.start_qr_login(cx));
+        rig.feed(cx, QR_BLOCK);
+        let (_, first) = rig.qr(cx);
+        rig.feed(
+            cx,
+            "Failed to authenticate with Steam: Exception of type \
+             'SteamKit2.AsyncJobFailedException' was thrown.\n\
+             Unable to get steam3 credentials.\nError: InitializeSteam failed\n",
+        );
+        rig.close(cx, Exit::Code(1));
+        assert_eq!(rig.runs(), 2);
+        assert_eq!(
+            rig.args(1)[7..10],
+            ["-qr", "-remember-password", "-manifest-only"]
+        );
+        assert_eq!(rig.qr(cx), (true, first.clone()));
+        rig.feed(cx, &QR_BLOCK.replace("██  ", "████"));
+        let (_, second) = rig.qr(cx);
+        assert!(second.is_some() && second != first);
+        rig.close(cx, Exit::Code(1));
+        assert_eq!(rig.runs(), 3);
+        assert_eq!(rig.qr(cx), (true, second));
+        rig.close(cx, Exit::Code(1));
+        assert_eq!((rig.qr(cx), rig.runs()), ((false, None), 3));
+        assert_eq!(rig.seen(), [login(LoginKind::Account)]);
+    }
+
+    #[gpui::test]
+    fn a_qr_login_under_a_rejected_account_name_is_reported_and_not_repeated(
+        cx: &mut TestAppContext,
+    ) {
+        let rig = rig(cx, "", |_, _| {});
+        rig.enqueue(cx, VANILLA, false, "");
+        rig.act(cx, |it, cx| it.start_qr_login(cx));
+        rig.feed(cx, QR_BLOCK);
+        rig.feed(cx, &QR_DONE.replace("ash", "ash@mail.com"));
+        rig.feed(cx, " Done!\n");
+        assert!(rig.killed(0));
+        assert_eq!((rig.qr(cx), rig.runs()), ((false, None), 1));
+        assert_eq!(rig.store().steam_account(), "");
+        assert_eq!(
+            rig.seen(),
+            [
+                login(LoginKind::Account),
+                DownloadEvent::LoginRequired(None),
+                failed("Invalid Steam account"),
+                login(LoginKind::Account)
+            ]
+        );
+    }
+
+    #[gpui::test]
+    fn a_failed_qr_login_drops_the_code_and_keeps_the_account_form(cx: &mut TestAppContext) {
+        let rig = rig(cx, "", |_, _| {});
+        rig.enqueue(cx, VANILLA, false, "");
+        rig.act(cx, |it, cx| it.start_qr_login(cx));
+        rig.feed(cx, "Logging in with QR code...\n");
+        fs::create_dir_all(rig.paths.bin_dir().join("qr")).unwrap();
+        rig.close(cx, Exit::Code(1));
+        assert_eq!((rig.qr(cx), rig.runs()), ((false, None), 1));
+        assert!(!rig.paths.bin_dir().join("qr").exists());
+        assert_eq!(rig.seen(), [login(LoginKind::Account)]);
+        rig.act(cx, |it, cx| it.cancel_download(cx));
+
+        rig.enqueue(cx, VANILLA, false, "");
+        *rig.host.fetch.lock().unwrap() = Some(Fault::Message("offline".to_owned()));
+        rig.act(cx, |it, cx| it.start_qr_login(cx));
+        assert_eq!((rig.qr(cx), rig.runs()), ((false, None), 1));
+        rig.act(cx, |it, cx| it.cancel_download(cx));
+
+        rig.enqueue(cx, VANILLA, false, "");
+        rig.act(cx, |it, cx| it.start_qr_login(cx));
+        rig.act(cx, |it, cx| it.cancel_download(cx));
+        assert!(rig.killed(1));
+        rig.enqueue(cx, VANILLA, false, "");
+        rig.act(cx, |it, cx| it.start_qr_login(cx));
+        rig.feed(cx, QR_DONE);
+        rig.act(cx, |it, cx| it.submit_account_login("ash", "secret", cx));
+        assert!(rig.killed(2));
+        assert_eq!(
+            (rig.qr(cx), rig.state(cx)),
+            ((false, None), State::Downloading)
+        );
+        assert_eq!(rig.args(3)[8], "ash");
+        assert_eq!(rig.seen().last(), Some(&login(LoginKind::Account)));
     }
 }

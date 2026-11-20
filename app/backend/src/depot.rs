@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex, PoisonError};
 
 use anyhow::Result;
 use regex::Regex;
@@ -18,6 +18,8 @@ pub const STAGING_HEADROOM: u64 = 2 * GIB;
 pub const LOGIN_FAILED: &str = "Steam login failed";
 
 const TAIL_LINES: usize = 8;
+
+static FETCHING: Mutex<()> = Mutex::new(());
 
 static PERCENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*(\d+(?:\.\d+)?)\s*%").expect("pattern"));
@@ -65,6 +67,7 @@ fn download(
 }
 
 pub fn ensure_depotdownloader(paths: &Paths, progress: Progress, force: bool) -> Result<PathBuf> {
+    let _fetching = FETCHING.lock().unwrap_or_else(PoisonError::into_inner);
     let bin = paths.dd_bin();
     if bin.exists() && !force {
         return Ok(bin);
@@ -112,6 +115,100 @@ pub fn depot_commands(
         ],
         name,
     })
+}
+
+pub fn qr_login(download: &Download, folder: &Path) -> Vec<OsString> {
+    vec![
+        "-depot".into(),
+        download.depot_ww.to_string().into(),
+        "-manifest".into(),
+        (&download.manifest_ww).into(),
+        "-app".into(),
+        download.app.to_string().into(),
+        "-qr".into(),
+        "-remember-password".into(),
+        "-manifest-only".into(),
+        "-dir".into(),
+        folder.into(),
+    ]
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QrCode {
+    size: usize,
+    dark: Vec<bool>,
+}
+
+impl QrCode {
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    pub fn dark(&self, x: usize, y: usize) -> bool {
+        self.dark[y * self.size + x]
+    }
+}
+
+#[derive(Default)]
+pub struct QrReader {
+    rows: Option<Vec<Vec<bool>>>,
+}
+
+impl QrReader {
+    pub fn read(&mut self, line: &str) -> Option<QrCode> {
+        if line.contains("sign in with this QR code") {
+            self.rows = Some(Vec::new());
+            return None;
+        }
+        let rows = self.rows.as_mut()?;
+        let cells: Vec<char> = line.chars().collect();
+        let size = rows.first().map_or(cells.len() / 2, Vec::len);
+        let Some(row) = modules(&cells, size) else {
+            self.rows = None;
+            return None;
+        };
+        rows.push(row);
+        if rows.len() < size {
+            return None;
+        }
+        let rows = self.rows.take()?;
+        let quiet = rows.iter().take_while(|row| !row.contains(&true)).count();
+        let size = size.checked_sub(2 * quiet).filter(|size| *size > 0)?;
+        let kept = rows[quiet..quiet + size].iter();
+        let dark = kept
+            .flat_map(|row| &row[quiet..quiet + size])
+            .copied()
+            .collect();
+        Some(QrCode { size, dark })
+    }
+}
+
+fn modules(cells: &[char], size: usize) -> Option<Vec<bool>> {
+    let blank = cells.iter().filter(|cell| **cell == ' ').count();
+    let dark = size.checked_sub(blank / 2)?;
+    let block = (cells.len() - blank).checked_div(2 * dark).unwrap_or(1);
+    let mut row = Vec::with_capacity(size);
+    let mut rest = cells;
+    while let [first, ..] = rest {
+        let lit = *first == ' ';
+        let wide = if lit { 2 } else { 2 * block };
+        let (module, tail) = rest.split_at_checked(wide)?;
+        if wide == 0 || module.iter().any(|cell| (*cell == ' ') != lit) {
+            return None;
+        }
+        row.push(!lit);
+        rest = tail;
+    }
+    (size > 0 && row.len() == size).then_some(row)
+}
+
+pub fn qr_account(line: &str) -> Option<&str> {
+    let (_, rest) = line.split_once("login with -username ")?;
+    rest.split_once(' ').map(|(name, _)| name)
+}
+
+pub fn logged_on(line: &str) -> bool {
+    line.trim() == "Done!"
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -621,6 +718,22 @@ mod tests {
     }
 
     #[test]
+    fn parallel_callers_share_one_download_of_the_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(&dir);
+        let server = Server::start(|_| Reply::new(200, archive(&[DD_MEMBER])));
+        seeded(&paths, &server.url("/assets/1"));
+        let bins: Vec<PathBuf> = std::thread::scope(|scope| {
+            let calls: Vec<_> = (0..2)
+                .map(|_| scope.spawn(|| ensure_depotdownloader(&paths, None, false).unwrap()))
+                .collect();
+            calls.into_iter().map(|call| call.join().unwrap()).collect()
+        });
+        assert_eq!(bins, [paths.dd_bin(), paths.dd_bin()]);
+        assert_eq!(server.paths(), ["/assets/1"]);
+    }
+
+    #[test]
     fn ensure_downloads_the_binary_and_removes_the_archive() {
         let dir = tempfile::tempdir().unwrap();
         let paths = paths(&dir);
@@ -802,5 +915,110 @@ mod tests {
         assert!(outside.join("AssemFiles").join("account.config").exists());
         assert!(iso.join("link").exists());
         assert!(!iso.join("dangling").exists());
+    }
+
+    const QR_HEADER: &str = "Use the Steam Mobile App to sign in with this QR code:";
+
+    fn drawn(code: &QrCode) -> Vec<bool> {
+        let size = code.size();
+        let cells = (0..size).flat_map(|y| (0..size).map(move |x| (x, y)));
+        cells.map(|(x, y)| code.dark(x, y)).collect()
+    }
+
+    #[test]
+    fn a_qr_code_is_read_from_the_block_characters_below_its_header() {
+        let mut reader = QrReader::default();
+        assert_eq!(reader.read("Logging in with QR code..."), None);
+        assert_eq!(reader.read("██  ██"), None);
+        assert_eq!(reader.read(QR_HEADER), None);
+        assert_eq!(reader.read("██  ██"), None);
+        assert_eq!(reader.read("  ██  "), None);
+        let code = reader.read("██████").unwrap();
+        assert_eq!(code.size(), 3);
+        let expected = [true, false, true, false, true, false, true, true, true];
+        assert_eq!(drawn(&code), expected);
+        assert_eq!(reader.read("██████"), None);
+    }
+
+    #[test]
+    fn a_qr_code_is_read_in_any_console_code_page_and_without_its_quiet_zone() {
+        let blocks: [&[u8]; 5] = [
+            "\u{2588}".as_bytes(),
+            &[0xdb],
+            b"?",
+            &[0xa8, 0x80],
+            &[0xa2, 0x69],
+        ];
+        for block in blocks {
+            let encoded = |row: &str| {
+                let bytes: Vec<u8> = row
+                    .bytes()
+                    .flat_map(|cell| match cell {
+                        b' ' => vec![b' '],
+                        _ => block.to_vec(),
+                    })
+                    .collect();
+                String::from_utf8_lossy(&bytes).into_owned()
+            };
+            let mut reader = QrReader::default();
+            reader.read(QR_HEADER);
+            assert_eq!(reader.read(&encoded("        ")), None);
+            assert_eq!(reader.read(&encoded("  ##    ")), None);
+            assert_eq!(reader.read(&encoded("    ##  ")), None);
+            let code = reader.read(&encoded("        ")).unwrap();
+            assert_eq!(drawn(&code), [true, false, false, true], "{block:?}");
+        }
+    }
+
+    #[test]
+    fn a_qr_code_starts_over_on_a_new_header_and_after_a_broken_row() {
+        let mut reader = QrReader::default();
+        reader.read(QR_HEADER);
+        assert_eq!(reader.read("\u{fffd}\u{fffd}  "), None);
+        reader.read("The QR code has changed:");
+        reader.read(QR_HEADER);
+        assert_eq!(reader.read("??  "), None);
+        let code = reader.read("  \u{fffd}\u{fffd}").unwrap();
+        assert_eq!(drawn(&code), [true, false, false, true]);
+        reader.read(QR_HEADER);
+        assert_eq!(reader.read("██  "), None);
+        assert_eq!(reader.read("██"), None);
+        assert_eq!(reader.read("  ██"), None);
+        assert_eq!(reader.read(""), None);
+    }
+
+    #[test]
+    fn the_account_name_comes_from_the_line_after_a_qr_login() {
+        let line = "Success! Next time you can login with -username ash_99 \
+                    -remember-password instead of -qr.";
+        assert_eq!(qr_account(line), Some("ash_99"));
+        assert_eq!(qr_account("Logging 'ash' into Steam3..."), None);
+        assert!(logged_on(" Done!"));
+        assert!(!logged_on("Connecting to Steam3... Done!"));
+    }
+
+    #[test]
+    fn a_qr_login_fetches_only_the_manifest_of_the_worldwide_depot() {
+        let season = &crate::manifest::downloads()[0];
+        let args = qr_login(season, Path::new("/tmp/qr"));
+        let args: Vec<String> = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().into())
+            .collect();
+        let (depot, app) = (season.depot_ww.to_string(), season.app.to_string());
+        let expected = [
+            "-depot",
+            depot.as_str(),
+            "-manifest",
+            season.manifest_ww.as_str(),
+            "-app",
+            app.as_str(),
+            "-qr",
+            "-remember-password",
+            "-manifest-only",
+            "-dir",
+            "/tmp/qr",
+        ];
+        assert_eq!(args, expected);
     }
 }

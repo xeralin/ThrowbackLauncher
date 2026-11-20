@@ -1,15 +1,46 @@
 use crate::ui::px;
+use backend::depot::QrCode;
 use gpui::{
-    AnyElement, App, AppContext, Context, Div, Entity, FocusHandle, IntoElement, ParentElement,
-    Styled, Subscription, Window, div,
+    AnyElement, App, AppContext, Bounds, Context, Div, Entity, FocusHandle, IntoElement,
+    ParentElement, Pixels, Styled, Subscription, Window, black, canvas, div, fill, point, size,
+    white,
 };
 
 use super::Modals;
 use crate::model::download::LoginKind;
 use crate::ui::input::{TextInput, password_field, text_field};
+use crate::ui::kit::panel;
 use crate::ui::prose::{BODY, inline};
 
 pub const FAQ_URL: &str = "https://xeralin.github.io/ThrowbackFAQ/getting-started/#steam-login";
+
+const MODULE: f32 = 6.;
+const QUIET_ZONE: f32 = 2.;
+
+pub fn qr_panel(code: QrCode) -> Div {
+    panel()
+        .flex()
+        .flex_1()
+        .items_center()
+        .justify_center()
+        .child(qr_picture(code))
+}
+
+fn qr_picture(code: QrCode) -> impl IntoElement {
+    let side = px(MODULE * (code.size() as f32 + 2. * QUIET_ZONE));
+    let paint = move |bounds: Bounds<Pixels>, (), window: &mut Window, _: &mut App| {
+        window.paint_quad(fill(bounds, white()).corner_radii(px(6.)));
+        let cell = size(px(MODULE), px(MODULE));
+        let at = |module: usize| px(MODULE * (module as f32 + QUIET_ZONE));
+        for y in 0..code.size() {
+            for x in (0..code.size()).filter(|&x| code.dark(x, y)) {
+                let offset = point(at(x), at(y));
+                window.paint_quad(fill(Bounds::new(bounds.origin + offset, cell), black()));
+            }
+        }
+    };
+    canvas(|_, _, _| (), paint).size(side)
+}
 
 #[derive(Debug, PartialEq)]
 pub enum Submission {

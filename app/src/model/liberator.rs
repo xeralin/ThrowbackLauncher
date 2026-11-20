@@ -26,6 +26,7 @@ const ACCEPT_POLL: Duration = Duration::from_millis(200);
 pub enum LiberatorEvent {
     Error(SharedString),
     Exclusion,
+    Restored,
 }
 
 impl EventEmitter<LiberatorEvent> for Launcher {}
@@ -351,9 +352,10 @@ impl Liberator {
                 this.liberator.busy = false;
                 if asked {
                     this.liberator.tried = true;
-                    if let Err(message) = fetched {
-                        cx.emit(LiberatorEvent::Error(message.into()));
-                    }
+                    cx.emit(match fetched {
+                        Ok(_) => LiberatorEvent::Restored,
+                        Err(message) => LiberatorEvent::Error(message.into()),
+                    });
                 }
                 cx.notify();
             })
@@ -773,6 +775,7 @@ mod tests {
                     seen.borrow_mut().push(match event {
                         LiberatorEvent::Error(message) => message.to_string(),
                         LiberatorEvent::Exclusion => "exclusion".to_owned(),
+                        LiberatorEvent::Restored => "restored".to_owned(),
                     });
                 })
                 .detach();
@@ -1231,7 +1234,8 @@ mod tests {
             *stage.host.fetches.lock().unwrap(),
             [false, false, true, false]
         );
-        assert_eq!((stage.spawned(), stage.errors().len()), (1, 2));
+        assert_eq!(stage.spawned(), 1);
+        assert_eq!(stage.errors(), [failure, failure, "restored"]);
     }
 
     #[gpui::test]
@@ -1397,6 +1401,6 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(*stage.host.fetches.lock().unwrap(), [true, false, true]);
         assert!(stage.read(cx, Liberator::available));
-        assert_eq!(stage.errors().len(), 1);
+        assert_eq!(stage.errors(), [failure, "restored"]);
     }
 }

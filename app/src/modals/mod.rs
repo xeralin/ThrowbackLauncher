@@ -17,7 +17,7 @@ use crate::model::launch::LaunchEvent;
 use crate::model::liberator::LiberatorEvent;
 use crate::model::settings::Library;
 use crate::ui::button::{primary, secondary};
-use crate::ui::kit::disable;
+use crate::ui::kit::{busy, disable};
 use crate::ui::modal::Modal;
 use crate::ui::prose::{BODY, inline, link};
 use crate::ui::theme::{FONT_BODY, TEXT_UI, Typeface};
@@ -64,7 +64,7 @@ pub struct Modals {
     space: Slot<f64>,
     missing: Slot<Missing>,
     exclusion: Slot<()>,
-    _subscriptions: [Subscription; 3],
+    _subscriptions: [Subscription; 4],
 }
 
 fn layer(
@@ -92,6 +92,11 @@ impl Modals {
                 cx.subscribe_in(&launcher, window, Self::download_event),
                 cx.subscribe_in(&launcher, window, Self::launch_event),
                 cx.subscribe_in(&launcher, window, Self::liberator_event),
+                cx.on_release(|modals, cx| {
+                    modals
+                        .launcher
+                        .update(cx, |launcher, _| launcher.stop_qr_login());
+                }),
             ],
             launcher,
         };
@@ -143,27 +148,31 @@ impl Modals {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let LiberatorEvent::Exclusion = event {
-            self.exclusion.show((), window, cx);
-            cx.notify();
+        match event {
+            LiberatorEvent::Exclusion => self.exclusion.show((), window, cx),
+            LiberatorEvent::Restored | LiberatorEvent::Error(_) => {
+                self.exclusion.hide(window, cx);
+            }
         }
+        cx.notify();
     }
 
     fn exclusion_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<Deferred> {
         self.exclusion.shown?;
-        let advice = "Windows Security may remove files the Launcher needs.";
-        let advice = inline("exclusion-advice", advice, BODY, window, cx);
+        let risk = "Windows Security may remove `Liberator.exe`.";
+        let advice = inline("exclusion-risk", risk, BODY, window, cx);
         let body = exclusion(advice, None, window, cx);
-        let fetch = window.handler_for(&cx.entity(), |this, window, cx| {
-            this.exclusion.hide(window, cx);
-            let launcher = this.launcher.clone();
-            launcher.update(cx, |launcher, cx| launcher.liberator.restore(cx));
-            cx.notify();
-        });
-        let download = primary("exclusion-download", "Download", window, cx)
-            .on_click(move |_, window, cx| fetch(window, cx));
+        let download = primary("exclusion-download", "Download", window, cx);
+        let download = if self.launcher.read(cx).liberator.busy() {
+            busy(download, window, cx)
+        } else {
+            let launcher = self.launcher.clone();
+            download.on_click(move |_, _, cx| {
+                launcher.update(cx, |launcher, cx| launcher.liberator.restore(cx));
+            })
+        };
         let sheet = self.exclusion.modal.sheet(body);
-        let sheet = sheet.title("Make an antivirus exclusion");
+        let sheet = sheet.title("Antivirus exclusion");
         Some(sheet.footer([download]).show(window, cx))
     }
 
@@ -179,6 +188,10 @@ impl Modals {
                 self.login.show(form, window, cx);
                 if let Some(first) = first {
                     window.focus(&first, cx);
+                }
+                if kind == LoginKind::Account {
+                    self.launcher
+                        .update(cx, |launcher, cx| launcher.start_qr_login(cx));
                 }
             }
             None => {
@@ -355,6 +368,11 @@ impl Modals {
         let sheet = match asks {
             true => sheet.on_confirm(move |window, cx| submit(window, cx)),
             false => sheet,
+        };
+        let code = self.launcher.read(cx).download.qr_code();
+        let sheet = match (form.kind, code) {
+            (LoginKind::Account, Some(code)) => sheet.side(login::qr_panel(code)),
+            _ => sheet,
         };
         Some(sheet.show(window, cx))
     }
@@ -562,6 +580,17 @@ mod tests {
             cx.emit(LaunchEvent::FilesMissing { edition, library })
         });
         cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn closing_the_window_ends_the_qr_login(cx: &mut TestAppContext) {
+        let typed = Typed::default();
+        let (Bench { modals, .. }, cx) = bench(cx, Downloader::signing_in(typed.clone()));
+        assert!(typed.lock().unwrap().is_empty());
+        drop(modals);
+        cx.update(|window, _| window.remove_window());
+        cx.run_until_parked();
+        assert_eq!(*typed.lock().unwrap(), ["killed"]);
     }
 
     #[gpui::test]
@@ -780,5 +809,41 @@ mod tests {
             .launcher
             .read_with(cx, |launcher, _| launcher.download.queue().count());
         assert_eq!(waits, 0);
+    }
+
+    #[gpui::test]
+    fn the_exclusion_modal_stays_open_until_the_download_ends(cx: &mut TestAppContext) {
+        let (bench, cx) = bench(cx, Downloader::default());
+        let open = |cx: &mut VisualTestContext| {
+            bench
+                .modals
+                .read_with(cx, |modals, _| modals.exclusion.shown.is_some())
+        };
+        let ask = |cx: &mut VisualTestContext| {
+            bench
+                .launcher
+                .update(cx, |_, cx| cx.emit(LiberatorEvent::Exclusion));
+            cx.run_until_parked();
+        };
+        bench
+            .launcher
+            .update(cx, |launcher, _| launcher.liberator.stage(""));
+        ask(cx);
+        press(cx, "escape");
+        cx.simulate_click(point(px(2.), px(2.)), Modifiers::default());
+        assert!(open(cx));
+        bench.launcher.update(cx, |launcher, cx| {
+            launcher.liberator.restore(cx);
+            assert!(launcher.liberator.busy());
+        });
+        assert!(open(cx));
+        cx.run_until_parked();
+        assert!(!open(cx));
+
+        ask(cx);
+        let failed = LiberatorEvent::Error("Liberator download failed".into());
+        bench.launcher.update(cx, |_, cx| cx.emit(failed));
+        cx.run_until_parked();
+        assert!(!open(cx));
     }
 }

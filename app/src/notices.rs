@@ -32,7 +32,7 @@ fn rejected(event: &SettingsEvent) -> Option<Notice> {
 fn attached(event: &LiberatorEvent) -> Option<Notice> {
     match event {
         LiberatorEvent::Error(message) => Some((message.clone(), Some(LIBERATOR))),
-        LiberatorEvent::Exclusion => None,
+        LiberatorEvent::Exclusion | LiberatorEvent::Restored => None,
     }
 }
 

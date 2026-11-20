@@ -12,11 +12,7 @@ use crate::ui::prose::{BODY, STEP, inline, step_box, steps};
 use crate::ui::px;
 use crate::ui::theme::{FONT_BODY_SEMIBOLD, REM, TEXT, Typeface};
 
-const EXCLUSION: [&str; 3] = [
-    "Search for **Virus & threat protection** in the Windows Start menu",
-    "Click **Manage settings** under Virus & threat protection settings",
-    "Scroll down to Exclusions and click **Add or remove exclusions**",
-];
+const EXCLUSION: &str = "Open [Exclusions](windowsdefender://exclusions) in Windows Security";
 const ARCHIVE: &str =
     "Download the latest `Unstable.7z` from [`#indev-releases`](https://discord.gg/7mR9VxBxWd).";
 const PROTON_STEPS: [&str; 2] = [
@@ -30,7 +26,7 @@ fn exclusion_steps(paths: Vec<SharedString>, window: &mut Window, cx: &mut App) 
     } else {
         "Click **Add an exclusion** > **Folder** and paste the path below"
     };
-    let list = EXCLUSION.into_iter().chain([paste]).enumerate();
+    let list = [EXCLUSION, paste].into_iter().enumerate();
     let list: Vec<_> = list
         .map(|(index, step)| {
             inline(("exclusion", index), step, STEP, window, cx).into_any_element()
