@@ -34,6 +34,9 @@ use gpui::{App, Context, KeyBinding, Pixels, Window, actions};
 
 actions!(ui, [FocusNext, FocusPrevious, Dismiss]);
 
+pub const DATE_FORMAT: &str = "%b %-d, %Y";
+
+pub type Handler = Rc<dyn Fn(&mut Window, &mut App)>;
 pub type Bound<T> = Rc<dyn Fn(T, &mut Window, &mut App)>;
 
 pub fn bind<V: 'static, T: 'static>(

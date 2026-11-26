@@ -306,16 +306,11 @@ impl HomePage {
         card: &Card,
         frame: Bounds<Pixels>,
         grid: Grid,
+        focus: &FocusHandle,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let id = ElementId::Name(card.id.clone().into());
-        let focus = window
-            .use_keyed_state(sub(&id, "focus"), cx, |_, cx| {
-                cx.focus_handle().tab_index(0).tab_stop(true)
-            })
-            .read(cx)
-            .clone();
         let ringed = focus.is_focused(window) && window.last_input_was_keyboard();
         let held = self.drag.as_ref().is_some_and(|drag| drag.id == card.id);
         let opacity = if held { FAINT } else { 1. };
@@ -388,14 +383,14 @@ impl HomePage {
             .action
             .map(|action| action.still(sub(&id, "action"), window, cx));
         div()
-            .id(id.clone())
+            .id(id)
             .absolute()
             .left(frame.origin.x)
             .top(frame.origin.y)
             .w(frame.size.width)
             .h(frame.size.height)
             .opacity(dim)
-            .track_focus(&focus)
+            .track_focus(focus)
             .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
                 let delta = match event.keystroke.key.as_str() {
                     "left" if event.keystroke.modifiers.alt => -1,

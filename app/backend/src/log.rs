@@ -93,8 +93,7 @@ pub fn install_panic_hook() {
         } else {
             "THREAD CRASH"
         };
-        let backtrace = std::backtrace::Backtrace::force_capture();
-        record(&format!("{kind}\n{info}\n{backtrace}"));
+        record(&format!("{kind}\n{info}"));
         previous(info);
     }));
 }

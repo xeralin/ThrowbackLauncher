@@ -469,12 +469,12 @@ impl HomePage {
         for (card, target) in cards.iter().zip(frames) {
             let frame = self.settle(&card.id, before.get(&card.id).copied(), target, pace, now);
             self.placed.insert(card.id.clone(), target);
+            let stop = self.stops.entry(card.id.clone());
+            let stop = stop.or_insert_with(|| cx.focus_handle().tab_index(0).tab_stop(true));
+            let stop = stop.clone();
             tiles.push(if self.editing {
-                self.loose(card, frame, grid, window, cx)
+                self.loose(card, frame, grid, &stop, window, cx)
             } else {
-                let stop = self.stops.entry(card.id.clone());
-                let stop = stop.or_insert_with(|| cx.focus_handle().tab_index(0).tab_stop(true));
-                let stop = stop.clone();
                 self.tile(card, frame, &stop, window, cx)
             });
         }

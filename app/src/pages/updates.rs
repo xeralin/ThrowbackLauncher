@@ -3,7 +3,7 @@ use std::f32::consts::{PI, TAU};
 use std::mem;
 use std::time::{Duration, Instant};
 
-use crate::ui::px;
+use crate::ui::{DATE_FORMAT, px};
 use backend::update::{Component, Failure, Release};
 use chrono::{DateTime, Local};
 use gpui::{
@@ -87,7 +87,7 @@ fn report(failure: Option<&Failure>, found: bool, manual: bool) -> Option<Report
 fn release_date(date: &str) -> Option<SharedString> {
     let moment = DateTime::parse_from_rfc3339(date).ok()?;
     let local = moment.with_timezone(&Local);
-    Some(local.format("%b %-d, %Y").to_string().into())
+    Some(local.format(DATE_FORMAT).to_string().into())
 }
 
 fn spin(serial: usize, window: &mut Window, cx: &mut App) -> f32 {

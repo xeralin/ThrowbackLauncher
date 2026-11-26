@@ -142,7 +142,7 @@ fn back_up(file: &Path) -> String {
     }
 }
 
-fn parse_color(text: &str) -> Option<u32> {
+pub fn parse_color(text: &str) -> Option<u32> {
     let digits = text.strip_prefix('#')?;
     let plain = digits.len() == 6 && digits.bytes().all(|byte| byte.is_ascii_hexdigit());
     plain
@@ -150,8 +150,8 @@ fn parse_color(text: &str) -> Option<u32> {
         .flatten()
 }
 
-fn color_text(value: u32) -> Value {
-    format!("#{value:06x}").into()
+pub fn color_text(value: u32) -> String {
+    format!("#{value:06x}")
 }
 
 impl Settings {
@@ -295,7 +295,7 @@ impl Settings {
             return false;
         }
         let (value, default) = (color_text(value), color_text(color.default()));
-        self.put(color.key(), value, default);
+        self.put(color.key(), value.into(), default.into());
         true
     }
 
@@ -645,6 +645,15 @@ mod tests {
         assert!(!settings.set_color(Color::BarFill, 0xaabbcc));
         assert!(settings.set_color(Color::BarFill, Color::BarFill.default()));
         assert_eq!(stored(&paths), "[settings]\n");
+    }
+
+    #[test]
+    fn color_text_needs_a_hash_and_six_hex_digits() {
+        assert_eq!(parse_color("#c0152a"), Some(0xc0152a));
+        assert_eq!(parse_color("#C0152A"), Some(0xc0152a));
+        assert_eq!(parse_color("c0152a"), None);
+        assert_eq!(parse_color("#c0152"), None);
+        assert_eq!(color_text(0x00bdcf), "#00bdcf");
     }
 
     #[test]

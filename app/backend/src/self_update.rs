@@ -55,7 +55,7 @@ pub fn clear_leftovers(paths: &Paths) {
     if IS_WINDOWS && PACKAGED {
         let deadline = Instant::now() + LEFTOVER_DEADLINE;
         crate::migrate::remove_program_folders(paths, deadline);
-        clear(&retired_file(&paths.asset_root.join(EXE_NAME)), deadline);
+        clear(&retired_file(&paths.program_root.join(EXE_NAME)), deadline);
     }
 }
 

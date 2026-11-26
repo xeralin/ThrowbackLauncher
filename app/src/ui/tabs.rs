@@ -1,7 +1,6 @@
-use std::rc::Rc;
 use std::time::Duration;
 
-use crate::ui::{px, units};
+use crate::ui::{Bound, px, units};
 use gpui::{
     App, Bounds, CursorStyle, Div, ElementId, InteractiveElement, KeyDownEvent, ParentElement,
     Pixels, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder,
@@ -16,8 +15,6 @@ const INDICATOR: Duration = Duration::from_millis(300);
 const GAP: f32 = 4.;
 const PAD: f32 = 16.;
 
-pub type SelectHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
-
 pub struct Tab {
     pub label: &'static str,
     pub disabled: bool,
@@ -27,7 +24,7 @@ fn group(
     key: ElementId,
     items: &[Tab],
     active: usize,
-    on_select: SelectHandler,
+    on_select: Bound<usize>,
     radio: bool,
     window: &mut Window,
     cx: &mut App,
@@ -147,7 +144,7 @@ pub fn tabs_of(
     id: &'static str,
     items: &[Tab],
     active: usize,
-    on_select: SelectHandler,
+    on_select: Bound<usize>,
     window: &mut Window,
     cx: &mut App,
 ) -> Div {
@@ -166,7 +163,7 @@ pub fn tabs(
     id: &'static str,
     labels: &[&'static str],
     active: usize,
-    on_select: SelectHandler,
+    on_select: Bound<usize>,
     window: &mut Window,
     cx: &mut App,
 ) -> Div {
@@ -177,7 +174,7 @@ pub fn options(
     id: &'static str,
     items: &[&'static str],
     active: usize,
-    on_select: SelectHandler,
+    on_select: Bound<usize>,
     window: &mut Window,
     cx: &mut App,
 ) -> Div {
@@ -195,6 +192,7 @@ pub fn options(
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
+    use std::rc::Rc;
 
     use gpui::{IntoElement, Modifiers, TestAppContext, point};
 

@@ -16,7 +16,7 @@ use core::ptr::{copy_nonoverlapping, null, null_mut};
 use core::slice::from_raw_parts;
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, Ordering};
 
-use private_v4::is_private_v4;
+use private_v4::{is_cgnat, is_private_v4};
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_BUFFER_OVERFLOW, ERROR_SUCCESS, EXCEPTION_ACCESS_VIOLATION, FARPROC, HANDLE,
     HMODULE, TRUE,
@@ -183,10 +183,6 @@ unsafe fn install_release_guard(base: *mut u8) {
         let stub = [0x68, a, b, c, d, 0xC3];
         patch(base.add(dispatch), &[0x55, 0x8B, 0xEC, 0x6A, 0xFF], &stub);
     }
-}
-
-fn is_cgnat(host: u32) -> bool {
-    host & 0xFFC00000 == 0x64400000
 }
 
 fn is_uplink_v4(net: u32) -> bool {
@@ -368,7 +364,6 @@ fn build_allowed_v4(allowed: &mut [u32; ALLOWED_MAX]) -> Option<&[u32]> {
 }
 
 fn host_label(name: &[u8]) -> &[u8] {
-    let name = &name[..name.len().min(255)];
     name.split(|&byte| byte == b'.').next().unwrap_or_default()
 }
 

@@ -1,12 +1,11 @@
 use std::rc::Rc;
 
-use crate::ui::px;
+use crate::ui::{Bound, px};
+use backend::settings::{color_text, parse_color};
 use gpui::{App, AppContext, Div, Entity, SharedString, Styled, Window};
 
-use crate::ui::accent;
-use crate::ui::input::{Filter, Hooks, TextInput, text_field};
-use crate::ui::swatches::ColorCommit;
-use crate::ui::theme::{CH, REM};
+use crate::ui::input::{FIELD_PAD, Filter, Hooks, TextInput, text_field};
+use crate::ui::theme::CH;
 
 pub type TextCommit = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
@@ -90,7 +89,7 @@ fn clean_hex(raw: &str) -> String {
 impl HexSetting {
     pub fn new(value: u32, window: &mut Window, cx: &mut App) -> Self {
         Self {
-            input: cx.new(|cx| TextInput::new(&accent::format(value), window, cx)),
+            input: cx.new(|cx| TextInput::new(&color_text(value), window, cx)),
             seen: value,
         }
     }
@@ -98,7 +97,7 @@ impl HexSetting {
     pub fn build(
         &mut self,
         value: u32,
-        on_commit: ColorCommit,
+        on_commit: Bound<u32>,
         window: &mut Window,
         cx: &mut App,
     ) -> Div {
@@ -106,14 +105,14 @@ impl HexSetting {
         self.seen = value;
         self.input.update(cx, |input, cx| {
             if adopt {
-                input.set_text(&accent::format(value), cx);
+                input.set_text(&color_text(value), cx);
             }
             input.hooks = Hooks {
                 max_length: None,
                 filter: Some(Rc::new(clean_hex)),
                 commit: Some(Rc::new(move |draft, window, cx| {
-                    let Some(color) = accent::parse(draft) else {
-                        return accent::format(value);
+                    let Some(color) = parse_color(draft) else {
+                        return color_text(value);
                     };
                     if color != value {
                         on_commit(color, window, cx);
@@ -121,13 +120,13 @@ impl HexSetting {
                     draft.to_owned()
                 })),
                 revert: Some(Rc::new(move |input, cx| {
-                    input.set_text(&accent::format(value), cx)
+                    input.set_text(&color_text(value), cx)
                 })),
             };
         });
         text_field(&self.input, window, cx)
             .flex_none()
-            .w(px(7. * CH + 0.8 * REM + 2.))
+            .w(px(7. * CH + 2. * FIELD_PAD + 2.))
     }
 }
 

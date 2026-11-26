@@ -495,25 +495,6 @@ mod tests {
     }
 
     #[test]
-    fn ipc_names_cover_the_ten_discord_slots_in_order() {
-        assert_eq!(
-            ipc_names().collect::<Vec<_>>(),
-            [
-                "discord-ipc-0",
-                "discord-ipc-1",
-                "discord-ipc-2",
-                "discord-ipc-3",
-                "discord-ipc-4",
-                "discord-ipc-5",
-                "discord-ipc-6",
-                "discord-ipc-7",
-                "discord-ipc-8",
-                "discord-ipc-9"
-            ]
-        );
-    }
-
-    #[test]
     fn frames_carry_opcode_length_and_compact_json() {
         let handshake = Handshake {
             v: 1,

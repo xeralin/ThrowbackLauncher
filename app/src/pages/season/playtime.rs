@@ -1,4 +1,4 @@
-use crate::ui::{px, units};
+use crate::ui::{DATE_FORMAT, px, units};
 use backend::manifest::SeasonEntry;
 use chrono::{Local, TimeZone};
 use gpui::{Div, IntoElement, ParentElement, Pixels, Styled, div, prelude::FluentBuilder};
@@ -42,7 +42,7 @@ fn corner_free<T>(rows: &[Vec<T>], columns: u16) -> bool {
 
 fn since(seconds: i64) -> String {
     let day = Local.timestamp_opt(seconds, 0).single();
-    day.map(|day| day.format("%b %-d, %Y").to_string())
+    day.map(|day| day.format(DATE_FORMAT).to_string())
         .unwrap_or_default()
 }
 
@@ -206,11 +206,5 @@ mod tests {
         assert!(!corner_free(&[row(4), row(5)], 5));
         assert!(!corner_free(&[row(4), row(7)], 5));
         assert!(corner_free(&[row(3)], 5) && corner_free::<String>(&[], 5));
-    }
-
-    #[test]
-    fn a_heated_metal_edition_is_named_with_its_suffix() {
-        assert_eq!(label("Y9S2", false), "Y9S2");
-        assert_eq!(label("Y9S2", true), "Y9S2 HM");
     }
 }

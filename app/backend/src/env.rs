@@ -70,10 +70,7 @@ pub const BUSY_MESSAGE: &str = "A download is running for this season";
 pub const DOWNLOAD_RUNNING: &str = "A download is running";
 pub const UPDATE_RUNNING: &str = "An update is running";
 pub const UNINSTALL_RUNNING: &str = "An uninstall is running";
-pub const TRANSFER_RUNNING: &str = "A download or update is running";
 pub const CACHE_CLEARING: &str = "The cache is being cleared";
-pub const REMOVING_FILES: &str = "Files are still being removed";
-pub const PARTIAL_EXISTS: &str = "A partial download exists";
 pub const NOT_INSTALLED: &str = "Not installed";
 pub const NOT_INSTALLED_HM: &str = "Not installed as Heated Metal";
 pub const FOLDER_NOT_FOUND: &str = "Library folder not found";
@@ -251,13 +248,13 @@ fn plain(path: PathBuf) -> PathBuf {
 
 #[derive(Clone, Debug)]
 pub struct Paths {
-    pub asset_root: PathBuf,
+    pub program_root: PathBuf,
     pub data_root: PathBuf,
 }
 
 impl Paths {
     pub fn detect() -> Self {
-        let asset_root = if PACKAGED {
+        let program_root = if PACKAGED {
             std::env::current_exe()
                 .ok()
                 .map(|exe| resolve(&exe))
@@ -267,16 +264,16 @@ impl Paths {
             resolve(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../build"))
         };
         let data_root = if PACKAGED && IS_WINDOWS {
-            asset_root.clone()
+            program_root.clone()
         } else {
             user_data_base().join(DIR_NAME)
         };
-        Self::new(asset_root, resolve(&data_root))
+        Self::new(program_root, resolve(&data_root))
     }
 
-    pub fn new(asset_root: PathBuf, data_root: PathBuf) -> Self {
+    pub fn new(program_root: PathBuf, data_root: PathBuf) -> Self {
         Self {
-            asset_root,
+            program_root,
             data_root,
         }
     }
@@ -295,7 +292,7 @@ impl Paths {
     }
 
     pub fn rvpn_bin_dir(&self) -> PathBuf {
-        self.asset_root.join("rvpn")
+        self.program_root.join("rvpn")
     }
 
     pub fn settings_file(&self) -> PathBuf {

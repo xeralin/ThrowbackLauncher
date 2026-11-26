@@ -126,17 +126,6 @@ pub fn level_track(hue: u32) -> [u32; 5] {
     std::array::from_fn(|index| accent(hue, index as f64 / 4.))
 }
 
-pub fn parse(text: &str) -> Option<u32> {
-    let digits = text.strip_prefix('#')?;
-    (digits.len() == 6 && digits.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .then(|| u32::from_str_radix(digits, 16).ok())
-        .flatten()
-}
-
-pub fn format(color: u32) -> String {
-    format!("#{color:06x}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,14 +155,5 @@ mod tests {
             checked += 1;
         }
         assert_eq!(checked, 377);
-    }
-
-    #[test]
-    fn hex_text_round_trips() {
-        assert_eq!(parse("#c0152a"), Some(0xc0152a));
-        assert_eq!(parse("#C0152A"), Some(0xc0152a));
-        assert_eq!(parse("c0152a"), None);
-        assert_eq!(parse("#c0152"), None);
-        assert_eq!(format(0x00bdcf), "#00bdcf");
     }
 }

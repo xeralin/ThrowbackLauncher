@@ -14,7 +14,7 @@ use crate::env::{
     remove_if_present, resolve, same_path,
 };
 use crate::github::{Progress, download_error, fetch_to, github_asset};
-use crate::log::fail;
+use crate::log::{exit_text, fail};
 use crate::throwbackloader::{apply_tl, ensure_tl, write_launcher};
 use crate::winspawn::hidden;
 
@@ -76,13 +76,6 @@ pub fn resolve_hm_release(paths: &Paths, hm_version: &str) -> Result<(String, St
     Ok(release)
 }
 
-fn download(url: &str, dest: &Path, progress: Progress) -> Result<()> {
-    if let Some(folder) = dest.parent() {
-        fs::create_dir_all(folder)?;
-    }
-    fetch_to(url, dest, progress, None)
-}
-
 pub fn ensure_7z(paths: &Paths, progress: Progress, force: bool) -> Result<PathBuf> {
     let bin = paths.sevenz_bin();
     if force || !bin.exists() {
@@ -95,7 +88,7 @@ pub fn ensure_7z(paths: &Paths, progress: Progress, force: bool) -> Result<PathB
 
 #[cfg(not(target_os = "linux"))]
 fn install_7z(asset_url: &str, bin: &Path, progress: Progress) -> Result<()> {
-    download(asset_url, bin, progress)
+    fetch_to(asset_url, bin, progress, None)
 }
 
 #[cfg(target_os = "linux")]
@@ -103,7 +96,7 @@ fn install_7z(asset_url: &str, bin: &Path, progress: Progress) -> Result<()> {
     let tarxz = bin.with_file_name("_7z.tar.xz");
     let tmp_dir = bin.with_file_name(".7z.tmp");
     let outcome =
-        download(asset_url, &tarxz, progress).and_then(|()| unpack_7z(&tarxz, &tmp_dir, bin));
+        fetch_to(asset_url, &tarxz, progress, None).and_then(|()| unpack_7z(&tarxz, &tmp_dir, bin));
     let _ = fs::remove_file(&tarxz);
     let _ = fs::remove_dir_all(&tmp_dir);
     outcome
@@ -144,7 +137,7 @@ fn sevenz_error(output: &Output) -> String {
         .lines()
         .map(str::trim)
         .find(|line| !line.is_empty())
-        .map_or_else(|| format!("7z {}", output.status), str::to_owned)
+        .map_or_else(|| format!("7z {}", exit_text(output.status)), str::to_owned)
 }
 
 fn listing_holds_mod(listing: &str) -> bool {
@@ -224,7 +217,7 @@ fn release_archive(paths: &Paths, release: &str, progress: Progress) -> Result<(
     let bin_dir = paths.bin_dir();
     let archive = bin_dir.join(format!("{ARCHIVE_PREFIX}{tag}.7z"));
     if !archive.exists() {
-        download(&asset_url, &archive, progress)
+        fetch_to(&asset_url, &archive, progress, None)
             .map_err(|error| download_error("Heated Metal download failed", error))?;
         let _ = remove_other_archives(&bin_dir, &archive, true);
     }

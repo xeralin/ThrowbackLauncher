@@ -1,23 +1,34 @@
 [workspace]
 members = ["backend"]
 
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+image = { version = "0.25.1", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+windows-sys = "0.61"
+
 [package]
 name = "launcher"
-edition = "2024"
+edition.workspace = true
 
 [dependencies]
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 async-channel = "2"
 backend = { path = "backend" }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+chrono.workspace = true
 emojis = "0.9"
 gpui = { package = "gpui-pre", version = "=0.3.12", default-features = false }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", default-features = false }
 html5gum = { version = "0.9", default-features = false }
-image = { version = "0.25.1", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+image = { workspace = true, features = ["gif", "jpeg", "png", "webp"] }
 markdown = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.12", default-features = false, features = ["wayland"] }
@@ -28,7 +39,7 @@ zbus = { version = "5", default-features = false, features = ["async-io"] }
 
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6"
-windows-sys = { version = "0.61", features = [
+windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
@@ -40,10 +51,10 @@ windows-sys = { version = "0.61", features = [
 [dev-dependencies]
 backend = { path = "backend", features = ["testing"] }
 gpui = { package = "gpui-pre", version = "=0.3.12", default-features = false, features = ["test-support"] }
-tempfile = "3"
+tempfile.workspace = true
 
 [build-dependencies]
-image = { version = "0.25", default-features = false, features = ["ico", "webp"] }
+image = { workspace = true, features = ["ico", "webp"] }
 webp = "0.3"
 winresource = { version = "0.1", default-features = false }
 

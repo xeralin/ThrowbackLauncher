@@ -143,15 +143,7 @@ mod system {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn names(folder: &Path) -> Vec<String> {
-        let entries = fs::read_dir(folder).unwrap();
-        let mut names: Vec<String> = entries
-            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-            .collect();
-        names.sort();
-        names
-    }
+    use crate::throwbackloader::testing::names;
 
     #[test]
     fn only_the_update_folder_of_an_installation_counts() {

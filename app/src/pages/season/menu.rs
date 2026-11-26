@@ -16,7 +16,6 @@ use crate::ui::button::icon_button;
 use crate::ui::icon::{CLOCK, COPY, CROSS, FOLDER, PROTON, REFRESH, REMOVE};
 use crate::ui::kit::{OVERLAY, disable, icon_box};
 use crate::ui::theme::{SURFACE, lifted};
-use crate::ui::toast;
 
 const EDGE: f32 = 8.;
 const HEIGHT: f32 = 32.;
@@ -189,11 +188,6 @@ impl SeasonMenu {
         self.release(window, cx);
         self.season.update(cx, |page, cx| match entry {
             Entry::Act(act) => page.act(act, window, cx),
-            Entry::Tool(Tool::CrashLog) => {
-                if page.copy_crash_log(cx) {
-                    toast::show("Crash log copied", None, cx);
-                }
-            }
             Entry::Tool(tool) => page.use_tool(tool, window, cx),
         });
         self.settle(window, cx);

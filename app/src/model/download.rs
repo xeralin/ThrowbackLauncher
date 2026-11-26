@@ -16,8 +16,8 @@ use backend::depot::{
 };
 use backend::env::{
     self, BUSY_MESSAGE, CACHE_CLEARING, DOWNLOAD_RUNNING, FOLDER_NOT_FOUND, IS_WINDOWS,
-    NOT_INSTALLED, NOT_INSTALLED_HM, PARTIAL_EXISTS, Paths, REMOVING_FILES, SEASON_RUNNING,
-    TL_LAUNCHER, UNINSTALL_RUNNING, UPDATE_RUNNING,
+    NOT_INSTALLED, NOT_INSTALLED_HM, Paths, SEASON_RUNNING, TL_LAUNCHER, UNINSTALL_RUNNING,
+    UPDATE_RUNNING,
 };
 use backend::heatedmetal::{HM_UNSTABLE, apply_hm, cache_hm_archive, remove_hm_files};
 use backend::log;
@@ -38,6 +38,8 @@ use super::{Edition, Launcher};
 const HISTORY_LINES: usize = 1000;
 const CHUNK: usize = 8192;
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
+const REMOVING_FILES: &str = "Files are still being removed";
+const PARTIAL_EXISTS: &str = "A partial download exists";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum State {
@@ -279,7 +281,6 @@ enum Call {
         key: String,
         hm: bool,
         library: String,
-        skip_disk_check: bool,
     },
     Verify {
         key: String,
@@ -639,7 +640,7 @@ impl Downloader {
         let root = env::resolve(root);
         let same = |folder: PathBuf| env::same_path(&folder, &root);
         let held = self.running() || self.state == State::Paused;
-        (held && self.active.is_some() && same(env::resolve(library_of(&self.target))))
+        (held && same(env::resolve(library_of(&self.target))))
             || self
                 .queue
                 .iter()
@@ -898,9 +899,7 @@ impl Launcher {
                 if !self.download.verifying {
                     self.cancel_download(cx);
                 }
-            } else if self.download.state != State::Paused
-                && self.download.enter_paused_from_queue(self.settings.roots())
-            {
+            } else if self.download.enter_paused_from_queue(self.settings.roots()) {
                 self.set_download_state(State::Paused, cx);
                 self.queue_updated(cx);
             }
@@ -1315,12 +1314,7 @@ impl Launcher {
 
     fn resume_call(&mut self, call: Call, cx: &mut Context<Self>) {
         match call {
-            Call::Start {
-                key,
-                hm,
-                library,
-                skip_disk_check,
-            } => self.start_download(&key, hm, &library, skip_disk_check, cx),
+            Call::Start { key, hm, library } => self.start_download(&key, hm, &library, false, cx),
             Call::Verify { key, hm } => self.verify(&key, hm, cx),
             Call::RemoveHm { key } => self.remove_hm(&key, cx),
             Call::SwitchToHm { key } => self.switch_to_hm(&key, cx),
@@ -1335,7 +1329,7 @@ impl Launcher {
             Some("Shears is running")
         } else if self.update.busy() {
             Some(UPDATE_RUNNING)
-        } else if self.settings.clearing_cache() {
+        } else if self.settings.clearing_cache {
             Some(CACHE_CLEARING)
         } else {
             None
@@ -1482,13 +1476,13 @@ impl Launcher {
         cx: &mut Context<Self>,
     ) {
         self.dequeue(key, hm, cx);
-        let call = |skip_disk_check| Call::Start {
+        let call = Call::Start {
             key: key.to_owned(),
             hm,
             library: library.to_owned(),
-            skip_disk_check,
         };
-        let Some(download) = self.accept_download(key, Request::Account(call(false)), cx) else {
+        let request = Request::Account(call.clone());
+        let Some(download) = self.accept_download(key, request, cx) else {
             return;
         };
         let libraries = self.settings.roots();
@@ -1514,7 +1508,7 @@ impl Launcher {
                 root.join(edition_folder(key, hm))
             }
         };
-        if hm && !self.ensure_hm_archive(&download, call(skip_disk_check), cx) {
+        if hm && !self.ensure_hm_archive(&download, call, cx) {
             return;
         }
         if !skip_disk_check {

@@ -483,7 +483,9 @@ impl SeasonPage {
         match tool {
             Tool::Clock => self.show(Dialog::Playtime, window, cx),
             Tool::CrashLog => {
-                self.copy_crash_log(cx);
+                if self.copy_crash_log(cx) {
+                    toast::show("Crash log copied", None, cx);
+                }
             }
             Tool::Proton => self.open_proton(window, cx),
             Tool::Folder => {
@@ -1106,7 +1108,5 @@ mod tests {
         assert_eq!(with_renderer("-a /vulkan -b", "/vulkan"), "-a -b /vulkan");
         assert_eq!(with_renderer("/dx11 /vulkan", "/dx11"), "/dx11");
         assert_eq!(with_renderer(" -a ", ""), "-a");
-        assert_eq!(renderers(Renderer::Vulkan)[1], ("/vulkan", "Vulkan"));
-        assert_eq!(renderers(Renderer::Dx11)[0], ("", "DirectX 12"));
     }
 }

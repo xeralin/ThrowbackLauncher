@@ -1,10 +1,9 @@
-use std::fs;
 use std::path::PathBuf;
 
 use anyhow::Result;
 
 use crate::env::{LIBERATOR_NAME, Paths, VERSION, remove_if_present};
-use crate::github::{Progress, download_error, fetch_to, github_asset};
+use crate::github::{download_error, fetch_to, github_asset};
 use crate::pe::file_version;
 
 fn release_url() -> String {
@@ -21,17 +20,16 @@ pub(crate) fn adopt(paths: &Paths, folder: &std::path::Path) -> std::io::Result<
     if !shipped.is_file() {
         return Ok(());
     }
-    fs::create_dir_all(paths.bin_dir())?;
-    fs::rename(shipped, paths.liberator_bin())
+    std::fs::create_dir_all(paths.bin_dir())?;
+    std::fs::rename(shipped, paths.liberator_bin())
 }
 
-pub fn ensure_liberator(paths: &Paths, progress: Progress, force: bool) -> Result<PathBuf> {
+pub fn ensure_liberator(paths: &Paths) -> Result<PathBuf> {
     let bin = paths.liberator_bin();
-    if force || !liberator_ready(paths) {
+    if !liberator_ready(paths) {
         let fetch = || -> Result<()> {
             let (_, url) = github_asset(paths, &release_url(), LIBERATOR_NAME)?;
-            fs::create_dir_all(paths.bin_dir())?;
-            fetch_to(&url, &bin, progress, None)?;
+            fetch_to(&url, &bin, None, None)?;
             Ok(remove_if_present(&bin.with_extension("version"))?)
         };
         fetch().map_err(|error| download_error("Liberator download failed", error))?;
@@ -41,6 +39,8 @@ pub fn ensure_liberator(paths: &Paths, progress: Progress, force: bool) -> Resul
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use crate::github::testing::{Reply, Server, seed};
     use crate::log::take_recorded;
@@ -63,15 +63,12 @@ mod tests {
         );
         assert!(!liberator_ready(&paths));
 
-        let bin = ensure_liberator(&paths, None, false).unwrap();
+        let bin = ensure_liberator(&paths).unwrap();
         assert_eq!(bin, paths.bin_dir().join("Liberator.exe"));
         assert_eq!(fs::read(&bin).unwrap(), versioned_exe(VERSION));
         assert!(liberator_ready(&paths));
-        ensure_liberator(&paths, None, false).unwrap();
+        ensure_liberator(&paths).unwrap();
         assert_eq!(server.paths(), ["/file"]);
-
-        ensure_liberator(&paths, None, true).unwrap();
-        assert_eq!(server.paths().len(), 2);
         assert!(take_recorded().is_empty());
     }
 
@@ -109,7 +106,7 @@ mod tests {
         fs::write(&leftover, VERSION).unwrap();
         assert!(!liberator_ready(&paths));
 
-        ensure_liberator(&paths, None, false).unwrap();
+        ensure_liberator(&paths).unwrap();
         assert_eq!(
             fs::read(paths.liberator_bin()).unwrap(),
             versioned_exe(VERSION)
@@ -129,7 +126,7 @@ mod tests {
         );
         fs::write(paths.liberator_bin(), "old").unwrap();
 
-        let error = ensure_liberator(&paths, None, false).unwrap_err();
+        let error = ensure_liberator(&paths).unwrap_err();
         assert_eq!(error.to_string(), "Liberator download failed");
         assert_eq!(take_recorded().len(), 1);
         assert_eq!(fs::read_to_string(paths.liberator_bin()).unwrap(), "old");

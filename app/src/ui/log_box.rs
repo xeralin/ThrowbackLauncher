@@ -2,8 +2,9 @@ use std::collections::VecDeque;
 
 use crate::ui::px;
 use gpui::{
-    App, Div, ElementId, InteractiveElement, ParentElement, Pixels, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, Window, div,
+    App, DispatchPhase, Div, ElementId, HitboxBehavior, InteractiveElement, ParentElement, Pixels,
+    ScrollEvent, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window, canvas,
+    div, point,
 };
 
 use crate::ui::motion::sub;
@@ -108,6 +109,26 @@ pub fn log_box(id: impl Into<ElementId>, log: &Log, window: &mut Window, cx: &mu
         .track_scroll(&scroll)
         .p(px(12.))
         .children(lines);
+    let (placed, moved) = (scroll.clone(), scroll);
+    let wheel = canvas(
+        move |_, window, _| window.insert_hitbox(placed.bounds(), HitboxBehavior::Normal),
+        move |_, hitbox, window, _| {
+            let (view, line) = (window.current_view(), window.line_height());
+            window.on_mouse_event(move |event: &ScrollEvent, phase, window, cx| {
+                if phase != DispatchPhase::Capture || !hitbox.should_handle_scroll(window) {
+                    return;
+                }
+                let offset = moved.offset();
+                let top = (offset.y + event.delta.pixel_delta(line).y)
+                    .clamp(-moved.max_offset().y, px(0.));
+                if top != offset.y {
+                    moved.set_offset(point(offset.x, top));
+                    cx.notify(view);
+                    cx.stop_propagation();
+                }
+            });
+        },
+    );
     let frame = div()
         .flex()
         .flex_col()
@@ -120,7 +141,9 @@ pub fn log_box(id: impl Into<ElementId>, log: &Log, window: &mut Window, cx: &mu
         .face(FONT_MONO, TEXT_LABEL)
         .line_height(px(1.5 * TEXT_LABEL))
         .text_color(TEXT_MUTED.solid());
-    selection_area(&owner, frame, cx).child(lines)
+    selection_area(&owner, frame, cx)
+        .child(lines)
+        .child(wheel.absolute().inset_0())
 }
 
 #[cfg(test)]
@@ -129,11 +152,12 @@ mod tests {
     use std::rc::Rc;
 
     use gpui::{
-        IntoElement, Modifiers, MouseButton, MouseDownEvent, ScrollDelta, ScrollEvent,
-        TestAppContext, VisualTestContext, point,
+        IntoElement, Modifiers, MouseButton, MouseDownEvent, ScrollDelta, TestAppContext,
+        VisualTestContext,
     };
 
     use super::*;
+    use crate::ui::scroll::scroll;
     use crate::ui::selectable::PUSH_PACE;
     use crate::ui::testing::mount;
 
@@ -241,6 +265,41 @@ mod tests {
         assert_eq!(state(&scroll), (-106., 160.));
         feed(&log, "13", cx);
         assert_eq!(state(&scroll), (-106., 178.));
+    }
+
+    #[gpui::test]
+    fn the_wheel_moves_the_log_before_the_page_around_it(cx: &mut TestAppContext) {
+        let log = Rc::new(RefCell::new(Log::default()));
+        log.borrow_mut().push("0\n1\n2\n3\n4\n5\n6\n7\n8\n9");
+        let stash = Rc::new(RefCell::new(None));
+        let keep = stash.clone();
+        let cx = mount(cx, move |window, cx| {
+            let page = scroll("page", window, cx);
+            let element = log_box("log", &log.borrow(), window, cx);
+            let tail = window.use_keyed_state("log", cx, |_, _| -> Tail { unreachable!() });
+            *keep.borrow_mut() = Some((tail.read(cx).scroll.clone(), page.handle().clone()));
+            let boxed = div().flex().flex_col().h(px(100.)).child(element);
+            page.area(
+                div()
+                    .w(px(200.))
+                    .h(px(150.))
+                    .child(div().h(px(300.)).child(boxed)),
+            )
+            .into_any_element()
+        });
+        let (inner, outer) = stash.borrow_mut().take().expect("scroll handles");
+        let tops = || (f32::from(inner.offset().y), f32::from(outer.offset().y));
+        assert_eq!(tops(), (-106., 0.));
+        wheel(cx, 50.);
+        assert_eq!(tops(), (-56., 0.));
+        wheel(cx, -30.);
+        assert_eq!(tops(), (-86., 0.));
+        wheel(cx, -30.);
+        assert_eq!(tops(), (-106., 0.));
+        wheel(cx, -30.);
+        assert_eq!(tops(), (-106., -30.));
+        wheel(cx, 50.);
+        assert_eq!(tops(), (-56., -30.));
     }
 
     #[gpui::test]

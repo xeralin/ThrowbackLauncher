@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::Arc;
 
 use backend::env::GIB;
@@ -116,13 +115,6 @@ impl Launcher {
         }
         if self.info.scan.end() {
             self.refresh_disk_usage(cx);
-        }
-    }
-
-    pub fn open_library(&self, path: &str, cx: &mut Context<Self>) {
-        let target = Path::new(path);
-        if target.exists() {
-            cx.open_with_system(target);
         }
     }
 

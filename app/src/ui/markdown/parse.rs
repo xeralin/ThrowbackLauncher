@@ -280,7 +280,8 @@ pub fn parse(body: &str, repository: &str) -> Vec<Block> {
     context.collect(&root);
     let mut blocks = context.blocks(children(&root));
     let mut notes = Vec::new();
-    while let Some(name) = context.cited.borrow().get(notes.len()).cloned() {
+    while notes.len() < context.cited.borrow().len() {
+        let name = context.cited.borrow()[notes.len()].clone();
         let body = context.footnotes.get(&name).copied().unwrap_or_default();
         notes.push(context.blocks(body));
     }
@@ -538,12 +539,12 @@ impl<'a> Context<'a> {
         match node {
             Node::Definition(definition) => {
                 self.definitions
-                    .entry(definition.identifier.to_lowercase())
+                    .entry(definition.identifier.clone())
                     .or_insert_with(|| definition.url.clone());
             }
             Node::FootnoteDefinition(note) => {
                 self.footnotes
-                    .entry(note.identifier.to_lowercase())
+                    .entry(note.identifier.clone())
                     .or_insert(&note.children);
             }
             _ => {}
@@ -557,7 +558,7 @@ impl<'a> Context<'a> {
         if url.is_empty() || url.starts_with('#') {
             return None;
         }
-        let resolved = if has_scheme(url) || self.repository.is_empty() {
+        let resolved = if has_scheme(url) {
             url.to_owned()
         } else if let Some(rest) = url.strip_prefix("//") {
             format!("https://{rest}")
@@ -571,7 +572,7 @@ impl<'a> Context<'a> {
 
     fn text(&self, line: &str, style: Style, out: &mut Inline) {
         let line = &*emoji(line);
-        if style.link.is_some() || self.repository.is_empty() {
+        if style.link.is_some() {
             return out.push(line, style);
         }
         let (mut rest, mut at) = (0, 0);
@@ -890,23 +891,23 @@ impl<'a> Context<'a> {
                 }
             }
             Node::LinkReference(reference) => {
-                let url = self.definitions.get(&reference.identifier.to_lowercase());
+                let url = self.definitions.get(&reference.identifier);
                 let target = url.and_then(|url| self.resolve(url, "blob"));
                 let link = target.map(|url| out.link(url)).or(style.link);
                 nested(Style { link, ..style }, out);
             }
             Node::Image(image) => self.image(&image.url, &image.alt, None, style, out),
             Node::ImageReference(reference) => {
-                if let Some(url) = self.definitions.get(&reference.identifier.to_lowercase()) {
+                if let Some(url) = self.definitions.get(&reference.identifier) {
                     self.image(url, &reference.alt, None, style, out);
                 }
             }
             Node::FootnoteReference(reference) => {
-                let name = reference.identifier.to_lowercase();
+                let name = &reference.identifier;
                 let mut cited = self.cited.borrow_mut();
-                let known = cited.iter().position(|cited| *cited == name);
+                let known = cited.iter().position(|cited| cited == name);
                 let number = known.unwrap_or_else(|| {
-                    cited.push(name);
+                    cited.push(name.clone());
                     cited.len() - 1
                 });
                 out.push(&format!("[{}]", number + 1), style);
@@ -1267,22 +1268,27 @@ mod tests {
 
     #[test]
     fn footnotes_are_numbered_by_first_use_and_listed_at_the_end() {
-        let blocks = parse(
-            "one[^b] two[^a] again[^b]\n\n[^a]: first *note*\n[^b]: second\n[^c]: unused\n",
-            "",
-        );
-        let [Block::Paragraph(content), Block::Footnotes(notes)] = blocks.as_slice() else {
-            panic!("paragraph and footnotes expected, got {blocks:?}");
+        let listed = |body: &str| {
+            let blocks = parse(body, "");
+            let [Block::Paragraph(content), Block::Footnotes(notes)] = blocks.as_slice() else {
+                panic!("paragraph and footnotes expected, got {blocks:?}");
+            };
+            let notes: Vec<String> = notes
+                .iter()
+                .map(|note| match note.as_slice() {
+                    [Block::Paragraph(content)] => content.text.clone(),
+                    other => panic!("paragraph expected, got {other:?}"),
+                })
+                .collect();
+            (content.text.clone(), notes)
         };
-        assert_eq!(content.text, "one[1] two[2] again[1]");
-        let texts: Vec<&str> = notes
-            .iter()
-            .map(|note| match note.as_slice() {
-                [Block::Paragraph(content)] => content.text.as_str(),
-                other => panic!("paragraph expected, got {other:?}"),
-            })
-            .collect();
-        assert_eq!(texts, ["second", "first note"]);
+        let (text, notes) =
+            listed("one[^b] two[^a] again[^b]\n\n[^a]: first *note*\n[^b]: second\n[^c]: unused\n");
+        assert_eq!(text, "one[1] two[2] again[1]");
+        assert_eq!(notes, ["second", "first note"]);
+        let (text, notes) = listed("one[^a]\n\n[^a]: first[^b]\n[^b]: second\n");
+        assert_eq!(text, "one[1]");
+        assert_eq!(notes, ["first[2]", "second"]);
     }
 
     #[test]

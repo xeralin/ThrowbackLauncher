@@ -21,6 +21,8 @@ const ETH_ARP: [u8; 2] = [0x08, 0x06];
 const FRAME_MAX: usize = 1500 + ETH_HEADER + 4;
 const RELAY_BUF_MAX: usize = 2048;
 
+const D2B_HIGH_PIPE_SIZE: c_int = 256 * 1024;
+const D2B_LOW_PIPE_SIZE: c_int = 1024 * 1024;
 const RETRY_RING_SIZE: usize = 8191;
 const ARP_CACHE_SIZE: usize = 256;
 const ARP_CACHE_TTL_SEC: i64 = 600;
@@ -377,8 +379,8 @@ fn main() -> io::Result<()> {
     }
     let tap = open_tap()?;
     create_fifos();
-    let high = open_d2b(FIFO_D2B_HIGH, 256 * 1024)?;
-    let low = open_d2b(FIFO_D2B_LOW, 1024 * 1024)?;
+    let high = open_d2b(FIFO_D2B_HIGH, D2B_HIGH_PIPE_SIZE)?;
+    let low = open_d2b(FIFO_D2B_LOW, D2B_LOW_PIPE_SIZE)?;
     let b2d = open_b2d()?;
     relay(tap, b2d, high, low);
     remove_fifos();

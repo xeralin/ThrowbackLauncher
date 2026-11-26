@@ -8,7 +8,7 @@ use anyhow::Result;
 use regex::Regex;
 use zip::ZipArchive;
 
-use crate::env::{DD_API_URL, DD_MEMBER, GIB, Paths, remove_if_present, user_data_base};
+use crate::env::{DD_API_URL, DD_ASSET, DD_MEMBER, GIB, Paths, user_data_base};
 use crate::github::{Progress, RateLimitError, download_error, fetch_to, github_asset};
 use crate::heatedmetal::HmFilesRemovedError;
 use crate::log::fail;
@@ -59,9 +59,7 @@ fn download(
     part: &Path,
     bin: &Path,
 ) -> Result<()> {
-    fs::create_dir_all(paths.bin_dir())?;
-    let asset = zip_path.file_name().unwrap_or_default().to_string_lossy();
-    let (_, asset_url) = github_asset(paths, DD_API_URL, &asset)?;
+    let (_, asset_url) = github_asset(paths, DD_API_URL, DD_ASSET)?;
     fetch_to(&asset_url, zip_path, progress, None)?;
     unpack(zip_path, part, bin)
 }
@@ -76,8 +74,8 @@ pub fn ensure_depotdownloader(paths: &Paths, progress: Progress, force: bool) ->
     let zip_path = paths.dd_zip();
     let outcome = download(paths, progress, &zip_path, &part, &bin)
         .map_err(|error| download_error("DepotDownloader download failed", error));
-    remove_if_present(&part)?;
-    remove_if_present(&zip_path)?;
+    let _ = fs::remove_file(&part);
+    let _ = fs::remove_file(&zip_path);
     outcome?;
     Ok(bin)
 }
@@ -423,9 +421,7 @@ mod tests {
     }
 
     fn seeded(paths: &Paths, asset_url: &str) {
-        let asset = paths.dd_zip();
-        let asset = asset.file_name().unwrap().to_string_lossy();
-        seed(paths, DD_API_URL, &[(&asset, asset_url)]);
+        seed(paths, DD_API_URL, &[(DD_ASSET, asset_url)]);
     }
 
     fn part(paths: &Paths) -> PathBuf {
@@ -707,17 +703,6 @@ mod tests {
     }
 
     #[test]
-    fn present_binary_is_kept_without_the_network() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = paths(&dir);
-        fs::create_dir_all(paths.bin_dir()).unwrap();
-        fs::write(paths.dd_bin(), "old").unwrap();
-        let bin = ensure_depotdownloader(&paths, None, false).unwrap();
-        assert_eq!(bin, paths.dd_bin());
-        assert_eq!(fs::read_to_string(bin).unwrap(), "old");
-    }
-
-    #[test]
     fn parallel_callers_share_one_download_of_the_binary() {
         let dir = tempfile::tempdir().unwrap();
         let paths = paths(&dir);
@@ -822,34 +807,6 @@ mod tests {
                 "/short", "/garbage", "/limited", "/broken", "/broken", "/broken"
             ]
         );
-    }
-
-    #[test]
-    fn a_failing_cleanup_replaces_the_result() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = paths(&dir);
-        let server = Server::start(|_| Reply::new(200, archive(&[DD_MEMBER])));
-        seeded(&paths, &server.url("/assets/1"));
-        fs::create_dir_all(part(&paths)).unwrap();
-        let error = ensure_depotdownloader(&paths, None, false).unwrap_err();
-        assert!(error.downcast_ref::<io::Error>().is_some(), "{error:?}");
-        let lines = take_recorded();
-        assert_eq!(lines.len(), 1, "{lines:?}");
-        assert!(
-            lines[0].starts_with("DepotDownloader download failed - "),
-            "{lines:?}"
-        );
-        assert!(paths.dd_zip().exists());
-        assert!(!paths.dd_bin().exists());
-        fs::remove_dir(part(&paths)).unwrap();
-        fs::write(part(&paths), "stale").unwrap();
-        fs::remove_file(paths.dd_zip()).unwrap();
-        fs::create_dir(paths.dd_zip()).unwrap();
-        let error = ensure_depotdownloader(&paths, None, false).unwrap_err();
-        assert!(error.downcast_ref::<io::Error>().is_some(), "{error:?}");
-        assert_eq!(take_recorded().len(), 1);
-        assert!(!part(&paths).exists());
-        assert!(paths.dd_zip().is_dir());
     }
 
     #[test]

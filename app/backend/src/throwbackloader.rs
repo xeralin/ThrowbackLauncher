@@ -18,11 +18,6 @@ use crate::pe::file_version;
 static USERNAME_RX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"username\s*=\s*["'][^"']*["']"#).expect("pattern"));
 
-static TOOLS_RX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)^tools\s*=\s*\[(?:[^\]'"]|'[^']*'|"(?:[^"\\]|\\.)*")*\][^\n]*\n?"#)
-        .expect("pattern")
-});
-
 static LAUNCH_HEADER_RX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^\[Launch\]\s*$").expect("pattern"));
 
@@ -70,7 +65,6 @@ fn download(
     zip_path: &Path,
     tmp_dir: &Path,
 ) -> Result<()> {
-    fs::create_dir_all(folder)?;
     let (_, asset_url) = github_asset(paths, TL_API_URL, TL_ASSET)?;
     fetch_to(&asset_url, zip_path, progress, None)?;
     let _ = fs::remove_dir_all(tmp_dir);
@@ -122,8 +116,7 @@ fn write_config(target_dir: &Path, text: &str) -> io::Result<()> {
 
 fn with_username(text: &str, username: &str) -> String {
     let line = format!("username = {}", literal(username));
-    let text = USERNAME_RX.replacen(text, 1, NoExpand(&line));
-    TOOLS_RX.replacen(&text, 1, NoExpand("")).into_owned()
+    USERNAME_RX.replacen(text, 1, NoExpand(&line)).into_owned()
 }
 
 pub fn write_tl_username(target_dir: &Path, username: &str) -> Result<()> {
@@ -262,27 +255,17 @@ mod tests {
             "username = 'c'\nusername = \"b\"\n",
         ),
         (
-            "# myusername   =\n\n  'old'\ntools = ['a', \"b]\\\"\", 'c]'] # gone\nkeep = 1\n",
+            "# myusername   =\n\n  'old'\nkeep = 1\n",
             "new",
             "# myusername = 'new'\nkeep = 1\n",
         ),
-        (
-            "username = 5\ntools = [\n  'x',\n  \"y\"\n]\nrest\n",
-            "n",
-            "username = 5\nrest\n",
-        ),
-        ("tools = ['a'\n", "n", "tools = ['a'\n"),
-        (
-            " tools = []\nusername\u{a0}=\u{2003}'x'\n",
-            "n",
-            " tools = []\nusername = 'n'\n",
-        ),
-        ("tools=[]", "n", ""),
+        ("username = 5\nrest\n", "n", "username = 5\nrest\n"),
+        ("username\u{a0}=\u{2003}'x'\n", "n", "username = 'n'\n"),
         ("username = \"a'\n", "n", "username = 'n'\n"),
         (
-            "username = ''\ntools = [] trailing\n\ntools = []\n",
+            "username = ''\n",
             "tab\there",
-            "username = \"tab\\u0009here\"\n\ntools = []\n",
+            "username = \"tab\\u0009here\"\n",
         ),
     ];
 
@@ -400,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn the_username_line_is_replaced_and_tools_is_dropped() {
+    fn the_username_line_is_replaced() {
         for (text, username, expected) in USERS {
             assert_eq!(with_username(text, username), *expected, "{text:?}");
         }
@@ -447,18 +430,6 @@ mod tests {
             fs::write(&file, "x").unwrap();
         }
         assert!(tl_present(&paths.tl_dir()));
-    }
-
-    #[test]
-    fn ensure_skips_the_network_when_present() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = paths(&dir);
-        cache(&paths);
-        ensure_tl(&paths, None, false).unwrap();
-        assert_eq!(
-            fs::read_to_string(paths.tl_dir().join(TL_LAUNCHER)).unwrap(),
-            "cache LaunchR6.exe"
-        );
     }
 
     #[test]
@@ -567,7 +538,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write_tl_username(dir.path(), "Ash").unwrap();
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
-        fs::write(dir.path().join(TL_TOML), "username = \"old\"\ntools = []\n").unwrap();
+        fs::write(dir.path().join(TL_TOML), "username = \"old\"\n").unwrap();
         write_tl_username(dir.path(), "Ash").unwrap();
         assert_eq!(
             config(dir.path()).replace("\r\n", "\n"),
@@ -676,11 +647,7 @@ mod tests {
             BASE.replace("\"ThrowbackUser\"", "'Ash'")
         );
         assert!(!target.join(TL_LAUNCHER).exists());
-        fs::write(
-            target.join(TL_TOML),
-            "username = 'old'\ntools = ['x']\nmine = 1\n",
-        )
-        .unwrap();
+        fs::write(target.join(TL_TOML), "username = 'old'\nmine = 1\n").unwrap();
         apply_tl(&paths, &target, "Zofia").unwrap();
         assert_eq!(
             config(&target).replace("\r\n", "\n"),

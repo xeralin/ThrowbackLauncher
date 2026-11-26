@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::ui::{px, units};
+use crate::ui::{Bound, Handler, px, units};
 use gpui::{
     App, DispatchPhase, Div, ElementId, FocusHandle, HitboxBehavior, InteractiveElement,
     KeyDownEvent, KeyUpEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
@@ -14,9 +14,6 @@ use crate::ui::theme::{BLACK, BORDER, TEXT, Theme, hex, shadow};
 const HEIGHT: f32 = 20.;
 const THUMB: f32 = 16.;
 const BIG_STEPS: f64 = 10.;
-
-pub type ValueHandler = Rc<dyn Fn(f64, &mut Window, &mut App)>;
-pub type DoneHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 
 pub struct Range {
     pub min: f64,
@@ -38,7 +35,7 @@ impl Range {
 struct Grip {
     focus: FocusHandle,
     dragging: bool,
-    unsaved: Option<DoneHandler>,
+    unsaved: Option<Handler>,
     _blur: Subscription,
 }
 
@@ -55,7 +52,7 @@ pub fn slider(
     range: Range,
     value: f64,
     stops: &[u32],
-    (on_change, on_done): (ValueHandler, DoneHandler),
+    (on_change, on_done): (Bound<f64>, Handler),
     window: &mut Window,
     cx: &mut App,
 ) -> Stateful<Div> {

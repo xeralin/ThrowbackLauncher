@@ -239,7 +239,7 @@ thread_local! {
 }
 
 pub fn palette() -> Palette {
-    PALETTE.with(Cell::get)
+    PALETTE.get()
 }
 
 pub fn contrast() -> Srgb {
@@ -272,7 +272,7 @@ fn around(key: u32) -> Palette {
 pub fn set_palette(key: u32) -> bool {
     let preset = PALETTES.into_iter().find(|palette| palette.key == key);
     let chosen = preset.unwrap_or_else(|| around(key));
-    PALETTE.with(|palette| palette.replace(chosen) != chosen)
+    PALETTE.replace(chosen) != chosen
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -436,7 +436,6 @@ pub struct Theme {
     pub action_edge: Srgb,
     pub action_dim: Rgba,
     pub action_glow: Rgba,
-    pub action_glow_soft: Hsla,
 }
 
 impl Global for Theme {}
@@ -456,7 +455,6 @@ impl Theme {
             action_edge: if default { DEFAULT_EDGE } else { action.edge() },
             action_dim: base.shifted(-0.129, -0.055).to_srgb().rgba(0.4),
             action_glow: action.rgba(0.27),
-            action_glow_soft: action.alpha(0.3),
         }
     }
 

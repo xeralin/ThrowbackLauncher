@@ -131,6 +131,7 @@ fn run(launch: impl FnOnce(&mut App) + 'static) {
 }
 
 fn main() {
+    #[cfg(target_os = "linux")]
     unsafe {
         std::env::set_var("ZED_FONTS_GAMMA", "1.0");
         std::env::set_var("ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST", "0");

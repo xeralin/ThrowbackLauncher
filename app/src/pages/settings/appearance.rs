@@ -1,7 +1,7 @@
 use std::rc::Rc;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
-use crate::ui::{bind, px};
+use crate::ui::{Bound, Handler, bind, px};
 use backend::env::SCALE_LEVELS;
 use gpui::{
     App, Context, Div, Entity, ParentElement, StatefulInteractiveElement, Styled, Window, div,
@@ -15,9 +15,9 @@ use crate::ui::accent::{self, HUE_MAX, TRACK_STOPS};
 use crate::ui::button::secondary;
 use crate::ui::kit::{heading, label, row};
 use crate::ui::setting::HexSetting;
-use crate::ui::slider::{DoneHandler, Range, slider};
+use crate::ui::slider::{Range, slider};
 use crate::ui::stepper::level_stepper;
-use crate::ui::swatches::{ColorCommit, color_bar};
+use crate::ui::swatches::color_bar;
 use crate::ui::switch::switch;
 use crate::ui::theme::{PALETTES, Theme, hex};
 use crate::ui::transfer::transfer_bar;
@@ -39,7 +39,7 @@ const BAR_STRIPES: [u32; 5] = [
 const PREVIEW_PROGRESS: f32 = 70.;
 const LEVEL_STEP: f64 = 0.01;
 
-static HUE_TRACK: OnceLock<[u32; TRACK_STOPS]> = OnceLock::new();
+static HUE_TRACK: LazyLock<[u32; TRACK_STOPS]> = LazyLock::new(accent::hue_track);
 
 pub struct Appearance {
     fill: HexSetting,
@@ -107,7 +107,7 @@ impl Appearance {
         if self.level_track.0 != hue {
             self.level_track = (hue, accent::level_track(hue));
         }
-        let done: DoneHandler = {
+        let done: Handler = {
             let launcher = launcher.clone();
             Rc::new(window.handler_for(&cx.entity(), move |page, window, cx| {
                 if let Some(appearance) = page.appearance() {
@@ -145,7 +145,7 @@ impl Appearance {
                     step: 1.,
                 },
                 f64::from(HUE_MAX - hue),
-                HUE_TRACK.get_or_init(accent::hue_track),
+                &*HUE_TRACK,
                 (set_hue, done.clone()),
                 window,
                 cx,
@@ -183,7 +183,7 @@ impl Appearance {
                 settings.scale(),
             )
         };
-        let store = |target: Color| -> ColorCommit {
+        let store = |target: Color| -> Bound<u32> {
             let launcher = launcher.clone();
             Rc::new(move |color, _, cx| {
                 launcher.update(cx, |launcher, cx| {

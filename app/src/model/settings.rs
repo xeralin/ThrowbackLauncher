@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 
 use backend::depot::wipe_depot_token;
 use backend::env::{
-    self, FOLDER_NOT_FOUND, GAME_RUNNING, Paths, SEASON_RUNNING, TRANSFER_RUNNING, UPDATE_RUNNING,
-    parse_version,
+    self, FOLDER_NOT_FOUND, GAME_RUNNING, Paths, SEASON_RUNNING, UPDATE_RUNNING, parse_version,
 };
 use backend::log;
 use backend::manifest::{installed_downloads, is_season_folder};
@@ -21,6 +20,7 @@ use super::Launcher;
 use super::dialogs::{Picked, pick_folder};
 
 pub const DEFAULT_SPAN: (u8, u8) = (1, 2);
+const TRANSFER_RUNNING: &str = "A download or update is running";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SettingsEvent {
@@ -339,10 +339,6 @@ impl Settings {
         if self.store.reset_home_layout() {
             cx.notify();
         }
-    }
-
-    pub fn clearing_cache(&self) -> bool {
-        self.clearing_cache
     }
 
     pub fn roots(&self) -> &[PathBuf] {
@@ -1308,7 +1304,7 @@ mod tests {
         }
         let clearing = |cx: &mut TestAppContext| {
             let launcher = &stage.launcher;
-            launcher.read_with(cx, |it, _| it.settings.clearing_cache())
+            launcher.read_with(cx, |it, _| it.settings.clearing_cache)
         };
         for (download, update) in [(State::Applying, false), (State::Idle, true)] {
             stage.busy(cx, download, update);

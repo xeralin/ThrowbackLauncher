@@ -132,7 +132,7 @@ impl Process for Child {
 }
 
 trait Host: Send + Sync {
-    fn fetch(&self, paths: &Paths, force: bool) -> Result<PathBuf, String>;
+    fn fetch(&self, paths: &Paths) -> Result<PathBuf, String>;
 
     fn game_env(&self, libraries: &[PathBuf]) -> Option<ProtonEnv>;
 
@@ -144,8 +144,8 @@ trait Host: Send + Sync {
 struct System;
 
 impl Host for System {
-    fn fetch(&self, paths: &Paths, force: bool) -> Result<PathBuf, String> {
-        ensure_liberator(paths, None, force).map_err(|error| error.to_string())
+    fn fetch(&self, paths: &Paths) -> Result<PathBuf, String> {
+        ensure_liberator(paths).map_err(|error| error.to_string())
     }
 
     fn game_env(&self, libraries: &[PathBuf]) -> Option<ProtonEnv> {
@@ -172,7 +172,7 @@ type Launched = (Box<dyn Process>, TcpListener);
 
 fn launch(host: &dyn Host, plan: &Plan) -> Result<Launched, Option<String>> {
     let failed = |error: io::Error| Some(fail("Liberator loading failed", error));
-    let bin = host.fetch(&plan.paths, false).map_err(Some)?;
+    let bin = host.fetch(&plan.paths).map_err(Some)?;
     let mut command = if IS_WINDOWS {
         Command::new(bin)
     } else {
@@ -345,7 +345,7 @@ impl Liberator {
         self.busy = true;
         cx.notify();
         let (host, paths) = (self.host.clone(), self.paths.clone());
-        let fetch = cx.background_spawn(async move { host.fetch(&paths, true) });
+        let fetch = cx.background_spawn(async move { host.fetch(&paths) });
         cx.spawn(async move |this, cx| {
             let fetched = fetch.await;
             this.update(cx, |this, cx| {
@@ -507,7 +507,7 @@ struct Offline;
 
 #[cfg(any(test, feature = "qa"))]
 impl Host for Offline {
-    fn fetch(&self, paths: &Paths, _: bool) -> Result<PathBuf, String> {
+    fn fetch(&self, paths: &Paths) -> Result<PathBuf, String> {
         let bin = paths.liberator_bin();
         let exe = backend::pe::versioned_exe(backend::env::VERSION);
         std::fs::create_dir_all(paths.bin_dir())
@@ -645,7 +645,7 @@ mod tests {
 
     #[derive(Default)]
     struct Fake {
-        fetches: Mutex<Vec<bool>>,
+        fetches: AtomicUsize,
         fetch_error: Mutex<Option<String>>,
         env: Mutex<Option<ProtonEnv>>,
         protons: Mutex<Vec<Proton>>,
@@ -671,12 +671,12 @@ mod tests {
     }
 
     fn install(paths: &Paths) {
-        Offline.fetch(paths, true).unwrap();
+        Offline.fetch(paths).unwrap();
     }
 
     impl Host for Fake {
-        fn fetch(&self, paths: &Paths, force: bool) -> Result<PathBuf, String> {
-            self.fetches.lock().unwrap().push(force);
+        fn fetch(&self, paths: &Paths) -> Result<PathBuf, String> {
+            self.fetches.fetch_add(1, Ordering::SeqCst);
             match self.fetch_error.lock().unwrap().clone() {
                 Some(error) => Err(error),
                 None => {
@@ -822,7 +822,7 @@ mod tests {
         }
 
         fn attempts(&self) -> usize {
-            self.host.fetches.lock().unwrap().len()
+            self.host.fetches.load(Ordering::SeqCst)
         }
 
         fn spawned(&self) -> usize {
@@ -916,7 +916,6 @@ mod tests {
         assert_eq!(stage.attempts(), 0);
         stage.tick(cx, &[HEATED, KEY]);
         assert_eq!((stage.attempts(), stage.spawned()), (1, 1));
-        assert_eq!(*stage.host.fetches.lock().unwrap(), [false]);
         stage.tick(cx, &[HEATED, KEY]);
         stage.tick(cx, &[KEY]);
         assert_eq!((stage.attempts(), stage.spawned()), (1, 1));
@@ -1198,7 +1197,7 @@ mod tests {
         assert!(stage.read(cx, Liberator::available));
         *stage.host.fetch_error.lock().unwrap() = Some("Liberator download failed".to_owned());
         stage.start(cx, &[KEY]);
-        assert_eq!(*stage.host.fetches.lock().unwrap(), [false]);
+        assert_eq!(stage.attempts(), 1);
         assert!(!stage.read(cx, Liberator::available));
     }
 
@@ -1230,10 +1229,7 @@ mod tests {
         assert!(stage.read(cx, Liberator::available));
         stage.pass(cx, ATTACH_DELAY_MAX);
         stage.tick(cx, &[KEY]);
-        assert_eq!(
-            *stage.host.fetches.lock().unwrap(),
-            [false, false, true, false]
-        );
+        assert_eq!(stage.attempts(), 4);
         assert_eq!(stage.spawned(), 1);
         assert_eq!(stage.errors(), [failure, failure, "restored"]);
     }
@@ -1343,7 +1339,7 @@ mod tests {
             let launcher = &stage.launcher;
             launcher.update(cx, |launcher, cx| launcher.prepare_liberator(windows, cx));
             cx.run_until_parked();
-            (stage.host.fetches.lock().unwrap().len(), stage.errors())
+            (stage.attempts(), stage.errors())
         };
         let stage = Stage::new(cx, "[settings]\n");
         assert_eq!(prepare(&stage, true, cx), (0, vec!["exclusion".to_owned()]));
@@ -1378,7 +1374,7 @@ mod tests {
             launcher.start_liberator(cx);
         });
         cx.run_until_parked();
-        assert_eq!(*stage.host.fetches.lock().unwrap(), [true]);
+        assert_eq!(stage.attempts(), 1);
         assert_eq!(stage.errors(), [failure]);
         assert!(stage.read(cx, |liberator| !liberator.busy() && !liberator.available()));
 
@@ -1389,7 +1385,7 @@ mod tests {
             assert!(launcher.liberator.busy());
         });
         cx.run_until_parked();
-        assert_eq!(*stage.host.fetches.lock().unwrap(), [true, false]);
+        assert_eq!(stage.attempts(), 2);
         assert!(stage.read(cx, |liberator| !liberator.busy() && liberator.available()));
         stage.stop(cx);
         fs::remove_file(stage.paths.liberator_bin()).unwrap();
@@ -1398,7 +1394,7 @@ mod tests {
             .launcher
             .update(cx, |launcher, cx| launcher.liberator.restore(cx));
         cx.run_until_parked();
-        assert_eq!(*stage.host.fetches.lock().unwrap(), [true, false, true]);
+        assert_eq!(stage.attempts(), 3);
         assert!(stage.read(cx, Liberator::available));
         assert_eq!(stage.errors(), [failure, "restored"]);
     }

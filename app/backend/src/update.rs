@@ -35,10 +35,13 @@ use crate::winspawn::hidden;
 const UPDATE_API_URL: &str =
     "https://api.github.com/repos/xeralin/ThrowbackLauncher/releases/latest";
 
-const APPIMAGE_ASSET: &str = "ThrowbackLauncher.AppImage";
+const PROGRAM_ASSET: &str = if IS_WINDOWS {
+    EXE_NAME
+} else {
+    "ThrowbackLauncher.AppImage"
+};
 
 const VERSION_TIMEOUT: Duration = Duration::from_secs(30);
-const PROGRAM_ASSET: &str = if IS_WINDOWS { EXE_NAME } else { APPIMAGE_ASSET };
 
 static DD_VERSION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"v(\d+(?:\.\d+)+)").expect("pattern"));
@@ -209,7 +212,7 @@ fn game_stopped(install: &Install) -> Result<()> {
 
 fn program(paths: &Paths) -> Option<PathBuf> {
     if IS_WINDOWS {
-        return Some(paths.asset_root.join(EXE_NAME));
+        return Some(paths.program_root.join(EXE_NAME));
     }
     let appimage = std::env::var_os("APPIMAGE").filter(|path| !path.is_empty());
     appimage.map(PathBuf::from)

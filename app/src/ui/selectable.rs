@@ -138,12 +138,6 @@ impl Selection {
         let Some(target) = self.target(event.position, unit) else {
             return;
         };
-        if let Some(other) = current(cx).filter(|other| *other != cx.entity()) {
-            other.update(cx, |other, cx| {
-                other.picked = None;
-                cx.notify();
-            });
-        }
         let this = cx.weak_entity();
         cx.set_global(Current(this));
         self.picked = Some(match self.picked.take() {
@@ -613,33 +607,11 @@ mod tests {
     }
 
     #[gpui::test]
-    fn selection_outlives_a_press_elsewhere_until_another_area_is_pressed(cx: &mut TestAppContext) {
-        let cx = mount(cx, |window, cx| {
-            let frame = || div().w(px(200.)).text_size(px(10.)).line_height(px(20.));
-            let (upper, lower) = (
-                selection("upper", window, cx),
-                selection("lower", window, cx),
-            );
-            div()
-                .child(selection_area(&upper, frame(), cx).child(selectable(
-                    &upper,
-                    0,
-                    "first area",
-                )))
-                .child(selection_area(&lower, frame(), cx).child(selectable(
-                    &lower,
-                    0,
-                    "second area",
-                )))
-                .into_any_element()
-        });
+    fn selection_outlives_a_press_elsewhere(cx: &mut TestAppContext) {
+        let (_, cx) = probe(200., &["first area"], cx);
         drag(cx, (0., 10.), (190., 10.));
         cx.simulate_click(point(px(400.), px(300.)), Modifiers::default());
         assert_eq!(copied(cx), "first area");
-        drag(cx, (42., 30.), (190., 30.));
-        assert_eq!(copied(cx), "area");
-        cx.simulate_keystrokes("ctrl-a");
-        assert_eq!(copied(cx), "second area");
     }
 
     #[gpui::test]

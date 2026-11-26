@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use crate::ui::px;
+use crate::ui::{Bound, px};
 use gpui::{
     App, AppContext, ClickEvent, Context, Div, ElementId, Entity, InteractiveElement, KeyDownEvent,
     ParentElement, Stateful, StatefulInteractiveElement, Styled, Window, div,
@@ -16,8 +16,6 @@ use crate::ui::motion::sub;
 use crate::ui::scroll::reveal;
 use crate::ui::theme::{BORDER, CH, Theme};
 
-pub type CommitHandler = Rc<dyn Fn(u32, &mut Window, &mut App)>;
-
 pub struct Stepper {
     input: Entity<TextInput>,
     seen: u32,
@@ -27,7 +25,7 @@ struct Steps {
     value: Cell<u32>,
     min: u32,
     max: u32,
-    on_commit: CommitHandler,
+    on_commit: Bound<u32>,
 }
 
 impl Steps {
@@ -76,7 +74,7 @@ impl Stepper {
         id: impl Into<ElementId>,
         value: u32,
         (min, max): (u32, u32),
-        on_commit: CommitHandler,
+        on_commit: Bound<u32>,
         window: &mut Window,
         cx: &mut App,
     ) -> Stateful<Div> {
@@ -160,7 +158,7 @@ pub fn level_stepper(
     id: impl Into<ElementId>,
     value: u32,
     levels: &'static [u32],
-    on_commit: CommitHandler,
+    on_commit: Bound<u32>,
     window: &mut Window,
     cx: &mut App,
 ) -> Stateful<Div> {

@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use crate::ui::px;
 use gpui::{
-    App, Bounds, ClipboardItem, ContentMask, Context, CursorStyle, Div, Element, ElementId,
-    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, GlobalElementId,
+    App, Bounds, ClipboardItem, ContentMask, Context, CursorStyle, DispatchPhase, Div, Element,
+    ElementId, ElementInputHandler, Entity, EntityInputHandler, FocusHandle, GlobalElementId,
     InspectorElementId, InteractiveElement, IntoElement, KeyBinding, LayoutId, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, ParentElement, Pixels, Point, Render,
     ShapedLine, SharedString, StatefulInteractiveElement, Style, Styled, Subscription, Task,
@@ -514,12 +514,6 @@ impl TextInput {
         }
     }
 
-    fn mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if self.selecting {
-            self.select_to(self.index_at(event.position), cx);
-        }
-    }
-
     fn mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
         self.selecting = false;
     }
@@ -682,7 +676,6 @@ impl Render for TextInput {
             .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::mouse_up))
-            .on_mouse_move(cx.listener(Self::mouse_move))
             .size_full()
             .flex()
             .items_center()
@@ -861,6 +854,14 @@ impl Element for TextElement {
             ElementInputHandler::new(bounds, self.input.clone()),
             cx,
         );
+        let input = self.input.clone();
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+            if phase == DispatchPhase::Bubble && input.read(cx).selecting {
+                input.update(cx, |input, cx| {
+                    input.select_to(input.index_at(event.position), cx);
+                });
+            }
+        });
         let height = window.line_height();
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
             if let Some(selection) = layout.selection.take() {
@@ -922,7 +923,7 @@ pub fn password_field(input: &Entity<TextInput>, window: &mut Window, cx: &mut A
 mod tests {
     use std::cell::RefCell;
 
-    use gpui::{AppContext, TestAppContext, VisualTestContext};
+    use gpui::{AppContext, Modifiers, TestAppContext, VisualTestContext};
 
     use super::*;
     use backend::settings::clean_username;
@@ -1101,6 +1102,19 @@ mod tests {
         let (input, cx) = probe("abc", cx);
         enter(&input, cx);
         assert_eq!(state(&input, cx).1, 3..3);
+    }
+
+    #[gpui::test]
+    fn a_drag_keeps_selecting_outside_the_field(cx: &mut TestAppContext) {
+        let (input, cx) = probe("Throwback", cx);
+        let (left, none) = (MouseButton::Left, Modifiers::default());
+        let outside = point(px(400.), px(300.));
+        cx.simulate_mouse_down(point(px(4.), px(16.)), left, none);
+        cx.simulate_mouse_move(outside, Some(left), none);
+        assert_eq!(state(&input, cx).1, 0..9);
+        cx.simulate_mouse_up(outside, left, none);
+        cx.simulate_mouse_move(point(px(4.), px(16.)), None, none);
+        assert_eq!(state(&input, cx).1, 0..9);
     }
 
     #[gpui::test]

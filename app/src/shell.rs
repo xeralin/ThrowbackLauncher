@@ -76,6 +76,7 @@ pub struct Place {
     season: Option<Edition>,
 }
 
+#[cfg(any(test, feature = "qa"))]
 impl From<Page> for Place {
     fn from(page: Page) -> Self {
         Self { page, season: None }
@@ -137,25 +138,26 @@ struct ShellHandle(WeakEntity<Shell>);
 
 impl Global for ShellHandle {}
 
+fn shell(cx: &App) -> Option<Entity<Shell>> {
+    cx.try_global::<ShellHandle>()?.0.upgrade()
+}
+
 pub fn navigate(page: Page, window: &mut Window, cx: &mut App) {
-    let shell = cx.global::<ShellHandle>().0.clone();
-    shell
-        .update(cx, |shell, cx| shell.open(page, window, cx))
-        .ok();
+    if let Some(shell) = shell(cx) {
+        shell.update(cx, |shell, cx| shell.open(page, window, cx));
+    }
 }
 
 pub fn open_season(key: &str, hm: bool, window: &mut Window, cx: &mut App) {
-    let shell = cx.global::<ShellHandle>().0.clone();
-    shell
-        .update(cx, |shell, cx| shell.open_season(key, hm, window, cx))
-        .ok();
+    if let Some(shell) = shell(cx) {
+        shell.update(cx, |shell, cx| shell.open_season(key, hm, window, cx));
+    }
 }
 
 pub fn close_season(window: &mut Window, cx: &mut App) {
-    let shell = cx.global::<ShellHandle>().0.clone();
-    shell
-        .update(cx, |shell, cx| shell.close_season(window, cx))
-        .ok();
+    if let Some(shell) = shell(cx) {
+        shell.update(cx, |shell, cx| shell.close_season(window, cx));
+    }
 }
 
 fn sidebar_width(viewport: f32) -> f32 {
@@ -175,20 +177,15 @@ pub fn page_pad(viewport: f32) -> f32 {
 }
 
 pub fn page_top(cx: &App) -> Pixels {
-    let shell = cx.try_global::<ShellHandle>();
-    let shell = shell.and_then(|shell| shell.0.upgrade());
-    shell.map_or(px(0.), |shell| -shell.read(cx).scroll.offset().y)
+    shell(cx).map_or(px(0.), |shell| -shell.read(cx).scroll.offset().y)
 }
 
 pub fn season_open(cx: &App) -> bool {
-    let shell = cx.try_global::<ShellHandle>();
-    let shell = shell.and_then(|shell| shell.0.upgrade());
-    shell.is_some_and(|shell| shell.read(cx).detail.is_some())
+    shell(cx).is_some_and(|shell| shell.read(cx).detail.is_some())
 }
 
 pub fn page(cx: &App) -> Option<Page> {
-    let shell = cx.try_global::<ShellHandle>()?.0.upgrade()?;
-    Some(shell.read(cx).page)
+    Some(shell(cx)?.read(cx).page)
 }
 
 pub fn page_size(window: &Window) -> Size<Pixels> {
@@ -491,7 +488,7 @@ impl Shell {
             link.border_l_2()
                 .border_color(theme.action.solid())
                 .shadow(vec![
-                    shadow(0., 0., 18., -5., theme.action_glow_soft).inset(),
+                    shadow(0., 0., 18., -5., theme.action.alpha(0.3)).inset(),
                 ])
         });
         match target {
@@ -501,7 +498,9 @@ impl Shell {
                 .focus_visible(focus_ring_inside)
                 .map(|element| hover.follow(element))
                 .on_click(cx.listener(move |this, _, window, cx| {
-                    this.drawer = false;
+                    if mem::take(&mut this.drawer) {
+                        cx.notify();
+                    }
                     this.open(page, window, cx);
                 })),
             None => external(id, link, FAQ_URL, &hover, window, cx),
@@ -836,6 +835,8 @@ impl Render for Shell {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
     use std::sync::{Arc, Mutex};
 
     use backend::env::Paths;
@@ -847,6 +848,7 @@ mod tests {
     use super::*;
     use crate::model::Edition;
     use crate::model::download::{Downloader, LoginKind};
+    use crate::ui::testing::press;
 
     const QUEUE: &str = "queue_paused = true\nqueue = [\
         { key = 'Y1S0_Vanilla', hm = false, library = '', verify = false }, \
@@ -920,6 +922,27 @@ mod tests {
             let detail = shell.detail.as_ref()?;
             Some(detail.season.read(cx).key().to_owned())
         })
+    }
+
+    #[gpui::test]
+    fn the_drawer_closes_at_once_when_its_current_entry_is_picked_by_key(cx: &mut TestAppContext) {
+        let (bench, cx) = bench(cx, "", None);
+        cx.simulate_resize(size(px(800.), px(600.)));
+        draw(cx);
+        cx.simulate_click(point(px(29.), px(26.)), Modifiers::default());
+        draw(cx);
+        assert!(bench.shell.read_with(cx, |shell, _| shell.drawer));
+        press(
+            cx,
+            "shift-tab shift-tab shift-tab shift-tab shift-tab shift-tab",
+        );
+        draw(cx);
+        let notified = Rc::new(Cell::new(false));
+        let seen = notified.clone();
+        let _watch = cx.update(|_, cx| cx.observe(&bench.shell, move |_, _| seen.set(true)));
+        press(cx, "enter");
+        assert!(!bench.shell.read_with(cx, |shell, _| shell.drawer));
+        assert!(notified.get());
     }
 
     #[gpui::test]

@@ -60,10 +60,15 @@ pub fn scan_download(dir: &Path, event_pattern: Option<&str>) -> Result<Scan> {
 pub fn cut_download(dir: &Path, kind: Kind, event_pattern: Option<&str>) -> Result<()> {
     match kind {
         Kind::Videos => {
+            let deleted = delete_files(&video_files(dir, event_pattern)?);
             let startup = startup_dir(dir);
-            let mut files = video_files(dir, event_pattern)?;
-            files.extend(startup_files(&startup));
-            cut_videos(&files, &startup)
+            let removed = match fs::remove_dir_all(&startup) {
+                Err(error) if error.kind() != io::ErrorKind::NotFound => {
+                    Err(with_path(error, &startup))
+                }
+                _ => Ok(()),
+            };
+            deleted.and(removed)
         }
         Kind::Events => match event_pattern {
             Some(pattern) => delete_files(&event_files(dir, pattern)?),
@@ -192,37 +197,6 @@ fn event_files(dir: &Path, pattern: &str) -> Result<Vec<PathBuf>> {
     event_videos.retain(|path| event_video(path, Some(pattern)));
     files.extend(event_videos);
     Ok(files)
-}
-
-fn startup_files(startup: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    let mut visit = |dir: &Path| {
-        let entries = list(dir).unwrap_or_default();
-        files.extend(
-            entries
-                .iter()
-                .map(DirEntry::path)
-                .filter(|path| path.is_file()),
-        );
-        entries
-    };
-    let mut pending = vec![visit(startup)];
-    while let Some(entries) = pending.pop() {
-        for entry in entries {
-            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                pending.push(visit(&entry.path()));
-            }
-        }
-    }
-    files
-}
-
-fn cut_videos(files: &[PathBuf], startup: &Path) -> Result<()> {
-    delete_files(files)?;
-    if fs::symlink_metadata(startup).is_ok_and(|meta| meta.is_dir()) {
-        let _ = fs::remove_dir_all(startup);
-    }
-    Ok(())
 }
 
 fn delete_files(files: &[PathBuf]) -> Result<()> {
@@ -599,32 +573,6 @@ mod tests {
         delete_files(&[]).unwrap();
     }
 
-    #[test]
-    fn cut_videos_keeps_the_startup_folder_after_a_failure() {
-        let root = tempfile::tempdir().unwrap();
-        let game = root.path().join("game");
-        let startup = startup_dir(&game);
-        let intro = game.join("videos/intro.bik");
-        let logo = startup.join("logo.bik");
-        put(&intro, 4);
-        put(&logo, 2);
-        put(&startup.join("lang/en.bik"), 1);
-        fs::create_dir(startup.join("empty")).unwrap();
-        let folder = startup.join("lang");
-        let error = cut_videos(&[intro, folder.clone(), logo], &startup).unwrap_err();
-        let last = with_path(fs::remove_file(&folder).unwrap_err(), &folder);
-        assert_eq!(
-            error.to_string(),
-            format!("1 files not deleted, last: {last}")
-        );
-        assert_eq!(files(&game), ["videos/startup/lang/en.bik"]);
-        assert!(startup.join("empty").is_dir());
-        cut_videos(&[folder.join("en.bik")], &startup).unwrap();
-        assert!(!startup.exists());
-        assert!(game.join("videos").is_dir());
-        cut_videos(&[], &startup).unwrap();
-    }
-
     #[cfg(unix)]
     #[test]
     fn scan_sizes_linked_videos_and_event_files_by_their_targets() {
@@ -755,7 +703,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn cut_videos_empties_a_linked_startup_folder_and_keeps_the_link() {
+    fn cut_videos_removes_a_linked_startup_folder_and_keeps_its_target() {
         use std::os::unix::fs::symlink;
 
         let root = tempfile::tempdir().unwrap();
@@ -767,8 +715,9 @@ mod tests {
         symlink(&elsewhere, game.join("videos/startup")).unwrap();
         assert_eq!(scan_download(&game, None).unwrap().videos, 64 + 8 + 16);
         cut_download(&game, Kind::Videos, None).unwrap();
-        assert_eq!(files(&game), ["videos/startup"]);
-        assert!(elsewhere.join("deep").is_dir());
-        assert_eq!(folder_size(&elsewhere), 0);
+        assert!(files(&game).is_empty());
+        assert!(game.join("videos").is_dir());
+        assert_eq!(folder_size(&elsewhere), 8 + 16);
+        cut_download(&game, Kind::Videos, None).unwrap();
     }
 }

@@ -307,7 +307,7 @@ impl Flow {
                 let face = if style.strong { strong } else { base };
                 let shown = style.image.and_then(|image| {
                     let image = &content.images[image];
-                    let loaded = picture::loaded(&image.source, cx)?;
+                    let loaded = picture::loaded(&image.source, window, cx)?;
                     Some((loaded, image.width))
                 });
                 let piece = if let Some((loaded, width)) = shown {

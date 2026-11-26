@@ -757,7 +757,7 @@ mod host {
         let tmp_dir = paths.bin_dir().join(".wine.tmp");
         let outcome = fetch_wine(paths, &archive, &tmp_dir, cancelled)
             .map_err(|error| download_error("Wine download failed", error));
-        remove_if_present(&archive)?;
+        rm(&archive);
         let _ = fs::remove_dir_all(&tmp_dir);
         outcome
     }
@@ -1050,6 +1050,9 @@ mod host {
                 .map_err(|error| anyhow!(log::fail("Radmin VPN install failed", error)))?;
             if !boot.status.success() {
                 log::fail("wineboot failed", wine_error(&boot));
+                if !prefix(&self.paths).join("drive_c").is_dir() {
+                    bail!("Radmin VPN install failed");
+                }
             }
             self.reg_import(&install_entries())?;
             wineserver_stop(&self.env);
@@ -2592,6 +2595,25 @@ exec sleep 600"#;
             assert!(desktop.is_dir() && !desktop.is_symlink());
             assert!(!drivers_dir(&paths).join("RvNetMP60.sys").exists());
             assert!(is_installed(&paths));
+        }
+
+        #[test]
+        fn a_wineboot_that_leaves_no_prefix_ends_the_install() {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = rooted(&dir);
+            let session = scripted(&paths, "echo ' boot crash ' >&2\nexit 11");
+            let installer = paths.data_root.join("Radmin_VPN_2.1.exe");
+            fs::write(&installer, "MZ").unwrap();
+            let (reporter, _seen) = recorder();
+            let error = session
+                .ensure_installed(Some(&installer), &reporter)
+                .unwrap_err();
+            assert_eq!(error.to_string(), "Radmin VPN install failed");
+            assert_eq!(log::take_recorded(), ["wineboot failed - boot crash"]);
+            assert_eq!(
+                calls(&paths),
+                ["wine wineboot --init|~/data/rvpn|unset|none"]
+            );
         }
 
         #[test]

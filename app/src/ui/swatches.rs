@@ -1,6 +1,4 @@
-use std::rc::Rc;
-
-use crate::ui::px;
+use crate::ui::{Bound, px};
 use gpui::{
     App, BoxShadow, Div, InteractiveElement, KeyDownEvent, ParentElement, Stateful,
     StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder,
@@ -15,13 +13,11 @@ const CELL: f32 = 24.;
 const RING: f32 = 2.;
 const INNER_RADIUS: f32 = 5.;
 
-pub type ColorCommit = Rc<dyn Fn(u32, &mut Window, &mut App)>;
-
 pub fn color_bar(
     id: &'static str,
     colors: &[u32],
     value: u32,
-    on_select: ColorCommit,
+    on_select: Bound<u32>,
     window: &mut Window,
     cx: &mut App,
 ) -> Stateful<Div> {
@@ -91,6 +87,7 @@ pub fn color_bar(
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
+    use std::rc::Rc;
 
     use gpui::{IntoElement, TestAppContext};
 

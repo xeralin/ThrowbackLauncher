@@ -160,7 +160,7 @@ impl Launcher {
         if self.update.busy() || self.update.checking || !listed {
             return;
         }
-        if self.settings.clearing_cache() {
+        if self.settings.clearing_cache {
             cx.emit(UpdateEvent::Error(CACHE_CLEARING));
             return;
         }

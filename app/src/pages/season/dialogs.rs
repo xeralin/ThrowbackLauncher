@@ -9,8 +9,8 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder,
 };
 
+use super::SeasonPage;
 use super::playtime::overview;
-use super::{SeasonPage, manage::Flags};
 use crate::modals::steps::archive_steps;
 use crate::model::Launcher;
 use crate::model::cheatengine::CheatEngineEvent;
@@ -367,7 +367,7 @@ impl SeasonPage {
 
     fn download_dialog(
         &self,
-        chosen: SharedString,
+        chosen: &SharedString,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Deferred {
@@ -381,7 +381,7 @@ impl SeasonPage {
         let mut list = div().flex().flex_col().gap(px(8.));
         for (index, library) in libraries.into_iter().enumerate() {
             let pick = library.path.clone();
-            let selected = library.path == chosen;
+            let selected = library.path == *chosen;
             let row = picker_row(
                 ("season-library", index),
                 library.display,
@@ -617,14 +617,9 @@ impl SeasonPage {
             .show(window, cx)
     }
 
-    fn proton_dialog(
-        &mut self,
-        flags: Flags,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<Deferred> {
+    fn proton_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<Deferred> {
         let key = self.season.key.clone();
-        let (default, pinned, stored, working, protons) = {
+        let (default, pinned, stored, working, playing, protons) = {
             let launcher = self.launcher.read(cx);
             let settings = &launcher.settings;
             let protons = settings.protons.as_ref()?;
@@ -635,6 +630,7 @@ impl SeasonPage {
                 SharedString::from(settings.season_proton(&key).to_owned()),
                 SharedString::from(settings.launch_args(&key).to_owned()),
                 launcher.cheat_engine.busy(),
+                self.flags(launcher).playing_season,
                 protons.collect::<Vec<_>>(),
             )
         };
@@ -657,7 +653,7 @@ impl SeasonPage {
             list = list.child(row);
         }
         let prefix = self.installs.prefix;
-        let (launcher, season) = (self.launcher.clone(), key.clone());
+        let (launcher, season) = (self.launcher.clone(), key);
         let Some(Dialog::Proton {
             status,
             args,
@@ -719,7 +715,7 @@ impl SeasonPage {
                     page.launcher
                         .update(cx, |launcher, cx| launcher.remove_prefix(&key, cx));
                 }))
-                .when(flags.playing_season || working, disable);
+                .when(playing || working, disable);
             options = options.child(
                 list_row().child(truncate("Prefix")).child(
                     div()
@@ -756,16 +752,10 @@ impl SeasonPage {
             return None;
         }
         match self.dialog.as_ref()? {
-            Dialog::Download { library } => {
-                let library = library.clone();
-                Some(self.download_dialog(library, window, cx))
-            }
+            Dialog::Download { library } => Some(self.download_dialog(library, window, cx)),
             Dialog::RemoveDownload => Some(self.remove_dialog(window, cx)),
             Dialog::SelectHm { busy, .. } => Some(self.select_hm_dialog(*busy, window, cx)),
-            Dialog::Proton { .. } => {
-                let flags = self.flags(self.launcher.read(cx));
-                self.proton_dialog(flags, window, cx)
-            }
+            Dialog::Proton { .. } => self.proton_dialog(window, cx),
             Dialog::Playtime => Some(self.playtime_dialog(window, cx)),
             Dialog::ResetPlaytime => Some(self.reset_dialog(window, cx)),
             Dialog::Shears => Some(self.shears_dialog(window, cx)),

@@ -19,7 +19,7 @@ use crate::ui::scroll::{reveal, scroll};
 use crate::ui::theme::{
     BLACK, BORDER, FONT_DISPLAY_BOLD, REM, SURFACE, TEXT, Theme, Typeface, shadow,
 };
-use crate::ui::{Dismiss, FocusNext, FocusPrevious};
+use crate::ui::{Dismiss, FocusNext, FocusPrevious, Handler};
 
 const ENTRANCE: Duration = Duration::from_millis(180);
 const CONTEXT: &str = "Modal";
@@ -33,8 +33,6 @@ const FADE: f32 = 28.;
 const TITLE_GAP: f32 = 12.;
 const GAP: f32 = 16.;
 const SIDE: f32 = 212.;
-
-pub type Handler = Rc<dyn Fn(&mut Window, &mut App)>;
 
 #[derive(Default)]
 struct Dimmed {
@@ -82,7 +80,8 @@ pub struct Sheet<'a> {
 
 fn fades(list: ScrollHandle) -> impl IntoElement {
     let paint = move |bounds: Bounds<Pixels>, (), window: &mut Window, _: &mut App| {
-        let (scrolled, reach) = (-list.offset().y, list.max_offset().y);
+        let offset = list.offset().y;
+        let (above, below) = (-offset, list.max_offset().y + offset);
         let mut shade = |top: Pixels, from: f32, to: f32| {
             let strip = Bounds::new(point(bounds.left(), top), size(bounds.size.width, px(FADE)));
             let fade = linear_gradient(
@@ -92,10 +91,10 @@ fn fades(list: ScrollHandle) -> impl IntoElement {
             );
             window.paint_quad(fill(strip, fade));
         };
-        if scrolled > px(0.) {
+        if above > px(0.) {
             shade(bounds.top(), 1., 0.);
         }
-        if scrolled < reach {
+        if below > px(0.) {
             shade(bounds.bottom() - px(FADE), 0., 1.);
         }
     };
@@ -132,7 +131,9 @@ impl Modal {
     pub fn open(&mut self, window: &mut Window, cx: &mut App) {
         if self.lease.is_none() {
             let dimmed = cx.default_global::<Dimmed>();
-            dimmed.serial += 1;
+            if dimmed.sheets.get() == 0 {
+                dimmed.serial += 1;
+            }
             dimmed.sheets.set(dimmed.sheets.get() + 1);
             self.lease = Some(Lease(dimmed.sheets.clone()));
             self.opened += 1;
@@ -488,15 +489,13 @@ mod tests {
             cx.update(|window, cx| window.draw(cx).clear(cx));
             seen.get()
         };
-        let (mut first, mut second) = cx.update(|_, cx| {
-            cx.set_reduce_motion(true);
-            (Modal::new(cx), Modal::new(cx))
-        });
+        let (mut first, mut second) = cx.update(|_, cx| (Modal::new(cx), Modal::new(cx)));
         assert_eq!(shown(cx), 0.);
-        cx.update(|window, cx| {
-            first.open(window, cx);
-            second.open(window, cx);
-        });
+        cx.update(|window, cx| first.open(window, cx));
+        assert!(shown(cx) < DIM);
+        cx.executor().advance_clock(ENTRANCE);
+        assert_eq!(shown(cx), DIM);
+        cx.update(|window, cx| second.open(window, cx));
         assert_eq!(shown(cx), DIM);
         cx.update(|window, cx| first.close(window, cx));
         assert_eq!(shown(cx), DIM);

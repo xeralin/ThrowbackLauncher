@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::ui::{px, units};
+use crate::ui::{DATE_FORMAT, px, units};
 use backend::env::IS_WINDOWS;
 use chrono::DateTime;
 use gpui::{
@@ -16,7 +16,8 @@ use crate::ui::key_art::shade;
 use crate::ui::kit::{box_text, code_chip, panel};
 use crate::ui::prose::{Prose, inline};
 use crate::ui::theme::{
-    BORDER, FONT_DISPLAY_BOLD, ON_ART, REM, SURFACE_2, TEXT, TEXT_UI, Typeface,
+    BORDER, FONT_BODY, FONT_DISPLAY_BOLD, ON_ART, REM, SURFACE_2, TEXT, TEXT_MUTED, TEXT_UI,
+    Typeface,
 };
 
 const REPOSITORY: &str =
@@ -157,19 +158,19 @@ fn list(
     Some(list)
 }
 
-fn cell(content: impl Into<SharedString>) -> Div {
+fn cell(content: impl IntoElement) -> Div {
     div()
         .flex()
         .items_center()
         .px(px(0.6 * REM))
         .border_r_1()
         .border_color(BORDER.solid())
-        .child(box_text(content))
+        .child(content)
 }
 
 fn built(stamp: u32) -> Option<String> {
     let built = DateTime::from_timestamp(i64::from(stamp), 0)?;
-    Some(built.format("%b %-d, %Y").to_string())
+    Some(built.format(DATE_FORMAT).to_string())
 }
 
 fn occasions(names: &[&str]) -> Option<Cow<'static, str>> {
@@ -241,12 +242,18 @@ impl SeasonPage {
             .gap(px(CARD_GAP))
             .min_w_0()
             .children(cards);
+        let size = div()
+            .face(FONT_BODY, ROW.size)
+            .line_height(px(ROW.line))
+            .text_color(TEXT_MUTED.solid())
+            .whitespace_nowrap()
+            .child(format!("{} GB", season.size_gb));
         let facts = panel()
             .flex()
             .flex_none()
             .h(px(32.))
-            .child(cell(release))
-            .child(cell(format!("{} GB", season.size_gb)))
+            .child(cell(box_text(release)))
+            .child(cell(size))
             .child(
                 div()
                     .flex()

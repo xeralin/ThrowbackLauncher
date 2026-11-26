@@ -46,6 +46,7 @@ fn main() {
     table.push_str("];\n");
     fs::write(out.join("pictures.rs"), table).expect("picture table");
 
+    println!("cargo:rerun-if-changed={ICON}");
     match env::var("CARGO_CFG_TARGET_OS").as_deref() {
         Ok("windows") => windows_resource(),
         Ok("linux") => tray_icon(&out),
@@ -86,7 +87,6 @@ fn windows_resource() {
 }
 
 fn tray_icon(out: &Path) {
-    println!("cargo:rerun-if-changed={ICON}");
     let icon = image::open(ICON).unwrap_or_else(|error| panic!("{ICON}: {error}"));
     let mut table = String::from("static PIXMAPS: &[(i32, &[u8])] = &[\n");
     for size in TRAY_SIZES {

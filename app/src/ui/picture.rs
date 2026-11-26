@@ -1,22 +1,16 @@
-use std::collections::HashMap;
 use std::io::Cursor;
 use std::panic::Location;
 use std::sync::Arc;
 
 use backend::github::{fetch_picture, github_media};
 use gpui::{
-    App, AppContext, AvailableSpace, Bounds, Corners, Element, ElementId, Global, GlobalElementId,
+    App, AppContext, Asset, AvailableSpace, Bounds, Corners, Element, ElementId, GlobalElementId,
     InspectorElementId, IntoElement, LayoutId, Pixels, RenderImage, SharedString, Size, Style,
     Window, size,
 };
 use image::{DynamicImage, Frame, ImageDecoder, ImageReader};
 
 const AREA: u64 = 16_000_000;
-
-#[derive(Default)]
-struct Pictures(HashMap<SharedString, Option<Arc<RenderImage>>>);
-
-impl Global for Pictures {}
 
 fn decode(bytes: &[u8], area: u64) -> Option<RenderImage> {
     let reader = ImageReader::new(Cursor::new(bytes));
@@ -44,29 +38,25 @@ fn fetch(url: &str) -> Option<Vec<u8>> {
     fetch_picture(url).ok()
 }
 
-pub fn loaded(url: &SharedString, cx: &mut App) -> Option<Arc<RenderImage>> {
+struct Still;
+
+impl Asset for Still {
+    type Source = SharedString;
+    type Output = Option<Arc<RenderImage>>;
+
+    fn load(
+        url: SharedString,
+        cx: &mut App,
+    ) -> impl Future<Output = Self::Output> + Send + 'static {
+        cx.background_spawn(async move { decode(&fetch(&url)?, AREA).map(Arc::new) })
+    }
+}
+
+pub fn loaded(url: &SharedString, window: &mut Window, cx: &mut App) -> Option<Arc<RenderImage>> {
     if !github_media(url) {
         return None;
     }
-    let pictures = cx.default_global::<Pictures>();
-    if let Some(known) = pictures.0.get(url) {
-        return known.clone();
-    }
-    pictures.0.insert(url.clone(), None);
-    let source = url.clone();
-    let loading = cx.background_spawn(async move { decode(&fetch(&source)?, AREA) });
-    let url = url.clone();
-    cx.spawn(async move |cx| {
-        if let Some(loaded) = loading.await {
-            cx.update(|cx| {
-                let pictures = cx.default_global::<Pictures>();
-                pictures.0.insert(url, Some(Arc::new(loaded)));
-                cx.refresh_windows();
-            });
-        }
-    })
-    .detach();
-    None
+    window.use_asset::<Still>(url, cx).flatten()
 }
 
 struct View {

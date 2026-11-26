@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -391,12 +392,15 @@ impl General {
                 default,
                 fixed,
             } = library;
-            let (opener, folder, removed) = (launcher.clone(), path.clone(), path.clone());
+            let (folder, removed) = (path.clone(), path.clone());
             let shown = path.clone();
             let mut actions = div().flex().flex_none().items_center().mr(px(-4.)).child(
                 icon_button(("library-open", index), FOLDER, window, cx)
                     .on_click(move |_, _, cx| {
-                        opener.update(cx, |launcher, cx| launcher.open_library(&folder, cx));
+                        let target = Path::new(&*folder);
+                        if target.exists() {
+                            cx.open_with_system(target);
+                        }
                     })
                     .when(!exists, disable),
             );
@@ -454,9 +458,6 @@ impl General {
         window: &mut Window,
         cx: &mut Context<SettingsPage>,
     ) -> Option<Deferred> {
-        if !self.modal.is_open() {
-            return None;
-        }
         Some(match self.dialog? {
             Dialog::Proton => self.proton_picker(launcher, window, cx),
             Dialog::Rvpn => self.rvpn_manage(launcher, window, cx),

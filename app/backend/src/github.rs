@@ -240,6 +240,9 @@ pub fn github_asset(paths: &Paths, api_url: &str, suffix: &str) -> Result<(Strin
 }
 
 fn via_part(dest: &Path, write: impl FnOnce(&mut File) -> Result<()>) -> Result<()> {
+    if let Some(folder) = dest.parent() {
+        fs::create_dir_all(folder)?;
+    }
     let part = dest.with_added_extension("part");
     let written = File::create(&part)
         .map_err(Into::into)

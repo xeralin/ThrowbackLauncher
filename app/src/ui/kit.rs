@@ -162,14 +162,10 @@ fn code_box(size: f32) -> Div {
 }
 
 pub fn chip(content: impl Into<SharedString>) -> Div {
-    code(content, TEXT_UI)
-}
-
-pub fn code(content: impl Into<SharedString>, size: f32) -> Div {
-    code_box(size)
-        .px(px(0.15 * size))
-        .pt(px(0.18 * size))
-        .pb(px(0.12 * size))
+    code_box(TEXT_UI)
+        .px(px(0.15 * TEXT_UI))
+        .pt(px(0.18 * TEXT_UI))
+        .pb(px(0.12 * TEXT_UI))
         .child(content.into())
 }
 

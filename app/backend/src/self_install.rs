@@ -17,7 +17,7 @@ pub fn hand_over(args: &[String]) -> Result<bool, String> {
     let program = std::env::current_exe().map_or_else(|_| PathBuf::new(), |exe| resolve(&exe));
     let registered = registered_root();
     let listed = registered.is_some();
-    let root = registered.unwrap_or_else(|| user_data_base().join(DIR_NAME));
+    let root = registered.unwrap_or_else(|| resolve(&user_data_base().join(DIR_NAME)));
     if let Some(root) = migrate::installation(&program, &root, listed) {
         migrate::move_in(&program, &root, args);
         return Ok(true);
@@ -131,15 +131,10 @@ fn registered_version() -> Option<String> {
 }
 
 #[cfg(windows)]
-pub fn owns_entry(root: &Path) -> bool {
-    registered_root().is_none_or(|registered| crate::env::same_path(&registered, root))
-}
-
-#[cfg(windows)]
 pub fn register(root: &Path) {
     use crate::env::{APP_NAME, PACKAGED, UNINSTALL_ARG, UNINSTALL_KEY};
 
-    if !PACKAGED || !owns_entry(root) {
+    if !PACKAGED {
         return;
     }
     let Ok((key, _)) = winreg::HKCU.create_subkey(UNINSTALL_KEY) else {
@@ -179,6 +174,7 @@ mod tests {
     use std::fs;
 
     use super::*;
+    use crate::throwbackloader::testing::names;
 
     #[test]
     fn only_an_older_installation_is_replaced() {
@@ -187,15 +183,6 @@ mod tests {
         assert!(!older(VERSION));
         assert!(!older("99.0.0"));
         assert!(!older("unknown"));
-    }
-
-    fn names(folder: &Path) -> Vec<String> {
-        let entries = fs::read_dir(folder).unwrap();
-        let mut names: Vec<String> = entries
-            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-            .collect();
-        names.sort();
-        names
     }
 
     #[test]

@@ -301,31 +301,19 @@ pub fn run_from_env() -> bool {
                 })
                 .expect("window update");
             }
-            "wheel" => {
+            "wheel" | "notch" => {
                 let mut values = argument.split(',').map(|value| value.parse::<f32>());
-                let mut value = || values.next().expect("x,y,dy").expect("number");
-                let (x, y, dy) = (value(), value(), value());
+                let mut value = || values.next().expect("x,y,amount").expect("number");
+                let (x, y, amount) = (value(), value(), value());
+                let delta = match kind {
+                    "wheel" => ScrollDelta::Pixels(point(px(0.), px(-amount))),
+                    _ => ScrollDelta::Lines(point(0., -3. * amount)),
+                };
                 cx.update_window(window, |_, window, cx| {
                     window.dispatch_event(
                         PlatformInput::Scroll(ScrollEvent {
                             position: point(px(x), px(y)),
-                            delta: ScrollDelta::Pixels(point(px(0.), px(-dy))),
-                            ..Default::default()
-                        }),
-                        cx,
-                    );
-                })
-                .expect("window update");
-            }
-            "notch" => {
-                let mut values = argument.split(',').map(|value| value.parse::<f32>());
-                let mut value = || values.next().expect("x,y,notches").expect("number");
-                let (x, y, notches) = (value(), value(), value());
-                cx.update_window(window, |_, window, cx| {
-                    window.dispatch_event(
-                        PlatformInput::Scroll(ScrollEvent {
-                            position: point(px(x), px(y)),
-                            delta: ScrollDelta::Lines(point(0., -3. * notches)),
+                            delta,
                             ..Default::default()
                         }),
                         cx,

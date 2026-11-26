@@ -3,20 +3,17 @@ pub fn run(paths: &crate::env::Paths) {
     use std::ffi::OsStr;
 
     use crate::env::{DIR_NAME, PACKAGED, UNINSTALL_KEY, unlink};
-    use crate::self_install::{owns_entry, start_menu_shortcut};
+    use crate::self_install::start_menu_shortcut;
     use crate::winspawn::spawn_detached;
 
     if !PACKAGED {
         return;
     }
-    if owns_entry(&paths.data_root) {
-        if let Some(shortcut) = start_menu_shortcut() {
-            let _ = unlink(&shortcut);
-        }
-        let _ = unlink(&desktop_shortcut());
-        let _ = winreg::HKCU.delete_subkey(UNINSTALL_KEY);
+    if let Some(shortcut) = start_menu_shortcut() {
+        let _ = unlink(&shortcut);
     }
-
+    let _ = unlink(&desktop_shortcut());
+    let _ = winreg::HKCU.delete_subkey(UNINSTALL_KEY);
     let _ = crate::depot::wipe_depot_token();
     let bat = std::env::temp_dir().join(format!("{DIR_NAME}.uninstall.bat"));
     let [cmd, quiet, run] = ["cmd", "/d", "/c"].map(OsStr::new);
