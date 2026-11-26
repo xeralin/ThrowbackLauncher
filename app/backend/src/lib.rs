@@ -20,6 +20,8 @@ pub mod self_uninstall;
 pub mod self_update;
 pub mod settings;
 pub mod shears;
+#[cfg(windows)]
+mod shortcut;
 pub mod steam;
 pub mod throwbackloader;
 pub mod update;

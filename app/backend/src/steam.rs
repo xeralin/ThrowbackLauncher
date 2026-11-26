@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use regex::Regex;
-use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, Signal, System, UpdateKind};
+use sysinfo::{Pid, Process, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 use crate::env::{IS_WINDOWS, NOT_INSTALLED, Paths, SEASON_RUNNING, TL_LAUNCHER, home, resolve};
 use crate::log::fail;
@@ -252,6 +252,35 @@ fn exited(process: &Process) -> bool {
     unsafe { WaitForSingleObject(handle.as_raw_handle(), 0) == WAIT_OBJECT_0 }
 }
 
+#[cfg(not(windows))]
+fn ask_to_end(process: &Process) -> bool {
+    let asked = process.kill_with(sysinfo::Signal::Term);
+    asked.unwrap_or_else(|| process.kill())
+}
+
+#[cfg(windows)]
+fn ask_to_end(process: &Process) -> bool {
+    force_end(process)
+}
+
+#[cfg(not(windows))]
+fn force_end(process: &Process) -> bool {
+    process.kill()
+}
+
+#[cfg(windows)]
+fn force_end(process: &Process) -> bool {
+    use std::os::windows::io::{AsRawHandle, HandleOrNull, OwnedHandle};
+
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
+
+    let opened = unsafe { OpenProcess(PROCESS_TERMINATE, 0, process.pid().as_u32()) };
+    let Ok(handle) = OwnedHandle::try_from(unsafe { HandleOrNull::from_raw_handle(opened) }) else {
+        return false;
+    };
+    unsafe { TerminateProcess(handle.as_raw_handle(), 1) != 0 }
+}
+
 fn wait_gone(system: &mut System, targets: &mut Vec<(Pid, u64)>, grace: Duration) {
     let deadline = Instant::now() + grace;
     loop {
@@ -275,14 +304,13 @@ pub fn stop_game(pids: &[u32]) {
     };
     let mut targets = Vec::new();
     for process in system.processes().values() {
-        let asked = process.kill_with(Signal::Term);
-        if asked.unwrap_or_else(|| process.kill()) {
+        if ask_to_end(process) {
             targets.push((process.pid(), process.start_time()));
         }
     }
     wait_gone(&mut system, &mut targets, TERMINATE_GRACE);
     for process in targets.iter().filter_map(|(pid, _)| system.process(*pid)) {
-        process.kill();
+        force_end(process);
     }
     wait_gone(&mut system, &mut targets, KILL_GRACE);
 }
@@ -564,6 +592,29 @@ mod tests {
             "Liberator.exe",
         ] {
             assert!(!is_game(OsStr::new(name)), "{name}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn stop_ends_the_game_at_once_on_windows() {
+        use std::process::{Child, Command};
+
+        let spawn = |name: &str| {
+            let mut command = Command::new("waitfor.exe");
+            command.args(["/t", "30", name]).spawn().unwrap()
+        };
+        let mut games: Vec<Child> = ["tbstopone", "tbstoptwo"].into_iter().map(spawn).collect();
+        let pids: Vec<u32> = games.iter().map(Child::id).collect();
+        let started = Instant::now();
+        stop_game(&[pids[0], 0, pids[1], u32::MAX]);
+        assert!(
+            started.elapsed() < TERMINATE_GRACE,
+            "{:?}",
+            started.elapsed()
+        );
+        for game in &mut games {
+            assert_eq!(game.wait().unwrap().code(), Some(1));
         }
     }
 

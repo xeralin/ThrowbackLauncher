@@ -540,6 +540,7 @@ dependencies = [
  "tempfile",
  "toml 0.8.23",
  "ureq",
+ "windows 0.62.2",
  "windows-sys 0.61.2",
  "winreg",
  "zip",

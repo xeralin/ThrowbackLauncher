@@ -18,6 +18,7 @@ pub const UNINSTALL_KEY: &str =
     r"Software\Microsoft\Windows\CurrentVersion\Uninstall\ThrowbackLauncher";
 pub const RELAUNCH_ARG: &str = "--relaunch";
 pub const UNINSTALL_ARG: &str = "--uninstall";
+pub const REMOVE_ARG: &str = "--remove-installation";
 
 pub const IS_WINDOWS: bool = cfg!(windows);
 pub const PACKAGED: bool = cfg!(feature = "packaged");

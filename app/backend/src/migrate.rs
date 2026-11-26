@@ -9,7 +9,7 @@ use crate::self_update::{POLL_INTERVAL, clear};
 
 #[cfg(any(windows, test))]
 const PENDING_FILE: &str = ".pending";
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 const PINNED: &str = r"Microsoft\Internet Explorer\Quick Launch\User Pinned";
 
 #[cfg(any(windows, test))]
@@ -68,24 +68,49 @@ pub fn move_in(program: &Path, root: &Path, args: &[String]) {
 }
 
 #[cfg(any(windows, test))]
-fn shortcut_script(root: &Path, desktop: &Path) -> String {
-    let quoted = |path: &Path| path.to_string_lossy().replace('\'', "''");
-    format!(
-        r"$w=New-Object -COM WScript.Shell;$root='{root}';$new=$root+'\{EXE_NAME}';$old=$root+'\{APP_SUBDIR}';$i=[StringComparison]::OrdinalIgnoreCase;@(Get-ChildItem -LiteralPath '{desktop}' -Filter *.lnk -ErrorAction SilentlyContinue)+@(Get-ChildItem -LiteralPath ($env:APPDATA+'\{PINNED}') -Filter *.lnk -Recurse -ErrorAction SilentlyContinue)|ForEach-Object{{$s=$w.CreateShortcut($_.FullName);$t=$s.TargetPath;if($t.StartsWith($old+'\',$i) -or $t.StartsWith($old+'.',$i)){{$s.TargetPath=$new;$s.WorkingDirectory=$root;$s.IconLocation=$new;$s.Save()}}}}",
-        root = quoted(root),
-        desktop = quoted(desktop),
-    )
+fn shortcuts_in(folder: &Path, nested: bool) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for entry in fs::read_dir(folder).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            if nested {
+                found.extend(shortcuts_in(&path, true));
+            }
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("lnk"))
+        {
+            found.push(path);
+        }
+    }
+    found
+}
+
+#[cfg(any(windows, test))]
+fn stale(root: &Path, target: &Path) -> bool {
+    let old = format!(r"{}\{APP_SUBDIR}", root.display()).to_lowercase();
+    let target = target.to_string_lossy().to_lowercase();
+    [r"\", "."]
+        .iter()
+        .any(|next| target.starts_with(&format!("{old}{next}")))
 }
 
 #[cfg(windows)]
 pub fn repoint_shortcuts(root: &Path) {
-    let desktop = crate::self_uninstall::desktop_shortcut();
     let old = [APP_SUBDIR, PENDING_SUBDIR].map(|name| root.join(name));
-    if let Some(desktop) = desktop.parent()
-        && old.iter().any(|folder| folder.is_dir())
-    {
-        crate::winspawn::powershell(&shortcut_script(root, desktop));
+    if !old.iter().any(|folder| folder.is_dir()) {
+        return;
     }
+    let desktop = crate::self_uninstall::desktop_shortcut();
+    let mut files = desktop
+        .parent()
+        .map(|folder| shortcuts_in(folder, false))
+        .unwrap_or_default();
+    if let Some(appdata) = std::env::var_os("APPDATA").filter(|value| !value.is_empty()) {
+        files.extend(shortcuts_in(&Path::new(&appdata).join(PINNED), true));
+    }
+    let program = root.join(EXE_NAME);
+    crate::shortcut::repoint(&files, |target| stale(root, target), &program, root);
 }
 
 pub fn remove_program_folders(paths: &Paths, deadline: Instant) {
@@ -203,14 +228,62 @@ mod tests {
     }
 
     #[test]
-    fn the_shortcut_script_quotes_the_paths() {
-        let script = shortcut_script(
-            Path::new(r"D:\Jürgen's Ordner\ThrowbackLauncher"),
-            Path::new(r"C:\Users\O'Neil\Desktop"),
-        );
+    fn shortcuts_are_found_in_the_desktop_and_the_pinned_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("TaskBar").join("ImplicitAppShortcuts")).unwrap();
+        for file in ["Throwback Launcher.lnk", "Other.LNK", "notes.txt"] {
+            fs::write(root.join(file), "").unwrap();
+        }
+        fs::write(root.join("TaskBar").join("Pinned.lnk"), "").unwrap();
+        fs::write(
+            root.join("TaskBar")
+                .join("ImplicitAppShortcuts")
+                .join("Deep.lnk"),
+            "",
+        )
+        .unwrap();
+        let names = |nested| {
+            let mut names: Vec<String> = shortcuts_in(root, nested)
+                .iter()
+                .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        };
+        assert_eq!(names(false), ["Other.LNK", "Throwback Launcher.lnk"]);
         assert_eq!(
-            script,
-            r"$w=New-Object -COM WScript.Shell;$root='D:\Jürgen''s Ordner\ThrowbackLauncher';$new=$root+'\ThrowbackLauncher.exe';$old=$root+'\app';$i=[StringComparison]::OrdinalIgnoreCase;@(Get-ChildItem -LiteralPath 'C:\Users\O''Neil\Desktop' -Filter *.lnk -ErrorAction SilentlyContinue)+@(Get-ChildItem -LiteralPath ($env:APPDATA+'\Microsoft\Internet Explorer\Quick Launch\User Pinned') -Filter *.lnk -Recurse -ErrorAction SilentlyContinue)|ForEach-Object{$s=$w.CreateShortcut($_.FullName);$t=$s.TargetPath;if($t.StartsWith($old+'\',$i) -or $t.StartsWith($old+'.',$i)){$s.TargetPath=$new;$s.WorkingDirectory=$root;$s.IconLocation=$new;$s.Save()}}"
+            names(true),
+            [
+                "Deep.lnk",
+                "Other.LNK",
+                "Pinned.lnk",
+                "Throwback Launcher.lnk"
+            ]
         );
+        assert!(shortcuts_in(&root.join("missing"), true).is_empty());
+    }
+
+    #[test]
+    fn only_shortcuts_into_the_old_program_folders_are_stale() {
+        let root = Path::new(r"D:\Jürgen's Ordner\ThrowbackLauncher");
+        let stale = |target: &str| stale(root, Path::new(target));
+        assert!(stale(
+            r"D:\Jürgen's Ordner\ThrowbackLauncher\app\ThrowbackLauncher.exe"
+        ));
+        assert!(stale(
+            r"d:\jürgen's ordner\throwbacklauncher\APP\ThrowbackLauncher.exe"
+        ));
+        assert!(stale(
+            r"D:\Jürgen's Ordner\ThrowbackLauncher\app.pending\ThrowbackLauncher.exe"
+        ));
+        assert!(!stale(
+            r"D:\Jürgen's Ordner\ThrowbackLauncher\ThrowbackLauncher.exe"
+        ));
+        assert!(!stale(
+            r"D:\Jürgen's Ordner\ThrowbackLauncher\application\Tool.exe"
+        ));
+        assert!(!stale(r"D:\Jürgen's Ordner\ThrowbackLauncher\app"));
+        assert!(!stale(r"C:\Windows\notepad.exe"));
     }
 }

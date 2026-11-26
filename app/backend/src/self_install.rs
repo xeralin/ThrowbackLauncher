@@ -89,17 +89,7 @@ pub(crate) fn write_shortcut(root: &Path) {
     let Some(shortcut) = start_menu_shortcut() else {
         return;
     };
-    let quoted = |path: &Path| path.to_string_lossy().replace('\'', "''");
-    let target = root.join(EXE_NAME);
-    let script = format!(
-        "$s=(New-Object -COM WScript.Shell).CreateShortcut('{}');$s.TargetPath='{}';\
-         $s.WorkingDirectory='{}';$s.IconLocation='{}';$s.Save()",
-        quoted(&shortcut),
-        quoted(&target),
-        quoted(root),
-        quoted(&target),
-    );
-    crate::winspawn::powershell(&script);
+    let _ = crate::shortcut::write(&shortcut, &root.join(EXE_NAME), root);
 }
 
 #[cfg(windows)]

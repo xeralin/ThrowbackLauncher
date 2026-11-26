@@ -146,6 +146,10 @@ fn main() {
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
     #[cfg(windows)]
+    if backend::self_uninstall::remove_installation(&args) {
+        return;
+    }
+    #[cfg(windows)]
     match backend::self_install::hand_over(&args) {
         Ok(true) => return,
         Ok(false) => {}

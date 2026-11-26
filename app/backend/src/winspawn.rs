@@ -26,13 +26,6 @@ pub fn hidden(command: &mut Command) -> &mut Command {
 }
 
 #[cfg(windows)]
-pub fn powershell(script: &str) {
-    let mut command = Command::new("powershell");
-    command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
-    let _ = hidden(&mut command).status();
-}
-
-#[cfg(windows)]
 pub fn spawn_detached<S: AsRef<OsStr>>(argv: &[S]) -> anyhow::Result<()> {
     let workdir = std::env::var_os("SYSTEMROOT").unwrap_or_else(|| r"C:\Windows".into());
     let child =
