@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::ui::{px, units};
+use crate::ui::{px, scale, units};
 use gpui::{
     App, Bounds, Corners, Div, Global, Hsla, Image, ImageFormat, InteractiveElement, ParentElement,
     Pixels, RenderImage, Rgba, Stateful, StatefulInteractiveElement, Styled, Window, canvas, div,
@@ -235,7 +235,9 @@ pub fn transfer_bar(
                     .child(cat(id, nyan, window, cx)),
             );
     }
-    let phase = (ran.as_secs_f32() % CYCLE.as_secs_f32()) / CYCLE.as_secs_f32() * STRIPE;
+    let device = scale() * window.scale_factor();
+    let period = (STRIPE * device).round();
+    let phase = (ran.as_secs_f32() % CYCLE.as_secs_f32()) / CYCLE.as_secs_f32() * period;
     track.border_color(BORDER.solid()).bg(WELL.solid()).child(
         filled
             .min_w(px(SHORTEST))
@@ -248,9 +250,9 @@ pub fn transfer_bar(
                     .absolute()
                     .top_0()
                     .bottom_0()
-                    .left(px(phase - STRIPE))
+                    .left(px((phase - period) / device))
                     .right_0()
-                    .bg(pattern_slash(stripe.solid(), STRIPE / 2., STRIPE / 2.)),
+                    .bg(pattern_slash(stripe.solid(), period / 2., period / 2.)),
             )
             .child(
                 div()
