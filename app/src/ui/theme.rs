@@ -377,8 +377,8 @@ pub const FONT_MONO_8: Face = face("Share Tech Mono 8", 400., LEADING_MONO);
 pub const FONT_MONO_12: Face = face("Share Tech Mono 12", 400., LEADING_MONO);
 pub const FONT_MONO_20: Face = face("Share Tech Mono 20", 400., LEADING_MONO);
 pub const FONT_BODY: Face = face("Barlow", 400., LEADING_BODY);
-pub const FONT_BODY_MEDIUM: Face = face("Barlow Medium", 500., LEADING_BODY);
-pub const FONT_BODY_SEMIBOLD: Face = face("Barlow SemiBold", 600., LEADING_BODY);
+pub const FONT_BODY_MEDIUM: Face = face("Barlow", 500., LEADING_BODY);
+pub const FONT_BODY_SEMIBOLD: Face = face("Barlow", 600., LEADING_BODY);
 
 pub trait Typeface: Styled {
     fn face(self, face: Face, size: f32) -> Self {
