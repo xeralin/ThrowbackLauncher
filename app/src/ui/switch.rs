@@ -4,7 +4,7 @@ use gpui::{
     Styled, Window, div, prelude::FluentBuilder,
 };
 
-use crate::ui::kit::ring;
+use crate::ui::kit::focus_ring_inside;
 use crate::ui::motion::{self, EASE_OUT, SLOW, sub};
 use crate::ui::scroll::reveal;
 use crate::ui::theme::{BLACK, BORDER, SURFACE_2, TEXT, Theme, shadow};
@@ -56,7 +56,7 @@ pub fn switch(
         .bg(fill.solid())
         .map(|element| hover.follow(element))
         .tab_index(0)
-        .focus_visible(|style| style.shadow(vec![ring()]))
+        .focus_visible(focus_ring_inside)
         .map(reveal)
         .on_click(move |_, window, cx| on_change(!checked, window, cx))
         .child(if checked {

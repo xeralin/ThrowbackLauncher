@@ -18,7 +18,9 @@ use crate::model::update::Updater;
 use crate::notices::RATE_LIMIT;
 use crate::ui::button::{glyph_button, icon_button, primary};
 use crate::ui::icon::{CHEVRON_DOWN, GITHUB, PACKAGE, REFRESH, icon};
-use crate::ui::kit::{disable, external, icon_box, list_row, ring, truncate, version_chip};
+use crate::ui::kit::{
+    disable, external, focus_ring_inside, icon_box, list_row, truncate, version_chip,
+};
 use crate::ui::markdown::{self, Block};
 use crate::ui::modal::Modal;
 use crate::ui::motion::{self, EASE, EASE_IN_OUT, EASE_OUT_CUBIC, FAST, SLOW, sub};
@@ -449,10 +451,9 @@ impl UpdatesPage {
         if !listed {
             return segment.cursor(CursorStyle::OperationNotAllowed);
         }
-        let edge = |x: f32| shadow(x, 0., 0., 0., TEXT.solid());
         segment
             .tab_index(0)
-            .focus_visible(move |style| style.shadow(vec![ring().inset(), edge(1.), edge(-1.)]))
+            .focus_visible(focus_ring_inside)
             .map(reveal)
             .map(|element| hover.follow(element))
             .on_click(cx.listener(move |this, _, _, cx| this.pick(component, cx)))

@@ -839,7 +839,7 @@ mod tests {
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
 
-    use backend::env::Paths;
+    use backend::env::{Paths, TL_LAUNCHER};
     use backend::manifest;
     use backend::settings::{Settings, USERNAME_EMPTY};
     use gpui::{Modifiers, MouseButton, TestAppContext, VisualTestContext, point};
@@ -1092,6 +1092,93 @@ mod tests {
         cx.run_until_parked();
         cx.simulate_keystrokes("escape");
         assert!(shell.read_with(cx, |shell, _| shell.page == Page::Home));
+    }
+
+    #[gpui::test]
+    fn a_click_on_a_home_card_opens_its_season_and_dragging_it_moves_nothing(
+        cx: &mut TestAppContext,
+    ) {
+        let library = tempfile::tempdir().unwrap();
+        for edition in ["Y1S0_Vanilla", "Y5S3_ShadowLegacy"] {
+            let folder = library.path().join(edition);
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join(TL_LAUNCHER), "").unwrap();
+        }
+        let settings = format!(
+            "reduce_motion = true\nlibraries = ['{}']",
+            library.path().display()
+        );
+        let (bench, cx) = bench(cx, &settings, None);
+        let held = Some(MouseButton::Left);
+        cx.simulate_mouse_down(
+            point(px(400.), px(130.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        for x in [412., 750.] {
+            cx.simulate_mouse_move(point(px(x), px(130.)), held, Modifiers::default());
+            draw(cx);
+        }
+        cx.simulate_mouse_up(
+            point(px(750.), px(130.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        draw(cx);
+        let order = bench
+            .launcher
+            .read_with(cx, |launcher, _| launcher.settings.home_order());
+        assert!(order.is_empty());
+        assert_eq!(opened(&bench, cx), None);
+
+        cx.simulate_click(point(px(400.), px(130.)), Modifiers::default());
+        draw(cx);
+        assert_eq!(opened(&bench, cx).as_deref(), Some("Y1S0_Vanilla"));
+    }
+
+    #[gpui::test]
+    fn a_click_on_cards_that_overlap_while_they_slide_reaches_only_the_top_one(
+        cx: &mut TestAppContext,
+    ) {
+        let library = tempfile::tempdir().unwrap();
+        for edition in ["Y1S0_Vanilla", "Y5S3_ShadowLegacy"] {
+            let folder = library.path().join(edition);
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join(TL_LAUNCHER), "").unwrap();
+        }
+        let settings = format!("libraries = ['{}']", library.path().display());
+        let (bench, cx) = bench(cx, &settings, None);
+        cx.simulate_click(point(px(1218.), px(26.)), Modifiers::default());
+        draw(cx);
+        let order = bench
+            .launcher
+            .read_with(cx, |launcher, _| launcher.settings.home_order());
+        assert_eq!(order, ["Y5S3_ShadowLegacy", "Y1S0_Vanilla"]);
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(160));
+        draw(cx);
+        cx.simulate_click(point(px(585.), px(130.)), Modifiers::default());
+        draw(cx);
+        assert_eq!(opened(&bench, cx).as_deref(), Some("Y1S0_Vanilla"));
+    }
+
+    #[gpui::test]
+    fn a_click_on_the_action_of_a_home_card_does_not_open_its_season(cx: &mut TestAppContext) {
+        let library = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(library.path().join("Y5S3_ShadowLegacy")).unwrap();
+        let settings = format!(
+            "queue_paused = true\nqueue = [\
+            {{ key = 'Y1S0_Vanilla', hm = false, library = '', verify = false }}, \
+            {{ key = 'Y5S3_ShadowLegacy', hm = false, library = '', verify = false }}]\n\
+            libraries = ['{}']",
+            library.path().display()
+        );
+        let (bench, cx) = bench(cx, &settings, None);
+        assert_eq!(waiting(&bench, cx), ["Y5S3_ShadowLegacy"]);
+        cx.simulate_click(point(px(540.), px(217.)), Modifiers::default());
+        draw(cx);
+        assert!(waiting(&bench, cx).is_empty());
+        assert_eq!(opened(&bench, cx), None);
     }
 
     #[gpui::test]

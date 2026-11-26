@@ -7,7 +7,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, deferred, div, size,
 };
 
-use crate::ui::kit::{TOAST, focus_ring};
+use crate::ui::kit::{TOAST, focus_ring_inside};
 use crate::ui::motion::{self, EASE_OUT_CUBIC, SLOW};
 use crate::ui::theme::{BORDER, FONT_MONO, SURFACE_2, TEXT, TEXT_UI, Typeface};
 
@@ -145,7 +145,7 @@ impl Render for Toasts {
                 .block_mouse_except_scroll()
                 .cursor_pointer()
                 .tab_index(TAB_FIRST)
-                .focus_visible(focus_ring)
+                .focus_visible(focus_ring_inside)
                 .on_any_mouse_down(|_, window, _| window.prevent_default())
                 .on_click(cx.listener(move |toasts, _, _, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));

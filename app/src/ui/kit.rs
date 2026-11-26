@@ -38,20 +38,14 @@ pub fn roving(id: &ElementId, count: usize, window: &mut Window, cx: &mut App) -
         .clone()
 }
 
-pub fn ring() -> BoxShadow {
-    BoxShadow::new(px(0.), px(0.), TEXT.solid()).spread_radius(px(1.))
-}
-
-pub fn focus_ring(style: StyleRefinement) -> StyleRefinement {
-    style
-        .border_color(TEXT.solid())
-        .shadow(vec![ring(), ring().inset()])
+pub fn inner_ring() -> BoxShadow {
+    BoxShadow::new(px(0.), px(0.), TEXT.solid())
+        .spread_radius(px(2.))
+        .inset()
 }
 
 pub fn focus_ring_inside(style: StyleRefinement) -> StyleRefinement {
-    style
-        .border_color(TEXT.solid())
-        .shadow(vec![ring().spread_radius(px(2.)).inset()])
+    style.border_color(TEXT.solid()).shadow(vec![inner_ring()])
 }
 
 fn cover(control: &mut Stateful<Div>) -> Div {

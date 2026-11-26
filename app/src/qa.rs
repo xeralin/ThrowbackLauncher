@@ -6,7 +6,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use gpui::{
     AnyWindowHandle, AppContext, HeadlessAppContext, KeyUpEvent, Keystroke, Modifiers, MouseButton,
-    MouseDownEvent, MouseUpEvent, PlatformInput, ScrollDelta, ScrollEvent, point, px, size,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput, ScrollDelta, ScrollEvent, point,
+    px, size,
 };
 
 use crate::assets::Assets;
@@ -242,10 +243,18 @@ pub fn run_from_env() -> bool {
             point(px(x.parse().expect("x")), px(y.parse().expect("y")))
         };
         match kind {
-            "move" => {
+            "move" | "drag" => {
                 let position = position();
+                let pressed_button = (kind == "drag").then_some(MouseButton::Left);
                 cx.update_window(window, |_, window, cx| {
-                    window.simulate_mouse_move(position, cx)
+                    window.dispatch_event(
+                        PlatformInput::MouseMove(MouseMoveEvent {
+                            position,
+                            modifiers: Modifiers::default(),
+                            pressed_button,
+                        }),
+                        cx,
+                    );
                 })
                 .expect("window update");
             }

@@ -7,7 +7,7 @@ use gpui::{
 };
 
 use crate::ui::icon::{COPY, icon};
-use crate::ui::kit::{check_mark, focus_ring, focus_ring_inside};
+use crate::ui::kit::{check_mark, focus_ring_inside};
 use crate::ui::motion::{self, EASE_IN_OUT, FAST, SLOW, sub};
 use crate::ui::scroll::reveal;
 use crate::ui::theme::{
@@ -39,7 +39,7 @@ fn button(
         .whitespace_nowrap()
         .shadow(vec![shadow(0., 2., 14., 0., halo.into())])
         .tab_index(0)
-        .focus_visible(focus_ring)
+        .focus_visible(focus_ring_inside)
         .map(reveal)
         .map(|element| hover.follow(element))
         .child(label.into());

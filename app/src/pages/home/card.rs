@@ -18,16 +18,14 @@ use crate::ui::button::{primary, secondary};
 use crate::ui::glow::Highlight;
 use crate::ui::icon::{GRIP, icon};
 use crate::ui::key_art::key_art;
-use crate::ui::kit::{disable, focus_ring, panel, ring, truncate};
-use crate::ui::motion::{self, EASE, EASE_IN_OUT, SLOW, sub};
+use crate::ui::kit::{disable, focus_ring_inside, panel, truncate};
+use crate::ui::motion::{self, EASE, SLOW, sub};
 use crate::ui::theme::{BORDER, FONT_DISPLAY_BOLD, ON_ART, REM, TEXT, Theme, Typeface, shadow};
 
 const CORNER: f32 = 7.;
 const GLOW: f32 = 28.;
 const LINE_INSET: f32 = 4.;
 const TITLE_LINE: f32 = 1.25 * 1.05 * REM;
-const GHOST: f32 = 0.75;
-const FAINT: f32 = 0.4;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
@@ -123,11 +121,6 @@ impl Action {
             secondary(id, self.label(), window, cx)
         }
     }
-
-    fn still(self, id: ElementId, window: &mut Window, cx: &mut App) -> Stateful<Div> {
-        let faint = if self.blocked() { FAINT } else { 1. };
-        self.button(id, window, cx).tab_stop(false).opacity(faint)
-    }
 }
 
 impl Highlight {
@@ -197,25 +190,12 @@ struct Ghost {
 }
 
 impl Render for Ghost {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let action = self.card.action;
-        let button = action.map(|action| action.still("ghost-action".into(), window, cx));
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let face = panel()
             .size_full()
             .child(self.card.art(&self.art))
-            .child(self.card.caption(button));
-        div()
-            .w(self.size.width)
-            .h(self.size.height)
-            .opacity(GHOST)
-            .child(face)
-            .child(
-                div()
-                    .absolute()
-                    .right(px(-2.))
-                    .bottom(px(-2.))
-                    .child(grip()),
-            )
+            .child(self.card.caption(None));
+        div().w(self.size.width).h(self.size.height).child(face)
     }
 }
 
@@ -229,6 +209,7 @@ impl HomePage {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let id = ElementId::Name(card.id.clone().into());
+        let ringed = stop.is_focused(window) && window.last_input_was_keyboard();
         let hover = motion::hover(&id, SLOW, window, cx);
         let over = if hover.over { 1. } else { 0. };
         let reveal = motion::transition(sub(&id, "line"), over, SLOW, EASE, window, cx);
@@ -245,8 +226,8 @@ impl HomePage {
             action
                 .button(sub(&id, "action"), window, cx)
                 .cursor_default()
+                .block_mouse_except_scroll()
                 .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
                     launcher.update(cx, |launcher, cx| action.run(&key, hm, launcher, cx));
                 })
                 .when(action.blocked(), disable)
@@ -257,18 +238,21 @@ impl HomePage {
             .top(frame.origin.y)
             .w(frame.size.width)
             .h(frame.size.height)
-            .border_color(BORDER.mix(glow.edge, hover.amount).solid())
+            .on_any_mouse_down(|_, _, cx| cx.stop_propagation())
+            .border_color(if ringed {
+                TEXT.solid()
+            } else {
+                BORDER.mix(glow.edge, hover.amount).solid()
+            })
             .shadow(vec![shadow(0., 0., GLOW, 0., halo.into())])
             .child(card.art(&self.art))
             .child(
                 div()
                     .id(sub(&id, "open"))
                     .absolute()
-                    .inset_0()
-                    .rounded(px(CORNER))
+                    .inset(px(-1.))
                     .cursor_pointer()
                     .track_focus(stop)
-                    .focus_visible(|style| style.border_1().border_color(TEXT.solid()))
                     .on_click({
                         let (key, hm) = (card.key.clone(), card.hm);
                         move |_, window, cx| shell::open_season(&key, hm, window, cx)
@@ -311,19 +295,36 @@ impl HomePage {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let id = ElementId::Name(card.id.clone().into());
+        let place = div()
+            .id(id.clone())
+            .absolute()
+            .left(frame.origin.x)
+            .top(frame.origin.y)
+            .w(frame.size.width)
+            .h(frame.size.height)
+            .track_focus(focus);
+        if self.drag.as_ref().is_some_and(|drag| drag.id == card.id) {
+            return place.into_any_element();
+        }
         let ringed = focus.is_focused(window) && window.last_input_was_keyboard();
-        let held = self.drag.as_ref().is_some_and(|drag| drag.id == card.id);
-        let opacity = if held { FAINT } else { 1. };
-        let dim = motion::transition(sub(&id, "dim"), opacity, SLOW, EASE_IN_OUT, window, cx);
         let ghost = Ghost {
             card: card.clone(),
             size: frame.size,
             art: self.art.clone(),
         };
         let page = cx.weak_entity();
-        let (stepping, pressing, passing) = (card.id.clone(), focus.clone(), card.id.clone());
-        let (stretching, sizing, kept) = (card.id.clone(), card.id.clone(), focus.clone());
-        let (stored, extent) = (card.span, frame.size);
+        let (stepping, passing, stretching, sizing) = (
+            card.id.clone(),
+            card.id.clone(),
+            card.id.clone(),
+            card.id.clone(),
+        );
+        let (pressing, holding, kept) = (focus.clone(), focus.clone(), focus.clone());
+        let extent = self
+            .placed
+            .get(&card.id)
+            .map_or(frame.size, |target| target.size);
+        let stored = card.span;
         let hold = div()
             .id(sub(&id, "hold"))
             .absolute()
@@ -335,8 +336,8 @@ impl HomePage {
             .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                 window.focus(&pressing, cx)
             })
-            .on_drag(ghost, move |ghost, _, _, cx| {
-                page.update(cx, |page, cx| page.grab(&ghost.card.id, cx))
+            .on_drag(ghost, move |ghost, offset, _, cx| {
+                page.update(cx, |page, cx| page.grab(&ghost.card.id, offset, cx))
                     .ok();
                 cx.new(|_| ghost.clone())
             })
@@ -355,13 +356,14 @@ impl HomePage {
             .rounded(px(6.))
             .cursor(CursorStyle::ResizeUpLeftDownRight)
             .tab_index(0)
-            .focus_visible(focus_ring)
+            .focus_visible(focus_ring_inside)
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
                     let resize =
                         Resize::new(stretching.clone(), stored, event.position, extent, grid);
                     this.resize = Some(resize);
+                    window.focus(&holding, cx);
                     cx.stop_propagation();
                     cx.notify();
                 }),
@@ -379,18 +381,7 @@ impl HomePage {
                 this.nudge(&sizing, stored, by, grid.columns, cx);
             }))
             .child(grip());
-        let button = card
-            .action
-            .map(|action| action.still(sub(&id, "action"), window, cx));
-        div()
-            .id(id)
-            .absolute()
-            .left(frame.origin.x)
-            .top(frame.origin.y)
-            .w(frame.size.width)
-            .h(frame.size.height)
-            .opacity(dim)
-            .track_focus(focus)
+        place
             .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
                 let delta = match event.keystroke.key.as_str() {
                     "left" if event.keystroke.modifiers.alt => -1,
@@ -404,11 +395,9 @@ impl HomePage {
             .child(
                 panel()
                     .size_full()
-                    .when(ringed, |panel| {
-                        panel.border_color(TEXT.solid()).shadow(vec![ring()])
-                    })
+                    .when(ringed, |panel| panel.border_color(TEXT.solid()))
                     .child(card.art(&self.art))
-                    .child(card.caption(button))
+                    .child(card.caption(None))
                     .child(hold),
             )
             .child(handle)

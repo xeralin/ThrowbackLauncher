@@ -21,7 +21,7 @@ use crate::ui::hint::hint;
 use crate::ui::icon::{BOOKMARK, BOOKMARK_FILLED, FOLDER, REMOVE, icon};
 use crate::ui::input::FIELD_PAD;
 use crate::ui::kit::{
-    chip, disable, field, focus_ring, label, list_row, note, note_external, note_link, row,
+    chip, disable, field, focus_ring_inside, label, list_row, note, note_external, note_link, row,
     save_check, tip, truncate, version_chip,
 };
 use crate::ui::modal::{Modal, picker_row};
@@ -155,7 +155,7 @@ impl General {
                 .px(px(FIELD_PAD))
                 .border_color(edge.solid())
                 .tab_index(0)
-                .focus_visible(focus_ring)
+                .focus_visible(focus_ring_inside)
                 .map(reveal)
                 .map(|element| hover.follow(element))
                 .on_click(cx.listener(|page, _, window, cx| {

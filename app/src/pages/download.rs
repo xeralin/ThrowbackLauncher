@@ -14,7 +14,6 @@ use crate::model::Launcher;
 use crate::shell;
 use crate::ui::input::{Hooks, TextInput, text_field, typing};
 use crate::ui::key_art::key_art;
-use crate::ui::kit::focus_ring_inside;
 use crate::ui::modal::covering;
 use crate::ui::motion::{self, Bezier, EASE_IN_OUT, FAST, SLOW, sub};
 use crate::ui::scroll::reveal;
@@ -157,7 +156,6 @@ impl DownloadPage {
             .h(px(BANNER))
             .overflow_hidden()
             .track_focus(focus)
-            .focus_visible(focus_ring_inside)
             .map(reveal)
             .map(|element| hover.follow(element))
             .on_click({
@@ -187,6 +185,15 @@ impl DownloadPage {
                     .justify_center()
                     .child(title(season.name.clone())),
             )
+            .when(ringed, |banner| {
+                banner.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .border_1()
+                        .border_color(TEXT.solid()),
+                )
+            })
     }
 
     fn nothing(query: &str) -> Div {

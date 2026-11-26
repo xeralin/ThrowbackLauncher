@@ -1,8 +1,10 @@
 mod card;
 mod grid;
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::mem;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use crate::ui::{frame, px};
@@ -23,7 +25,7 @@ use crate::ui::Dismiss;
 use crate::ui::button::{glyph_button, icon_button, primary, secondary};
 use crate::ui::glow::Highlight;
 use crate::ui::icon::{ERASER, PENCIL, PENCIL_FILLED, REVERSE, icon};
-use crate::ui::kit::{disable, focus_ring, icon_box};
+use crate::ui::kit::{disable, focus_ring_inside, icon_box};
 use crate::ui::motion::{self, Bezier, EASE, EASE_IN_OUT, EASE_OUT_CUBIC, FAST};
 use crate::ui::theme::{FONT_DISPLAY_BOLD, REM, SURFACE_2, TEXT, TEXT_MUTED, Theme, Typeface};
 use card::{Action, Card};
@@ -34,19 +36,16 @@ const SHAKE: f32 = 3.;
 const FLIP: Pace = Pace {
     duration: Duration::from_millis(260),
     curve: Bezier(0.2, 0., 0., 1.),
-    sized: false,
 };
 const MORPH: Pace = Pace {
     duration: Duration::from_millis(320),
     curve: EASE_OUT_CUBIC,
-    sized: true,
 };
 
 #[derive(Clone, Copy)]
 struct Pace {
     duration: Duration,
     curve: Bezier,
-    sized: bool,
 }
 
 struct Slide {
@@ -80,6 +79,7 @@ struct Drag {
     id: String,
     order: Vec<String>,
     moved: bool,
+    offset: Point<Pixels>,
 }
 
 pub struct HomePage {
@@ -93,6 +93,8 @@ pub struct HomePage {
     grid: Option<Grid>,
     placed: HashMap<String, Bounds<Pixels>>,
     slides: HashMap<String, Slide>,
+    landing: Option<String>,
+    origin: Rc<Cell<Point<Pixels>>>,
     stops: HashMap<String, FocusHandle>,
     menu: Option<(Entity<SeasonMenu>, Subscription)>,
     _subscriptions: [Subscription; 2],
@@ -142,6 +144,8 @@ impl HomePage {
             grid: None,
             placed: HashMap::new(),
             slides: HashMap::new(),
+            landing: None,
+            origin: Rc::default(),
             stops: HashMap::new(),
             menu: None,
             _subscriptions: subscriptions,
@@ -251,13 +255,28 @@ impl HomePage {
         }
     }
 
-    fn grab(&mut self, id: &str, cx: &mut Context<Self>) {
+    fn grab(&mut self, id: &str, offset: Point<Pixels>, cx: &mut Context<Self>) {
         self.drag = Some(Drag {
             id: id.to_owned(),
             order: self.order(cx),
             moved: false,
+            offset,
         });
         cx.notify();
+    }
+
+    fn land(&mut self, drag: &Drag, pointer: Point<Pixels>, cx: &App) {
+        let Some(slot) = self.placed.get(&drag.id) else {
+            return;
+        };
+        if cx.reduce_motion() {
+            return;
+        }
+        let corner = pointer - self.origin.get() - drag.offset;
+        let held = Bounds::new(corner, slot.size);
+        self.slides.remove(&drag.id);
+        self.placed.insert(drag.id.clone(), held);
+        self.landing = Some(drag.id.clone());
     }
 
     fn pass(&mut self, onto: &str, cx: &mut Context<Self>) {
@@ -284,11 +303,12 @@ impl HomePage {
         }
     }
 
-    fn release(&mut self, inside: bool, cx: &mut Context<Self>) {
+    fn release(&mut self, inside: bool, pointer: Point<Pixels>, cx: &mut Context<Self>) {
         if let Some(drag) = self.drag.take() {
             if inside && drag.moved {
                 self.store(&drag.order, cx);
             }
+            self.land(&drag, pointer, cx);
             cx.notify();
         }
         if let Some(resize) = self.resize.take() {
@@ -299,11 +319,13 @@ impl HomePage {
         }
     }
 
-    fn sensor(resizing: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let page = cx.weak_entity();
+    fn sensor(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let (page, origin, resizing) =
+            (cx.weak_entity(), self.origin.clone(), self.resize.is_some());
         let sensor = canvas(
             |_, _, _| (),
             move |bounds, _, window, _| {
+                origin.set(bounds.origin);
                 if resizing {
                     window.set_window_cursor_style(CursorStyle::ResizeUpLeftDownRight);
                 }
@@ -319,7 +341,8 @@ impl HomePage {
                 window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
                     if phase == DispatchPhase::Capture && event.button == MouseButton::Left {
                         let inside = zone.contains(&event.position);
-                        page.update(cx, |page, cx| page.release(inside, cx)).ok();
+                        page.update(cx, |page, cx| page.release(inside, event.position, cx))
+                            .ok();
                     }
                 });
             },
@@ -341,12 +364,7 @@ impl HomePage {
             let far = |from: Pixels, to: Pixels| (from - to).abs() > px(2.);
             let moved = far(from.origin.x, target.origin.x) || far(from.origin.y, target.origin.y);
             match pace {
-                Some(pace) if moved || (pace.sized && from.size != target.size) => {
-                    let from = if pace.sized {
-                        from
-                    } else {
-                        Bounds::new(from.origin, target.size)
-                    };
+                Some(pace) if moved || from.size != target.size => {
                     let slide = Slide {
                         from,
                         start: now,
@@ -380,7 +398,7 @@ impl HomePage {
             .p(px(4.))
             .rounded(px(6.))
             .tab_index(0)
-            .focus_visible(focus_ring)
+            .focus_visible(focus_ring_inside)
             .map(|element| hover.follow(element))
             .on_click(cx.listener(|this, _, _, cx| this.toggle(cx)))
             .child(icon(glyph, 16.).text_color(color.solid()))
@@ -455,30 +473,46 @@ impl HomePage {
         let steady = self.grid.replace(grid) == Some(grid);
         let morph = mem::take(&mut self.morph);
         let moving = !cx.reduce_motion();
-        let pace = match (moving && steady, self.editing, morph) {
-            (false, ..) => None,
-            (_, true, _) => Some(FLIP),
-            (_, _, true) => Some(MORPH),
-            _ => None,
-        };
+        let pace = (moving && steady).then_some(if morph { MORPH } else { FLIP });
         let now = cx.background_executor().now();
         let spans: Vec<Span> = cards.iter().map(|card| grid.span(card.span)).collect();
         let (frames, height) = grid.frames(&spans);
         let before = mem::take(&mut self.placed);
         let mut tiles = Vec::with_capacity(cards.len());
+        let mut lifted = None;
+        let mut slot = None;
         for (card, target) in cards.iter().zip(frames) {
+            let held = self.drag.as_ref().is_some_and(|drag| drag.id == card.id);
+            let landing = self.landing.as_deref() == Some(card.id.as_str());
+            if held || landing {
+                slot = Some(target);
+            }
+            let pace = if held { None } else { pace };
             let frame = self.settle(&card.id, before.get(&card.id).copied(), target, pace, now);
             self.placed.insert(card.id.clone(), target);
             let stop = self.stops.entry(card.id.clone());
             let stop = stop.or_insert_with(|| cx.focus_handle().tab_index(0).tab_stop(true));
             let stop = stop.clone();
-            tiles.push(if self.editing {
+            let tile = if self.editing {
                 self.loose(card, frame, grid, &stop, window, cx)
             } else {
                 self.tile(card, frame, &stop, window, cx)
-            });
+            };
+            if landing {
+                lifted = Some(tile);
+            } else {
+                tiles.push(tile);
+            }
         }
+        tiles.extend(lifted);
         self.slides.retain(|id, _| self.placed.contains_key(id));
+        if self
+            .landing
+            .as_ref()
+            .is_some_and(|id| !self.slides.contains_key(id))
+        {
+            self.landing = None;
+        }
         self.stops.retain(|id, _| self.placed.contains_key(id));
         if !self.slides.is_empty() {
             window.request_animation_frame();
@@ -486,17 +520,28 @@ impl HomePage {
         div()
             .h(height)
             .on_action(cx.listener(|this, _: &Dismiss, window, cx| {
-                if this.drag.take().is_some() {
+                if let Some(drag) = this.drag.take() {
                     cx.stop_active_drag(window);
+                    this.land(&drag, window.mouse_position(), cx);
+                    cx.notify();
+                } else if this.resize.take().is_some() {
                     cx.notify();
                 } else {
                     cx.propagate();
                 }
             }))
-            .children(
-                self.editing
-                    .then(|| Self::sensor(self.resize.is_some(), cx)),
-            )
+            .children(self.editing.then(|| self.sensor(cx)))
+            .children(slot.map(|frame| {
+                div()
+                    .absolute()
+                    .left(frame.origin.x)
+                    .top(frame.origin.y)
+                    .w(frame.size.width)
+                    .h(frame.size.height)
+                    .rounded(px(8.))
+                    .border_1()
+                    .border_color(TEXT.solid())
+            }))
             .children(tiles)
             .children(self.menu.as_ref().map(|(menu, _)| menu.clone()))
             .into_any_element()
@@ -505,6 +550,11 @@ impl HomePage {
 
 impl Render for HomePage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !cx.has_active_drag()
+            && let Some(drag) = self.drag.take()
+        {
+            self.land(&drag, window.mouse_position(), cx);
+        }
         match self.cards(cx) {
             None => div().into_any_element(),
             Some(cards) if cards.is_empty() => self.empty(window, cx),
@@ -530,6 +580,7 @@ mod tests {
     use crate::model::Edition;
     use crate::model::download::{Downloader, State};
     use crate::model::shears::ShearsEvent;
+    use grid::GAP;
 
     const VANILLA: &str = "Y1S0_Vanilla";
     const SHADOW: &str = "Y5S3_ShadowLegacy";
@@ -615,11 +666,6 @@ mod tests {
         sizes
     }
 
-    fn edit(bench: &Bench, cx: &mut VisualTestContext) {
-        bench.page.update(cx, |page, cx| page.toggle(cx));
-        draw(cx);
-    }
-
     fn press(x: f32, y: f32, cx: &mut VisualTestContext) {
         cx.simulate_mouse_down(point(px(x), px(y)), MouseButton::Left, Modifiers::default());
     }
@@ -631,6 +677,11 @@ mod tests {
 
     fn lift(x: f32, y: f32, cx: &mut VisualTestContext) {
         cx.simulate_mouse_up(point(px(x), px(y)), MouseButton::Left, Modifiers::default());
+        draw(cx);
+    }
+
+    fn edit(bench: &Bench, cx: &mut VisualTestContext) {
+        bench.page.update(cx, |page, cx| page.toggle(cx));
         draw(cx);
     }
 
@@ -724,6 +775,11 @@ mod tests {
             (action, waiting)
         };
         assert_eq!(state(cx), (Some(Action::Dequeue), true));
+        edit(&bench, cx);
+        cx.simulate_click(point(px(290.), px(140.)), Modifiers::default());
+        draw(cx);
+        assert_eq!(state(cx), (Some(Action::Dequeue), true));
+        edit(&bench, cx);
         cx.simulate_click(point(px(290.), px(140.)), Modifiers::default());
         draw(cx);
         assert_eq!(state(cx), (Some(Action::Verify { blocked: false }), false));
@@ -736,6 +792,12 @@ mod tests {
         assert_eq!(shown(&bench, cx), [METAL, VANILLA, SHADOW]);
 
         bench.page.update(cx, |page, cx| page.reverse(cx));
+        draw(cx);
+        let paces = bench.page.read_with(cx, |page, _| {
+            let paces = page.slides.values().map(|slide| slide.pace.duration);
+            paces.collect::<Vec<_>>()
+        });
+        assert!(!paces.is_empty() && paces.iter().all(|pace| *pace == MORPH.duration));
         assert_eq!(shown(&bench, cx), [SHADOW, VANILLA, METAL]);
         assert_eq!(stored(&bench, cx), [SHADOW, "Gone", VANILLA, METAL]);
         assert_eq!(sizes(&bench, cx), [(VANILLA.to_owned(), (2, 3))]);
@@ -862,9 +924,14 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_handle_previews_a_size_and_stores_it_on_release(cx: &mut TestAppContext) {
+    fn the_grip_previews_a_size_and_stores_it_on_release(cx: &mut TestAppContext) {
         let (bench, cx) = bench(cx, &[VANILLA, SHADOW], "reduce_motion = true");
         edit(&bench, cx);
+        let preview = |cx: &mut VisualTestContext| {
+            bench
+                .page
+                .read_with(cx, |page, cx| page.cards(cx).unwrap()[0].span)
+        };
         press(317., 160., cx);
         lift(317., 160., cx);
         slide(700., 400., cx);
@@ -873,14 +940,118 @@ mod tests {
 
         press(317., 160., cx);
         slide(317. + 340., 160. + 91., cx);
-        let preview = bench
-            .page
-            .read_with(cx, |page, cx| page.cards(cx).unwrap()[0].span);
-        assert_eq!(preview, (2, 3));
+        assert_eq!(preview(cx), (2, 3));
+        cx.simulate_keystrokes("escape");
+        assert_eq!(preview(cx), DEFAULT_SPAN);
+        lift(317. + 340., 160. + 91., cx);
+        assert!(sizes(&bench, cx).is_empty());
+
+        press(317., 160., cx);
+        slide(317. + 340., 160. + 91., cx);
+        assert!(!cx.update(|_, cx| cx.has_active_drag()));
+        assert_eq!(preview(cx), (2, 3));
         assert!(sizes(&bench, cx).is_empty());
         lift(900., 700., cx);
         assert_eq!(sizes(&bench, cx), [(VANILLA.to_owned(), (2, 3))]);
         assert_eq!(shown(&bench, cx), [VANILLA, SHADOW]);
+    }
+
+    #[gpui::test]
+    fn the_held_card_leaves_a_slot_that_jumps_while_the_others_slide(cx: &mut TestAppContext) {
+        let (bench, cx) = bench(cx, &[VANILLA, SHADOW, METAL], "");
+        edit(&bench, cx);
+        press(100., 80., cx);
+        slide(110., 84., cx);
+        slide(450., 80., cx);
+        assert_eq!(shown(&bench, cx), [SHADOW, VANILLA, METAL]);
+        let sliding = |id: &str, cx: &mut VisualTestContext| {
+            bench
+                .page
+                .read_with(cx, |page, _| page.slides.contains_key(id))
+        };
+        assert!(!sliding(VANILLA, cx));
+        assert!(sliding(SHADOW, cx));
+        lift(450., 80., cx);
+        assert_eq!(stored(&bench, cx), [SHADOW, VANILLA, METAL]);
+    }
+
+    #[gpui::test]
+    fn a_released_card_glides_from_the_hand_into_its_slot(cx: &mut TestAppContext) {
+        let (bench, cx) = bench(cx, &[VANILLA, SHADOW, METAL], "");
+        edit(&bench, cx);
+        let start = |cx: &mut VisualTestContext| {
+            bench.page.read_with(cx, |page, _| {
+                let slide = page.slides.get(VANILLA);
+                (slide.map(|slide| slide.from.origin), page.landing.clone())
+            })
+        };
+        let home = bench
+            .page
+            .read_with(cx, |page, _| page.placed[VANILLA].origin);
+        press(100., 80., cx);
+        slide(110., 84., cx);
+        slide(450., 80., cx);
+        lift(450., 80., cx);
+        let hand = home + point(px(340.), px(-4.));
+        assert_eq!(start(cx), (Some(hand), Some(VANILLA.to_owned())));
+        cx.executor().advance_clock(FLIP.duration);
+        draw(cx);
+        assert_eq!(start(cx), (None, None));
+    }
+
+    #[gpui::test]
+    fn with_reduce_motion_a_released_card_stands_in_its_slot_at_once(cx: &mut TestAppContext) {
+        let (bench, cx) = bench(cx, &[VANILLA, SHADOW, METAL], "reduce_motion = true");
+        edit(&bench, cx);
+        press(100., 80., cx);
+        slide(110., 84., cx);
+        slide(450., 80., cx);
+        lift(450., 80., cx);
+        assert_eq!(stored(&bench, cx), [SHADOW, VANILLA, METAL]);
+        let moving = bench.page.read_with(cx, |page, _| {
+            page.slides.contains_key(VANILLA) || page.landing.is_some()
+        });
+        assert!(!moving);
+    }
+
+    #[gpui::test]
+    fn a_resized_card_grows_with_the_neighbours_it_pushes(cx: &mut TestAppContext) {
+        let (bench, cx) = bench(cx, &[VANILLA, SHADOW], "");
+        edit(&bench, cx);
+        let painted = |id: &str, cx: &mut VisualTestContext| {
+            bench.page.read_with(cx, |page, cx| {
+                let (target, now) = (page.placed[id], cx.background_executor().now());
+                let slide = page.slides.get(id);
+                slide
+                    .and_then(|slide| slide.at(target, now))
+                    .unwrap_or(target)
+            })
+        };
+        let small = painted(VANILLA, cx);
+        press(317., 160., cx);
+        slide(317. + 340., 160. + 91., cx);
+        lift(317. + 340., 160. + 91., cx);
+        assert_eq!(painted(VANILLA, cx), small);
+
+        let corner = (
+            f32::from(small.right()) - 6.,
+            f32::from(small.bottom()) - 6.,
+        );
+        press(corner.0, corner.1, cx);
+        slide(corner.0, corner.1, cx);
+        lift(corner.0, corner.1, cx);
+        assert_eq!(sizes(&bench, cx), [(VANILLA.to_owned(), (2, 3))]);
+
+        cx.executor().advance_clock(FLIP.duration / 4);
+        draw(cx);
+        let (growing, pushed) = (painted(VANILLA, cx), painted(SHADOW, cx));
+        let large = bench.page.read_with(cx, |page, _| page.placed[VANILLA]);
+        assert!(growing.size.width > small.size.width && growing.size.width < large.size.width);
+        assert!(growing.size.height > small.size.height);
+        assert!(pushed.left() - growing.right() >= px(GAP - 1.));
+        cx.executor().advance_clock(FLIP.duration);
+        draw(cx);
+        assert_eq!(painted(VANILLA, cx), large);
     }
 
     #[gpui::test]
@@ -909,5 +1080,77 @@ mod tests {
         assert_eq!(stored(&bench, cx), [SHADOW, VANILLA, METAL]);
         cx.simulate_keystrokes("down right");
         assert!(sizes(&bench, cx).is_empty());
+    }
+
+    #[gpui::test]
+    fn outside_the_edit_mode_a_card_cannot_be_dragged(cx: &mut TestAppContext) {
+        let (bench, cx) = bench(cx, &[VANILLA, SHADOW, METAL], "reduce_motion = true");
+        let card = bench
+            .page
+            .read_with(cx, |page, _| page.stop(VANILLA).unwrap());
+        for (x, y, on_action) in [(100., 80., false), (290., 140., true)] {
+            press(x, y, cx);
+            let focused = cx.update(|window, cx| window.focused(cx));
+            assert_eq!(focused.is_some_and(|focused| focused != card), on_action);
+            slide(x + 10., y + 4., cx);
+            slide(450., 80., cx);
+            assert!(!cx.update(|_, cx| cx.has_active_drag()));
+            assert_eq!(shown(&bench, cx), [VANILLA, SHADOW, METAL]);
+            lift(450., 80., cx);
+        }
+        assert!(stored(&bench, cx).is_empty());
+    }
+
+    #[gpui::test]
+    fn a_right_click_waits_while_a_card_is_in_hand(cx: &mut TestAppContext) {
+        let (bench, cx) = bench(cx, &[VANILLA, SHADOW, METAL], "reduce_motion = true");
+        edit(&bench, cx);
+        let offered =
+            |cx: &mut VisualTestContext| bench.page.read_with(cx, |page, _| page.menu.is_some());
+        let right = |down: bool, cx: &mut VisualTestContext| {
+            let at = point(px(800.), px(80.));
+            if down {
+                cx.simulate_mouse_down(at, MouseButton::Right, Modifiers::default());
+            } else {
+                cx.simulate_mouse_up(at, MouseButton::Right, Modifiers::default());
+            }
+            draw(cx);
+        };
+        press(100., 80., cx);
+        slide(110., 84., cx);
+        slide(450., 80., cx);
+        assert_eq!(shown(&bench, cx), [SHADOW, VANILLA, METAL]);
+        right(true, cx);
+        assert!(!offered(cx));
+        right(false, cx);
+        assert_eq!(shown(&bench, cx), [VANILLA, SHADOW, METAL]);
+        lift(450., 80., cx);
+        assert!(stored(&bench, cx).is_empty());
+
+        press(317., 160., cx);
+        slide(500., 200., cx);
+        right(true, cx);
+        assert!(!offered(cx));
+        right(false, cx);
+        lift(500., 200., cx);
+
+        edit(&bench, cx);
+        right(true, cx);
+        assert!(offered(cx));
+    }
+
+    #[gpui::test]
+    fn the_other_cards_slide_when_a_season_leaves_the_library(cx: &mut TestAppContext) {
+        let (bench, cx) = bench(cx, &[VANILLA, SHADOW, METAL], "");
+        fs::remove_dir_all(bench.library.join(SHADOW)).unwrap();
+        cx.deactivate_window();
+        cx.update(|window, _| window.activate_window());
+        draw(cx);
+        assert_eq!(shown(&bench, cx), [VANILLA, METAL]);
+        let sliding = |page: &HomePage, _: &App| page.slides.contains_key(METAL);
+        assert!(bench.page.read_with(cx, sliding));
+        cx.executor().advance_clock(FLIP.duration);
+        draw(cx);
+        assert!(!bench.page.read_with(cx, sliding));
     }
 }

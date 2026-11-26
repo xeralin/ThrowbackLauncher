@@ -13,7 +13,9 @@ use gpui::{
 use crate::ui::button::{primary, secondary};
 use crate::ui::frame;
 use crate::ui::input::{Commit, Revert};
-use crate::ui::kit::{OVERLAY, busy, disable, focus_ring, list_row, panel, ring, truncate};
+use crate::ui::kit::{
+    OVERLAY, busy, disable, focus_ring_inside, inner_ring, list_row, panel, truncate,
+};
 use crate::ui::motion::{self, EASE_OUT, FAST, RISE};
 use crate::ui::scroll::{reveal, scroll};
 use crate::ui::theme::{
@@ -457,9 +459,9 @@ pub fn picker_row(
         .map(|element| hover.follow(element))
         .when(selected, |row| {
             row.shadow(vec![halo.clone()])
-                .focus_visible(|style| focus_ring(style).shadow(vec![halo, ring()]))
+                .focus_visible(|style| focus_ring_inside(style).shadow(vec![halo, inner_ring()]))
         })
-        .when(!selected, |row| row.focus_visible(focus_ring))
+        .when(!selected, |row| row.focus_visible(focus_ring_inside))
         .map(reveal)
         .child(truncate(label))
 }
