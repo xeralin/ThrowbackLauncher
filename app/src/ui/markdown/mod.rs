@@ -285,10 +285,12 @@ impl Flow {
         let hovered = (!content.links.is_empty()).then(|| {
             let id = self.part("links");
             window.with_element_namespace(self.id.clone(), |window| {
-                window.use_keyed_state(id, cx, |_, _| None::<usize>)
+                window.use_keyed_state(id, cx, |_, _| None::<(usize, ElementId)>)
             })
         });
-        let over = hovered.as_ref().and_then(|hovered| *hovered.read(cx));
+        let over = hovered
+            .as_ref()
+            .and_then(|hovered| hovered.read(cx).as_ref().map(|(link, _)| *link));
         let mut spacing = Spacing::new(base, prose.size, window);
         let mut flow = div().flex().flex_wrap().items_end().gap_x(spacing.gap);
         for bit in bits(content) {
@@ -347,15 +349,16 @@ impl Flow {
                     continue;
                 };
                 let url = content.links[link].clone();
+                let id = self.part("piece");
+                let mine = id.clone();
                 let piece = piece
                     .when(!style.code, |piece| piece.text_color(ink.link.solid()))
-                    .id(self.part("piece"))
+                    .id(id)
                     .cursor_pointer()
                     .on_hover(move |inside, _, cx| {
                         let inside = *inside;
                         hovered.update(cx, |over, cx| {
-                            if inside || *over == Some(link) {
-                                *over = inside.then_some(link);
+                            if hover(over, link, &mine, inside) {
                                 cx.notify();
                             }
                         });
@@ -370,7 +373,9 @@ impl Flow {
             };
             flow = flow.child(div().flex().max_w_full().mr(margin).children(parts));
         }
-        let preview = over.and_then(|link| link_preview(content.links[link].clone(), window));
+        let preview = over
+            .and_then(|link| content.links.get(link))
+            .and_then(|url| link_preview(url.clone(), window));
         flow.children(preview)
     }
 
@@ -698,6 +703,21 @@ pub fn notes(
         .text_color(TEXT_MUTED.solid())
 }
 
+fn hover(
+    over: &mut Option<(usize, ElementId)>,
+    link: usize,
+    piece: &ElementId,
+    inside: bool,
+) -> bool {
+    let left = !inside && over.as_ref().is_some_and(|(_, at)| at == piece);
+    if inside {
+        *over = Some((link, piece.clone()));
+    } else if left {
+        *over = None;
+    }
+    inside || left
+}
+
 #[cfg(test)]
 mod tests {
     use gpui::{Modifiers, TestAppContext, point};
@@ -755,6 +775,24 @@ mod tests {
             cx.opened_url().as_deref(),
             Some("https://github.com/owner/repo/issues/7")
         );
+    }
+
+    #[test]
+    fn a_link_stays_hovered_while_the_pointer_moves_across_its_words() {
+        let (first, second) = (
+            ElementId::from(("piece", 1usize)),
+            ElementId::from(("piece", 2usize)),
+        );
+        let mut over = None;
+        hover(&mut over, 0, &first, true);
+        hover(&mut over, 0, &second, true);
+        hover(&mut over, 0, &first, false);
+        assert_eq!(over, Some((0, second.clone())));
+        hover(&mut over, 0, &second, false);
+        hover(&mut over, 0, &first, true);
+        assert_eq!(over, Some((0, first.clone())));
+        hover(&mut over, 0, &first, false);
+        assert_eq!(over, None);
     }
 
     #[test]
