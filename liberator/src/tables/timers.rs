@@ -10,6 +10,7 @@ pub static CLASSIC_TIMERS: &[ClassicTimer] = &[
     ClassicTimer { build: "Y2S4_11580709", global: 0x47F00D0, role: 0x370, state: 0x798, now: 0x10E8, start: 0x9B0, end: 0x9B4, length: 0x9BC, freeze: 0x9B8, armed: 0xA18, countup: 0xA19, second: 1000 },
     ClassicTimer { build: "Y3S1_11726982", global: 0x4A8BE58, role: 0x360, state: 0x5D0, now: 0xFD8, start: 0x7F8, end: 0x7FC, length: 0x804, freeze: 0x800, armed: 0x868, countup: 0x869, second: 1000 },
     ClassicTimer { build: "Y3S2_11965022", global: 0x4EC1198, role: 0x2E8, state: 0x560, now: 0xED8, start: 0x798, end: 0x79C, length: 0x7A4, freeze: 0x7A0, armed: 0x808, countup: 0x809, second: 1000 },
+    ClassicTimer { build: "Y3S2_12106115", global: 0x4EC5BE0, role: 0x2E8, state: 0x560, now: 0xE98, start: 0x728, end: 0x72C, length: 0x734, freeze: 0x730, armed: 0x798, countup: 0x799, second: 1000 },
     ClassicTimer { build: "Y3S3_12362767", global: 0x50A4D00, role: 0x2F8, state: 0x834, now: 0xE70, start: 0x83C, end: 0x840, length: 0x848, freeze: 0x844, armed: 0x88C, countup: 0x88D, second: 1000 },
     ClassicTimer { build: "Y3S4_12512571", global: 0x4F9D828, role: 0x2A8, state: 0x85C, now: 0xED0, start: 0x864, end: 0x868, length: 0x870, freeze: 0x86C, armed: 0x8B4, countup: 0x8B5, second: 1000 },
     ClassicTimer { build: "Y4S1_12863847", global: 0x4EA9618, role: 0x2B0, state: 0x84C, now: 0xE68, start: 0x854, end: 0x858, length: 0x860, freeze: 0x85C, armed: 0x8A4, countup: 0x8A5, second: 1000 },

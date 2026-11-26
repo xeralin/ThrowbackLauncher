@@ -170,7 +170,7 @@ pub static SR_Y6S3_35130040: &[ShadowRegion] = &[
 pub static SR_Y5S1_14303219: &[ShadowRegion] = &[
     ShadowRegion { offset: 27430755, patch: &[144, 144] },
     ShadowRegion { offset: 25437811, patch: &[72, 139, 207, 232, 5, 151, 0, 0] },
-    ShadowRegion { offset: 1259328, patch: &[199, 135, 104, 1, 0, 0, 120, 0, 0, 0, 233, 90, 239, 112, 1] },
+    ShadowRegion { offset: 1259320, patch: &[72, 139, 207, 178, 1, 232, 254, 91, 113, 1, 137, 135, 104, 1, 0, 0, 233, 92, 239, 112, 1] },
     ShadowRegion { offset: 19498155, patch: &[137, 81, 84, 72, 139, 73, 24, 232, 249, 156, 70, 0, 72, 133, 255, 116] },
     ShadowRegion { offset: 24126164, patch: &[128, 185, 34, 4, 0, 0, 0, 116, 25, 72, 139, 129, 104, 3, 0, 0, 70, 141, 12, 133, 0, 0, 0, 0, 65, 59, 20, 1] },
     ShadowRegion { offset: 17308544, patch: &[64] },

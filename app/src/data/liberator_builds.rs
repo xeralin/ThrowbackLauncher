@@ -30,7 +30,7 @@ pub static SUPPORT: &[SeasonRow] = &[
     row("Y2S3", "Blood Orchid", &[], "11432634"),
     row("Y2S4", "White Noise", &[], "11580709"),
     row("Y3S1", "Chimera", &["Outbreak"], "11726982"),
-    row("Y3S2", "Para Bellum", &[], "11965022"),
+    row("Y3S2", "Para Bellum", &[], "12106115"),
     row("Y3S3", "Grim Sky", &["Mad House"], "12362767"),
     row("Y3S4", "Wind Bastion", &[], "12512571"),
     row("Y4S1", "Burnt Horizon", &["Rainbow is Magic"], "12863847"),

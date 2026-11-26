@@ -74,10 +74,10 @@ size_gb = 58.8
 
 [Y3S2_ParaBellum]
 label = 'Y3S2 Para Bellum'
-build = '11965022'
-manifest_content = '8765715607275074515'
-manifest_ww = '6507886921175556869'
-size_gb = 60.6
+build = '12106115'
+manifest_content = '4479992811705865482'
+manifest_ww = '7727030782821676747'
+size_gb = 63.8
 
 [Y3S3_GrimSky]
 label = 'Y3S3 Grim Sky'
