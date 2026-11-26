@@ -2,9 +2,8 @@ use crate::ui::px;
 use backend::manifest::season_entry;
 use gpui::{
     App, AppContext, Context, Div, DragMoveEvent, ElementId, Entity, InteractiveElement,
-    IntoElement, KeyDownEvent, ParentElement, Pixels, Render, RetainAllImageCache, Rgba,
-    SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, point,
-    prelude::FluentBuilder,
+    IntoElement, KeyDownEvent, ParentElement, Pixels, Render, RetainAllImageCache, SharedString,
+    Stateful, StatefulInteractiveElement, Styled, Window, div, point, prelude::FluentBuilder,
 };
 
 use crate::assets::HEATED_METAL_ART;
@@ -117,10 +116,7 @@ impl Activity {
         let glow = self
             .highlight
             .glow(&launcher.read(cx).settings, Theme::get(cx));
-        let halo = Rgba {
-            a: glow.halo.a * hover.amount,
-            ..glow.halo
-        };
+        let halo = glow.halo.opacity(hover.amount);
         let name = if hm { HEATED_METAL_ART } else { &key };
         let room = if self.action.is_some() { 44. } else { 8. };
         let held = key.clone();

@@ -13,8 +13,8 @@ use backend::env::IS_WINDOWS;
 use backend::settings::Flag;
 use gpui::{
     App, AppContext, Context, Deferred, Div, ElementId, Entity, FocusHandle, InteractiveElement,
-    IntoElement, ParentElement, Render, Rgba, SharedString, Stateful, StyleRefinement, Styled,
-    Subscription, Task, Window, div, prelude::FluentBuilder,
+    Interpolate, IntoElement, ParentElement, Render, Rgba, SharedString, Stateful, StyleRefinement,
+    Styled, Subscription, Task, Window, div, prelude::FluentBuilder,
 };
 
 use crate::modals::steps::exclusion;
@@ -100,13 +100,7 @@ fn column_item(
     let lit = level("lit", mark != Mark::Idle || hover.over);
     let chosen = level("chosen", mark == Mark::Chosen);
     let (rest, dim) = (SURFACE_2.rgba(lit), Theme::get(cx).action_dim);
-    let blend = |rest: f32, dim: f32| rest + (dim - rest) * chosen;
-    let fill = Rgba {
-        r: blend(rest.r, dim.r),
-        g: blend(rest.g, dim.g),
-        b: blend(rest.b, dim.b),
-        a: blend(rest.a, dim.a),
-    };
+    let fill = Rgba::interpolate(rest, dim, chosen);
     let color = TEXT_MUTED.mix(TEXT, lit).solid();
     let caption = div().flex().flex_1().min_w_0().top(px(-1.));
     div()

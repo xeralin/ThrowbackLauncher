@@ -114,7 +114,6 @@ pub fn row() -> Div {
 pub fn heading(label: &'static str) -> Div {
     div()
         .flex_none()
-        .relative()
         .top(px(1.))
         .face(FONT_DISPLAY_BOLD, 1.05 * REM)
         .text_color(TEXT.solid())
@@ -173,7 +172,6 @@ pub fn label_chip(content: impl Into<SharedString>) -> Div {
 
 pub fn box_text(content: impl Into<SharedString>) -> Div {
     div()
-        .relative()
         .top(px(2.))
         .face(FONT_DISPLAY_BOLD, TEXT_UI)
         .text_color(TEXT.solid())

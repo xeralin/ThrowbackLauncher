@@ -8,7 +8,7 @@ use backend::update::{Component, Failure, Release};
 use chrono::{DateTime, Local};
 use gpui::{
     AnyElement, App, Bounds, Context, CursorStyle, Deferred, Div, ElementId, Entity, FocusHandle,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Rgba, SharedString, Stateful,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString, Stateful,
     StatefulInteractiveElement, Styled, Subscription, Transformation, Window, canvas, div,
     linear_color_stop, linear_gradient, prelude::FluentBuilder, radians,
 };
@@ -356,10 +356,7 @@ impl UpdatesPage {
         let theme = Theme::get(cx);
         let rest = theme.action.mix(theme.action_deep, lit);
         let dark = rest.mix(theme.action.mix(BLACK, DIMMED), dim);
-        let glow = Rgba {
-            a: theme.action_glow.a * lit * (1. - dim),
-            ..theme.action_glow
-        };
+        let glow = theme.action_glow.opacity(lit * (1. - dim));
         button
             .bg(linear_gradient(
                 90.,

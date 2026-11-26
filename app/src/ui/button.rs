@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::ui::px;
 use gpui::{
-    App, Div, ElementId, InteractiveElement, ParentElement, Rgba, SharedString, Stateful,
+    App, Div, ElementId, InteractiveElement, ParentElement, SharedString, Stateful,
     StatefulInteractiveElement, Styled, Svg, Window, div, prelude::FluentBuilder,
 };
 
@@ -22,11 +22,7 @@ fn button(
 ) -> (Stateful<Div>, f32) {
     let id = id.into();
     let hover = motion::hover(&id, SLOW, window, cx);
-    let glow = Theme::get(cx).action_glow;
-    let halo = Rgba {
-        a: glow.a * hover.amount,
-        ..glow
-    };
+    let halo = Theme::get(cx).action_glow.opacity(hover.amount);
     let button = div()
         .id(id)
         .flex()

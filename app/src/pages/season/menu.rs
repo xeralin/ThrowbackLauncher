@@ -1,10 +1,10 @@
 use crate::ui::px;
 use backend::env::IS_WINDOWS;
 use gpui::{
-    App, AppContext, Context, Deferred, DismissEvent, Entity, EventEmitter, FocusHandle,
-    InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Pixels, Point, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, anchored, deferred, div, point,
-    prelude::FluentBuilder,
+    Anchor, App, AppContext, Bounds, Context, Deferred, DismissEvent, Entity, EventEmitter,
+    FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Pixels, Point,
+    Render, Size, StatefulInteractiveElement, Styled, Subscription, Window, anchored, deferred,
+    div, prelude::FluentBuilder,
 };
 
 use super::SeasonPage;
@@ -18,7 +18,6 @@ use crate::ui::kit::{OVERLAY, disable, icon_box};
 use crate::ui::theme::{SURFACE, lifted};
 
 const EDGE: f32 = 8.;
-const HEIGHT: f32 = 32.;
 const MOST: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -216,12 +215,6 @@ impl SeasonMenu {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Deferred {
-        let floor = window.viewport_size().height - px(EDGE);
-        let top = if self.at.y + px(HEIGHT) > floor {
-            (self.at.y - px(HEIGHT)).max(px(EDGE))
-        } else {
-            self.at.y
-        };
         let mut bar = icon_box()
             .id("season-menu")
             .occlude()
@@ -240,7 +233,7 @@ impl SeasonMenu {
             );
         }
         let placed = anchored()
-            .position(point(self.at.x, top))
+            .attach(Bounds::new(self.at, Size::default()), Anchor::BottomLeft)
             .snap_to_window_with_margin(px(EDGE));
         deferred(placed.child(bar)).with_priority(OVERLAY)
     }

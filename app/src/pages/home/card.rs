@@ -3,7 +3,7 @@ use backend::manifest::SeasonEntry;
 use gpui::{
     AnyElement, App, AppContext, Bounds, Context, CursorStyle, Div, DragMoveEvent, ElementId,
     Entity, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
-    MouseDownEvent, ParentElement, Pixels, Render, RetainAllImageCache, Rgba, SharedString, Size,
+    MouseDownEvent, ParentElement, Pixels, Render, RetainAllImageCache, SharedString, Size,
     Stateful, StatefulInteractiveElement, Styled, Svg, Window, div, prelude::FluentBuilder,
 };
 
@@ -216,10 +216,7 @@ impl HomePage {
         let glow = card
             .highlight
             .glow(&self.launcher.read(cx).settings, Theme::get(cx));
-        let halo = Rgba {
-            a: glow.halo.a * hover.amount,
-            ..glow.halo
-        };
+        let halo = glow.halo.opacity(hover.amount);
         let run = frame.size.width - px(2. + 2. * LINE_INSET);
         let button = card.action.map(|action| {
             let (launcher, key, hm) = (self.launcher.clone(), card.key.clone(), card.hm);

@@ -34,7 +34,6 @@ pub fn key_art(
                 .top(shift.height)
                 .w(grown.width)
                 .h(grown.height)
-                .aspect_ratio(frame.width / frame.height)
                 .rounded(px(radius))
                 .object_fit(ObjectFit::Cover)
         };
