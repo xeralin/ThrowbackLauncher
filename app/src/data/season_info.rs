@@ -1038,6 +1038,23 @@ pub static SEASON_INFO: &[Entry] = &[
             "Zofia faster again with less health",
         ],
     },
+    Entry {
+        key: "Y11S3_SplitFire",
+        release: "Sep 1, 2026",
+        operators: &[Operator {
+            name: "Noor",
+            gadget_name: "Horus Lance Launcher",
+            gadget_desc: "fires lances that pierce shields and walls, then burst into flames",
+            img: None,
+        }],
+        maps: &[],
+        highlights: &[
+            "Modernized maps — Stadium Alpha, Stadium Bravo and House",
+            "Villa rework — basement bomb site and an indoor garage",
+            "Jegeo Payload needs a constant link, Breach Charges for Dokkaebi",
+            "Kali rebalanced — CSRX 300 with 3.5x and 8x scopes and a faster bolt",
+        ],
+    },
 ];
 
 #[cfg(test)]

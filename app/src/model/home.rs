@@ -97,7 +97,7 @@ mod tests {
         );
         assert_eq!(
             launcher.read_with(cx, |launcher, _| launcher.seasons().len()),
-            43
+            manifest::downloads().len()
         );
     }
 }

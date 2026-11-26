@@ -253,14 +253,16 @@ impl SeasonPage {
             .flex_none()
             .h(px(32.))
             .child(cell(box_text(release)))
-            .child(cell(size))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .px(px(0.6 * REM))
-                    .child(code_chip(season.build.clone())),
-            );
+            .child(cell(size).when(season.build.is_empty(), |cell| cell.border_r_0()))
+            .when(!season.build.is_empty(), |facts| {
+                facts.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .px(px(0.6 * REM))
+                        .child(code_chip(season.build.clone())),
+                )
+            });
         let side = div()
             .flex()
             .flex_col()

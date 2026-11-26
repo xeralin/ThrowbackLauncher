@@ -305,3 +305,10 @@ build = '114706078'
 manifest_content = '8562525939111846234'
 manifest_ww = '3438364557114734245'
 size_gb = 45.6
+
+[Y11S3_SplitFire]
+label = 'Y11S3 Split Fire'
+build = '118144515'
+manifest_content = '1045285420150667783'
+manifest_ww = '2588001433951973149'
+size_gb = 48.1

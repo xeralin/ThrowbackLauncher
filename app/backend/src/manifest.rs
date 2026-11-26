@@ -20,6 +20,7 @@ static SEASON_FOLDER: LazyLock<Regex> =
 pub struct Download {
     pub key: String,
     pub label: String,
+    #[serde(default)]
     pub build: String,
     pub app: i64,
     pub depot_content: i64,
@@ -295,7 +296,8 @@ mod tests {
                 download.label.split(' ').next(),
                 download.key.split('_').next()
             );
-            assert!(download.size_gb > 0.0 && !download.build.is_empty());
+            assert!(download.size_gb > 0.0);
+            assert!(download.build.bytes().all(|digit| digit.is_ascii_digit()));
             assert!(
                 download
                     .manifest_content
@@ -357,6 +359,8 @@ mod tests {
     #[test]
     fn a_block_with_a_missing_or_mistyped_field_is_refused() {
         assert!(parse(&SMALL.replace("build = '2'", "build = 2")).is_err());
+        let unbuilt = parse(&SMALL.replace("build = '2'\n", "")).unwrap();
+        assert_eq!(unbuilt[1].build, "");
         assert!(parse(&SMALL.replace("depot_ww = 3\n", "")).is_err());
         assert!(parse("[Y1S0_Vanilla\n").is_err());
     }
