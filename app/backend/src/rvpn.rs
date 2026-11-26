@@ -111,7 +111,7 @@ mod host {
         FIFO_D2B_LOW,
     ];
 
-    const WINE_TAG: &str = "11.20";
+    const WINE_TAG: &str = "11.21";
     const SERVICE_TIMEOUT_S: u32 = 30;
     const SERVICE_POLL: Duration = Duration::from_millis(200);
     const INSTALLER_POLL: Duration = Duration::from_millis(200);
@@ -742,7 +742,14 @@ mod host {
         reporter: &Reporter,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<()> {
-        if paths.wine_dir().join("bin").join("wine").exists() {
+        let wine = paths.wine_dir().join("bin").join("wine");
+        let pinned = format!("wine-{WINE_TAG}");
+        if let Ok(output) = Command::new(wine).arg("--version").output()
+            && String::from_utf8_lossy(&output.stdout)
+                .split_whitespace()
+                .next()
+                == Some(pinned.as_str())
+        {
             return Ok(());
         }
         (reporter.update)("Fetching Wine");
@@ -1361,21 +1368,22 @@ mod host {
         );
         const MAC: &str = "02:1a:2B:3c:4D:5e";
         const GUID: &str = "{fbff95f1-6f42-ce95-4b6b-ce1d0d445660}";
-        const WINE_ROOT: &str = "wine-11.20-staging-amd64-wow64";
+        const WINE_ROOT: &str = "wine-11.21-staging-amd64-wow64";
+        const WINE_SCRIPT: &str = "#!/bin/sh\necho 'wine-11.21 (Staging)'\n";
         const WINE_TAR_XZ: &str = concat!(
-            "fd377a585a000004e6d6b44604c0a90480a00121011c000000000000aa50281be04fff02215d003b9a4a1f092f63a5fd",
-            "eaf1c080c0905aa59d1c24c180bfaebf46dde672eda63aa38107fefcf9ca741c0d4de9131fbe5c3b2c78049ecdf596a7",
-            "683252abd43606fa954af4da42a14fb3b88ee17c0776cd67a8e7b6faadee39bfd02b9d10d353f84cc64ffe7e8ded7e00",
-            "0d03974cd59a9dcbb1ac7ca19a21e31a5f56767f30e8e1d4601faba9960df0fd5e523db37615254a679f0af7aca9e9ad",
-            "eed581949f317e94d842bcf261cb67008694392a1cd9d65a77fb14896f419d4ed14923d1039631270994dba059f2661f",
-            "006b4be89490d931d8ac18b34f796070fb01ac997d92f3cfd9374fe06151353c5f3ccb04e4216cacbfe50943f937140b",
-            "217951efb74f505e8136a1a994d745ccf5a0a1859fc95642078db9e07154c11f5c74e03c541a5c6f4cc8ce02e756f8b7",
-            "00866002b269ac85eb1e3b249fb3f085438f9c0aaa193c3577ddd7b8514eec8c447dffa0cc72a14c57863284592d8f38",
-            "682261393bab8786c908176a458f173e2b8888089152123968b00518ae48c21ffe26ee1a81209775bc35ca78b3822b8c",
-            "b95590195499a61062f9effea53649ca9fe5f14a39cb12a0ce5cf0cf5fd3d38402bba11f7446d068d6ec4dc0e43d7170",
-            "d661f7dba3b11e660529d29511a6bc8d10bb5c9fcd81d65eccbad6b7ec23eb63499ef26c3a33c7a19bf66027017bde78",
-            "abe34b63ea2c96eb5bb45319dcbecf361a411321cf8d5811ae42e681a3c2ed76940ba509fe92c3f05e8b315487459590",
-            "b4eb72894adcbe0000000000a0924a3c07b3690f0001c50480a001000027ca5ab1c467fb020000000004595a",
+            "fd377a585a000004e6d6b4460200210116000000742fe5a3e04fff02295d003b9a4a1f092f63a5fdeb039e8a9010b077",
+            "328184be9dd6c2f3009228d738d2db51882ef7fd97e617c655e13bc90700478c8b9ec08d71f7213d69828d8de7c7d40b",
+            "ea709a1c74376ae94a4c888bccf36896d91ae669ef9223b29bb9d82aa5c8db1aca095431f709f11a6ffeef6828b0f3fe",
+            "f71f734a8268917e8cae37eeadb7e9bfc766be9a7bddefb10fc8fcb64018650ca5366d3975c98e742ff9960620fbb43d",
+            "09273fe8f687dfa59cc99c8aabdd1be41f48e3816dea446bb99e811aff11bd037a6a50be0be36cf6bc658f3723da82b0",
+            "5357ac3440c992a64879cfdd94c2e9715002109a45cb23a51606e51e2656ffbb69f0bfcc671cdde2645c9c3cb5cbe2f8",
+            "6d9436177923292e739dc590ac1068b6a6bb1f56c5c1c3f907926654f06f3925919c8f51ac49d35177c056fb31a09230",
+            "71f62128a5c43e70383f817e3a4b5c28a604c0e8059f8489229f700867b194de36eb472dc7a705eacb06a6a459e00830",
+            "5a03a900dff14eddceb6925efa8d991b72940c29931b497bd5b0b0b8ead26fc2059e06e3781f107a40fa39f4af11f86b",
+            "385e53684c07a80c16676ae1eabded027d405247377b0501813c59d67f1f507ec332600b42096874357983bb732837fb",
+            "1cc577972dcf115657eadfb2596138b9259356c01f2b2fb5c3b72a4039747ef5c5454e554c8bec729419f6997164a52a",
+            "6ae7172dbba631e896957e71026310b9a47b0f9ed24ae7e712b4d5d1e34d24bcdfb90af807b238028b6648897904a86d",
+            "d8b038c80ed2000000000000bda70be94d0715100001c50480a001000027ca5ab1c467fb020000000004595a",
         );
         const INCOMPLETE_TAR_XZ: &str = concat!(
             "fd377a585a000004e6d6b44604c08001805021011c000000000000007e509a66e027ff00785d003b9a4a1f094455ee74",
@@ -1526,12 +1534,12 @@ exec sleep 600"#;
         }
 
         fn seed_release(paths: &Paths, asset_url: &str) {
-            assert_eq!(WINE_TAG, "11.20");
+            assert_eq!(WINE_TAG, "11.21");
             seed(
                 paths,
-                "https://api.github.com/repos/Kron4ek/Wine-Builds/releases/tags/11.20",
+                "https://api.github.com/repos/Kron4ek/Wine-Builds/releases/tags/11.21",
                 &[
-                    ("wine-11.20-amd64.tar.xz", "http://127.0.0.1:9/other"),
+                    ("wine-11.21-amd64.tar.xz", "http://127.0.0.1:9/other"),
                     (&format!("{WINE_ROOT}.tar.xz"), asset_url),
                 ],
             );
@@ -2279,7 +2287,7 @@ exec sleep 600"#;
             let wine = paths.wine_dir();
             assert_eq!(
                 fs::read_to_string(wine.join("bin").join("wine")).unwrap(),
-                "#!/bin/sh\nexit 0\n"
+                WINE_SCRIPT
             );
             assert!(!wine.join("broken").exists());
             let inf = fs::metadata(wine.join("share").join("wine").join("wine.inf")).unwrap();
@@ -2293,6 +2301,26 @@ exec sleep 600"#;
 
             ensure_wine(&paths, &reporter, &|| panic!("nothing to fetch")).unwrap();
             assert_eq!(seen.lock().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn wine_of_another_version_is_replaced() {
+            for (old, mode) in [
+                ("#!/bin/sh\necho 'wine-11.20 (Staging)'\n", 0o755),
+                ("old", 0o644),
+            ] {
+                let dir = tempfile::tempdir().unwrap();
+                let paths = paths(dir.path());
+                seed_release(&paths, &serve(hex(WINE_TAR_XZ)));
+                let loader = paths.wine_dir().join("bin").join("wine");
+                fs::create_dir_all(loader.parent().unwrap()).unwrap();
+                fs::write(&loader, old).unwrap();
+                fs::set_permissions(&loader, Permissions::from_mode(mode)).unwrap();
+                let (reporter, seen) = recorder();
+                ensure_wine(&paths, &reporter, &|| false).unwrap();
+                assert_eq!(*seen.lock().unwrap(), ["update Fetching Wine"]);
+                assert_eq!(fs::read_to_string(&loader).unwrap(), WINE_SCRIPT);
+            }
         }
 
         #[test]
