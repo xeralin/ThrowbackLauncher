@@ -11,6 +11,7 @@ use gpui::{
 
 use super::SeasonPage;
 use super::dialogs::{Dialog, Pending};
+use crate::data::liberator_builds::operators_locked;
 use crate::model::Launcher;
 use crate::model::download::{Downloader, State};
 use crate::model::launch::{Installs, Launch, Renderer};
@@ -333,6 +334,9 @@ impl SeasonPage {
             Act::Verify => self.ensure_hm(Pending::Verify, window, cx),
             Act::UpdateHm => launcher.update(cx, |launcher, cx| launcher.update_hm(&key, cx)),
             Act::Shears => self.show(Dialog::Shears, window, cx),
+            Act::Download if !hm && operators_locked(&self.season.code) => {
+                self.show(Dialog::OperatorsLocked, window, cx)
+            }
             Act::Download => self.prompt_download(window, cx),
             Act::SwitchHm => self.ensure_hm(Pending::SwitchToHm, window, cx),
             Act::SwitchTb => launcher.update(cx, |launcher, cx| launcher.remove_hm(&key, cx)),

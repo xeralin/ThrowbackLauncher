@@ -22,7 +22,7 @@ use crate::shell::{self, Page};
 use crate::ui::button::{icon_button, primary, secondary};
 use crate::ui::icon::{BOOKMARK_FILLED, REMOVE, icon};
 use crate::ui::input::FIELD_PAD;
-use crate::ui::kit::{disable, label_chip, list_row, save_check, tip, truncate};
+use crate::ui::kit::{disable, label_chip, list_row, note, save_check, tip, truncate};
 use crate::ui::modal::{modal_title, picker_row};
 use crate::ui::motion;
 use crate::ui::prose::{BODY, inline};
@@ -42,6 +42,7 @@ pub(super) enum Dialog {
         library: SharedString,
     },
     RemoveDownload,
+    OperatorsLocked,
     SelectHm {
         then: Pending,
         busy: bool,
@@ -474,6 +475,30 @@ impl SeasonPage {
             .show(window, cx)
     }
 
+    fn locked_dialog(&self, window: &mut Window, cx: &mut Context<Self>) -> Deferred {
+        let label = if self.partial() { "Verify" } else { "Download" };
+        let download = window.handler_for(&cx.entity(), |page, window, cx| {
+            page.prompt_download(window, cx)
+        });
+        self.modal
+            .sheet(inline(
+                "locked-ask",
+                "Pick Striker and Sentry once you complete the tutorial.",
+                BODY,
+                window,
+                cx,
+            ))
+            .title("Operators are locked")
+            .note(note().child("There is currently no fix."))
+            .confirm(
+                label,
+                false,
+                download,
+                window.handler_for(&cx.entity(), Self::close),
+            )
+            .show(window, cx)
+    }
+
     fn uninstall_dialog(
         &self,
         busy: bool,
@@ -754,6 +779,7 @@ impl SeasonPage {
         match self.dialog.as_ref()? {
             Dialog::Download { library } => Some(self.download_dialog(library, window, cx)),
             Dialog::RemoveDownload => Some(self.remove_dialog(window, cx)),
+            Dialog::OperatorsLocked => Some(self.locked_dialog(window, cx)),
             Dialog::SelectHm { busy, .. } => Some(self.select_hm_dialog(*busy, window, cx)),
             Dialog::Proton { .. } => self.proton_dialog(window, cx),
             Dialog::Playtime => Some(self.playtime_dialog(window, cx)),
@@ -766,8 +792,15 @@ impl SeasonPage {
 
 #[cfg(test)]
 mod tests {
-    use backend::shears::Tier;
+    use std::fs;
 
+    use backend::env::Paths;
+    use backend::manifest;
+    use backend::settings::Settings as Store;
+    use backend::shears::Tier;
+    use gpui::TestAppContext;
+
+    use super::super::manage::Act;
     use super::*;
 
     #[test]
@@ -835,5 +868,26 @@ mod tests {
         ] {
             assert_eq!(format_bytes(bytes), text, "{bytes}");
         }
+    }
+
+    #[gpui::test]
+    fn the_download_of_a_season_the_liberator_cannot_unlock_first_warns(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path().join("asset"), dir.path().join("data"));
+        fs::create_dir_all(&paths.data_root).unwrap();
+        fs::write(paths.settings_file(), "[settings]\ndiscord_rpc = false\n").unwrap();
+        cx.update(|cx| {
+            crate::init(cx);
+            let store = Store::load(&paths).unwrap();
+            Launcher::new(paths.clone(), store, manifest::downloads()).init(cx);
+        });
+        let (page, cx) =
+            cx.add_window_view(|_, cx| SeasonPage::new("Y11S3_SplitFire", false, cx).unwrap());
+        page.update_in(cx, |page, window, cx| page.act(Act::Download, window, cx));
+        let warned = page.read_with(cx, |page, cx| {
+            let queued = page.launcher.read(cx).download.queue().count();
+            (matches!(page.dialog, Some(Dialog::OperatorsLocked)), queued)
+        });
+        assert_eq!(warned, (true, 0));
     }
 }

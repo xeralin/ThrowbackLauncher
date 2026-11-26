@@ -105,6 +105,14 @@ pub fn years() -> impl Iterator<Item = (&'static str, &'static [SeasonRow])> {
         .map(|rows| (year(&rows[0]), rows))
 }
 
+pub fn operators_locked(code: &str) -> bool {
+    let rank = |code: &str| {
+        let (year, season) = code.strip_prefix('Y')?.split_once('S')?;
+        Some((year.parse::<u32>().ok()?, season.parse::<u32>().ok()?))
+    };
+    rank(code) >= rank("Y8S4") && !SUPPORT.iter().any(|row| row.season == code)
+}
+
 pub fn events(build: &str) -> &'static [&'static str] {
     let row = SUPPORT.iter().find(|row| row.build == build);
     row.map(|row| row.events).unwrap_or_default()
@@ -113,6 +121,13 @@ pub fn events(build: &str) -> &'static [&'static str] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn operators_are_locked_from_y8s4_on_until_the_liberator_supports_the_season() {
+        assert!(operators_locked("Y11S3") && operators_locked("Y8S5"));
+        assert!(!operators_locked("Y11S2") && !operators_locked("Y8S4"));
+        assert!(!operators_locked("Y8S0") && !operators_locked("Y1S0"));
+    }
 
     #[test]
     fn the_rows_group_into_the_years_one_to_eleven() {

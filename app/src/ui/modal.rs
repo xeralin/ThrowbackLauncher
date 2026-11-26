@@ -71,6 +71,7 @@ pub struct Sheet<'a> {
     title: Option<AnyElement>,
     body: AnyElement,
     footer: Vec<AnyElement>,
+    note: Option<AnyElement>,
     aside: Option<AnyElement>,
     side: Option<AnyElement>,
     width: f32,
@@ -167,6 +168,7 @@ impl Modal {
             title: None,
             body: body.into_any_element(),
             footer: Vec::new(),
+            note: None,
             aside: None,
             side: None,
             width: WIDTH,
@@ -187,6 +189,11 @@ impl Sheet<'_> {
     pub fn footer(mut self, buttons: impl IntoIterator<Item = impl IntoElement>) -> Self {
         let buttons = buttons.into_iter().map(IntoElement::into_any_element);
         self.footer = buttons.collect();
+        self
+    }
+
+    pub fn note(mut self, note: impl IntoElement) -> Self {
+        self.note = Some(note.into_any_element());
         self
     }
 
@@ -298,6 +305,7 @@ impl Sheet<'_> {
             }
             None => self.footer,
         };
+        let note = self.note;
         let body = div()
             .flex()
             .flex_col()
@@ -338,6 +346,7 @@ impl Sheet<'_> {
                         .justify_end()
                         .gap(px(8.))
                         .mt(px(24.))
+                        .children(note.map(|note| div().mr_auto().child(note)))
                         .children(footer),
                 )
             });
