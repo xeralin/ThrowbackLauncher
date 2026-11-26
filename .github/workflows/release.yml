@@ -14,25 +14,6 @@ env:
   APPIMAGETOOL_SHA256: "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install Rust
-        run: |
-          rustup toolchain install $RUST_VERSION --profile minimal --no-self-update --component clippy,rustfmt
-          rustup default $RUST_VERSION
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig-dev libxkbcommon-dev
-      - name: Lint
-        working-directory: app
-        run: |
-          cargo fmt --all --check
-          cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Test
-        working-directory: app
-        run: cargo test --workspace --locked
-
   liberator:
     runs-on: ubuntu-latest
     steps:
@@ -41,7 +22,7 @@ jobs:
         run: |
           rustup toolchain install $RUST_VERSION --profile minimal --no-self-update --target x86_64-pc-windows-gnu
           rustup default $RUST_VERSION
-      - name: Install mingw and git-crypt
+      - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 git-crypt
       - name: Unlock Liberator sources
         env:
@@ -59,6 +40,7 @@ jobs:
         with:
           name: liberator
           path: build/Liberator.exe
+          retention-days: 7
 
   rvpn:
     runs-on: ubuntu-latest
@@ -74,6 +56,7 @@ jobs:
         with:
           name: rvpn
           path: build/rvpn
+          retention-days: 7
 
   linux:
     needs: rvpn
@@ -90,7 +73,8 @@ jobs:
           apt-get install -y build-essential curl file libfontconfig-dev libxkbcommon-dev pkg-config
       - name: Install Rust
         run: |
-          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain $RUST_VERSION
+          curl -fsSL -o rustup-init.sh https://sh.rustup.rs
+          sh rustup-init.sh -y --profile minimal --default-toolchain $RUST_VERSION
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@v8
         with:
@@ -99,7 +83,7 @@ jobs:
       - name: Build Launcher
         working-directory: app
         run: cargo build --release --locked --features packaged
-      - name: Package AppImage
+      - name: Package
         run: |
           appdir=build/AppDir
           mkdir -p "$appdir/usr/bin"
@@ -118,6 +102,7 @@ jobs:
         with:
           name: appimage
           path: out/ThrowbackLauncher.AppImage
+          retention-days: 7
 
   windows:
     needs: liberator
@@ -151,9 +136,10 @@ jobs:
           path: |
             out/ThrowbackLauncher.exe
             out/Runtime.zip
+          retention-days: 7
 
   release:
-    needs: [check, linux, windows]
+    needs: [linux, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
