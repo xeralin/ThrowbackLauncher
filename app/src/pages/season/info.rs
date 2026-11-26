@@ -4,9 +4,8 @@ use crate::ui::{DATE_FORMAT, px, units};
 use backend::env::IS_WINDOWS;
 use chrono::DateTime;
 use gpui::{
-    AnyElement, App, Bounds, Context, Corners, Div, ImgResourceLoader, IntoElement, ObjectFit,
-    ParentElement, Pixels, Resource, SharedString, Styled, StyledImage, Window, canvas, div, img,
-    point, prelude::FluentBuilder, size,
+    AnyElement, App, Context, Div, IntoElement, ObjectFit, ParentElement, Pixels, SharedString,
+    Styled, StyledImage, Window, div, img, prelude::FluentBuilder,
 };
 
 use super::SeasonPage;
@@ -30,8 +29,6 @@ const CARD: f32 = 72.;
 const CARD_WIDTH: f32 = 280.;
 const CARD_GAP: f32 = 12.;
 const NAME: f32 = 0.95 * REM;
-const PORTRAIT: f32 = 160. / 96.;
-const FACE: f32 = 0.2;
 
 const ROW: Prose = Prose {
     size: 0.78 * REM,
@@ -43,31 +40,6 @@ const GADGET: Prose = Prose {
     line: 1.375 * TEXT_UI,
     code: 0.85 * TEXT_UI,
 };
-
-fn portrait(picture: String) -> impl IntoElement {
-    let picture = Resource::Embedded(picture.into());
-    canvas(
-        |_, _, _| (),
-        move |bounds: Bounds<Pixels>, (), window, cx| {
-            let Some(Ok(image)) = window.use_asset::<ImgResourceLoader>(&picture, cx) else {
-                return;
-            };
-            let height = bounds.size.width * PORTRAIT;
-            let top = bounds.top() + (bounds.size.height - height) * FACE;
-            let placed = Bounds::new(point(bounds.left(), top), size(bounds.size.width, height));
-            let corners = Corners {
-                top_left: px(7.),
-                bottom_left: px(7.),
-                ..Corners::default()
-            };
-            window
-                .paint_image(bounds, placed, corners, image, 0, false)
-                .ok();
-        },
-    )
-    .absolute()
-    .size_full()
-}
 
 fn name(content: impl IntoElement) -> Div {
     div()
@@ -92,7 +64,13 @@ fn operator(index: usize, operator: &Operator, window: &mut Window, cx: &mut App
                 .border_r_1()
                 .border_color(BORDER.solid())
                 .bg(SURFACE_2.solid())
-                .child(portrait(operator.picture())),
+                .child(
+                    img(SharedString::from(operator.picture()))
+                        .absolute()
+                        .size_full()
+                        .rounded_l(px(7.))
+                        .object_fit(ObjectFit::Cover),
+                ),
         )
         .child(
             div()
