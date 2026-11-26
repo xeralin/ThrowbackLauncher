@@ -3,12 +3,12 @@ use std::time::{Duration, Instant};
 
 use crate::ui::{frame, px};
 use gpui::{
-    AbsoluteLength, Anchor, AnyView, App, AppContext, Bounds, BoxShadow, Context, CursorStyle,
-    Deferred, Div, Element, ElementId, FocusHandle, GlobalElementId, InspectorElementId,
-    InteractiveElement, IntoElement, LayoutId, ParentElement, Pixels, Refineable, Render,
-    ShapedLine, SharedString, Stateful, StatefulInteractiveElement, Style, StyleRefinement, Styled,
-    TextAlign, TextRun, Transformation, Window, anchored, deferred, div, point,
-    prelude::FluentBuilder, size,
+    AbsoluteLength, Anchor, AnyView, App, AppContext, AvailableSpace, Bounds, BoxShadow, Context,
+    CursorStyle, Deferred, Div, Element, ElementId, FocusHandle, GlobalElementId,
+    InspectorElementId, InteractiveElement, IntoElement, LayoutId, ParentElement, Pixels,
+    Refineable, Render, ShapedLine, SharedString, Stateful, StatefulInteractiveElement, Style,
+    StyleRefinement, Styled, TextAlign, TextRun, Transformation, Window, anchored, deferred, div,
+    point, prelude::FluentBuilder, size,
 };
 
 use crate::ui::icon::{CHECK_BOLD, icon};
@@ -241,7 +241,7 @@ impl Element for Truncate {
         _: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
         window: &mut Window,
-        cx: &mut App,
+        _: &mut App,
     ) -> (LayoutId, ()) {
         let line = StyleRefinement::default()
             .flex_1()
@@ -249,7 +249,19 @@ impl Element for Truncate {
             .h(window.line_height());
         let mut style = Style::default();
         style.refine(&line);
-        (window.request_layout(style, [], cx), ())
+        let width = plain(&self.0, window).width;
+        let layout = window.request_measured_layout(style, move |known, space, _, _| {
+            let natural = match space.width {
+                AvailableSpace::MinContent => Pixels::ZERO,
+                AvailableSpace::MaxContent => width,
+                AvailableSpace::Definite(room) => width.min(room),
+            };
+            size(
+                known.width.unwrap_or(natural),
+                known.height.unwrap_or_default(),
+            )
+        });
+        (layout, ())
     }
 
     fn prepaint(
@@ -262,14 +274,13 @@ impl Element for Truncate {
         _: &mut App,
     ) -> ShapedLine {
         let text = self.0.clone();
-        let style = window.text_style();
-        let size = style.font_size.to_pixels(window.rem_size());
-        let system = window.text_system();
-        let plain = system.shape_line(text.clone(), size, &[style.to_run(text.len())], None);
+        let plain = plain(&text, window);
         let room = bounds.size.width;
         if plain.width <= room {
             return plain;
         }
+        let style = window.text_style();
+        let size = style.font_size.to_pixels(window.rem_size());
         let runs: Vec<TextRun> = text
             .char_indices()
             .map(|(start, letter)| {
@@ -281,7 +292,7 @@ impl Element for Truncate {
                 }
             })
             .collect();
-        system.shape_line(text, size, &runs, None)
+        window.text_system().shape_line(text, size, &runs, None)
     }
 
     fn paint(
@@ -298,6 +309,15 @@ impl Element for Truncate {
         line.paint(bounds.origin, height, TextAlign::Left, None, window, cx)
             .ok();
     }
+}
+
+fn plain(text: &SharedString, window: &Window) -> ShapedLine {
+    let style = window.text_style();
+    let size = style.font_size.to_pixels(window.rem_size());
+    let run = style.to_run(text.len());
+    window
+        .text_system()
+        .shape_line(text.clone(), size, &[run], None)
 }
 
 pub fn note() -> Div {
@@ -467,6 +487,32 @@ mod tests {
     use crate::ui::button::icon_button;
     use crate::ui::icon::FOLDER;
     use crate::ui::testing::{mount, press};
+
+    #[gpui::test]
+    fn a_fading_label_is_as_wide_as_its_text(cx: &mut TestAppContext) {
+        let clicks = Rc::new(Cell::new(0));
+        let counted = clicks.clone();
+        let cx = mount(cx, move |_, _| {
+            let counted = counted.clone();
+            div()
+                .flex()
+                .child(div().flex().min_w_0().child(truncate("Throwback Launcher")))
+                .child(
+                    div()
+                        .id("after")
+                        .size(px(20.))
+                        .on_click(move |_, _, _| counted.set(counted.get() + 1)),
+                )
+                .into_any_element()
+        });
+        let text = SharedString::from("Throwback Launcher");
+        let width = cx.update(|window, _| plain(&text, window).width);
+        assert!(width > px(40.));
+        cx.simulate_click(point(width + px(10.), px(5.)), Modifiers::default());
+        assert_eq!(clicks.get(), 1);
+        cx.simulate_click(point(width - px(10.), px(5.)), Modifiers::default());
+        assert_eq!(clicks.get(), 1);
+    }
 
     #[gpui::test]
     fn a_disabled_or_busy_control_ignores_clicks_on_its_border(cx: &mut TestAppContext) {

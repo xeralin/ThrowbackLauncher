@@ -13,7 +13,7 @@ use super::SeasonPage;
 use crate::data::liberator_builds::events;
 use crate::data::season_info::{self, Map, Operator};
 use crate::ui::key_art::shade;
-use crate::ui::kit::{box_text, code_chip, panel};
+use crate::ui::kit::{box_text, code_chip, panel, truncate};
 use crate::ui::prose::{Prose, inline};
 use crate::ui::theme::{
     BORDER, FONT_BODY, FONT_DISPLAY_BOLD, ON_ART, REM, SURFACE_2, TEXT, TEXT_MUTED, TEXT_UI,
@@ -69,7 +69,7 @@ fn portrait(picture: String) -> impl IntoElement {
     .size_full()
 }
 
-fn name(content: &'static str) -> Div {
+fn name(content: impl IntoElement) -> Div {
     div()
         .face(FONT_DISPLAY_BOLD, NAME)
         .line_height(px(19.))
@@ -103,7 +103,7 @@ fn operator(index: usize, operator: &Operator, window: &mut Window, cx: &mut App
                 .justify_center()
                 .gap(px(4.))
                 .px(px(12.))
-                .child(name(operator.name).truncate())
+                .child(name(truncate(operator.name)))
                 .child(
                     inline(("gadget", index), &gadget, GADGET, window, cx)
                         .min_h(px(2.75 * TEXT_UI)),

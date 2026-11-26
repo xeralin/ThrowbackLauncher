@@ -389,10 +389,11 @@ impl UpdatesPage {
                 .child(page.ml_auto())
         });
         let name = div()
+            .flex()
+            .min_w_0()
             .face(FONT_DISPLAY_BOLD, 1.05 * REM)
             .text_color(TEXT.solid())
-            .truncate()
-            .child(component.name());
+            .child(truncate(component.name()));
         let title = div()
             .flex()
             .min_w_0()
