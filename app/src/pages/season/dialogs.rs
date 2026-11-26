@@ -802,6 +802,7 @@ mod tests {
 
     use super::super::manage::Act;
     use super::*;
+    use crate::ui::testing::press;
 
     #[test]
     fn cuts_list_videos_events_and_every_texture_tier_but_the_last() {
@@ -889,5 +890,43 @@ mod tests {
             (matches!(page.dialog, Some(Dialog::OperatorsLocked)), queued)
         });
         assert_eq!(warned, (true, 0));
+    }
+
+    #[gpui::test]
+    fn escape_in_the_reset_question_leads_back_to_the_play_time(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path().join("asset"), dir.path().join("data"));
+        fs::create_dir_all(&paths.data_root).unwrap();
+        fs::write(paths.settings_file(), "[settings]\ndiscord_rpc = false\n").unwrap();
+        cx.update(|cx| {
+            crate::init(cx);
+            let store = Store::load(&paths).unwrap();
+            Launcher::new(paths.clone(), store, manifest::downloads()).init(cx);
+        });
+        let (page, cx) =
+            cx.add_window_view(|_, cx| SeasonPage::new("Y11S3_SplitFire", false, cx).unwrap());
+        let draw = |cx: &mut gpui::VisualTestContext| {
+            cx.run_until_parked();
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        };
+        cx.update(|window, _| window.activate_window());
+        page.update_in(cx, |page, window, cx| {
+            page.attach(window, cx);
+            page.show(Dialog::Playtime, window, cx);
+        });
+        draw(cx);
+        let shown = |cx: &mut gpui::VisualTestContext| {
+            page.read_with(cx, |page, _| {
+                let asking = matches!(page.dialog, Some(Dialog::ResetPlaytime));
+                let listing = matches!(page.dialog, Some(Dialog::Playtime));
+                (asking, listing, page.modal.is_open())
+            })
+        };
+        press(cx, "tab enter");
+        draw(cx);
+        assert_eq!(shown(cx), (true, false, true));
+        press(cx, "escape");
+        draw(cx);
+        assert_eq!(shown(cx), (false, true, true));
     }
 }
