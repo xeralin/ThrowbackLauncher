@@ -558,6 +558,7 @@ mod tests {
     use crate::github::testing::{Reply, Server};
     use crate::log::take_recorded;
     use crate::manifest::downloads;
+    use crate::pe::versioned_exe;
     use crate::self_update::take_outcome;
     use crate::throwbackloader::testing::names;
 
@@ -601,11 +602,7 @@ mod tests {
 
     fn launcher_exe(version: [u32; 3]) -> Vec<u8> {
         let [major, minor, patch] = version;
-        let mut data = b"MZ\xbd\x04\xef\xfe".to_vec();
-        for field in [0x0001_0000, major << 16 | minor, patch << 16] {
-            data.extend(field.to_le_bytes());
-        }
-        data
+        versioned_exe(&format!("{major}.{minor}.{patch}"))
     }
 
     fn loader_files(version: [u32; 3]) -> Vec<(&'static str, Vec<u8>)> {

@@ -4,6 +4,7 @@ edition = "2024"
 
 [features]
 packaged = []
+testing = []
 
 [dependencies]
 anyhow = "1"

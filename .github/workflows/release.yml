@@ -49,6 +49,8 @@ jobs:
         run: |
           printf '%s' "$LIBERATOR_KEY" | base64 -d > "$RUNNER_TEMP/git-crypt.key"
           git-crypt unlock "$RUNNER_TEMP/git-crypt.key"
+      - name: Pin version to tag
+        run: printf '%s\n' "${GITHUB_REF_NAME#v}" > app/VERSION
       - name: Build Liberator
         env:
           RUSTFLAGS: -Awarnings

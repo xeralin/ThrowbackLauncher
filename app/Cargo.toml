@@ -38,6 +38,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+backend = { path = "backend", features = ["testing"] }
 gpui = { package = "gpui-pre", version = "=0.3.12", default-features = false, features = ["test-support"] }
 tempfile = "3"
 
@@ -49,6 +50,7 @@ winresource = { version = "0.1", default-features = false }
 [features]
 packaged = ["backend/packaged"]
 qa = [
+    "backend/testing",
     "gpui/test-support",
     "gpui_platform/test-support",
     "dep:gpui_wgpu",

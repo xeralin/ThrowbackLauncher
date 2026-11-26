@@ -509,9 +509,9 @@ struct Offline;
 impl Host for Offline {
     fn fetch(&self, paths: &Paths, _: bool) -> Result<PathBuf, String> {
         let bin = paths.liberator_bin();
+        let exe = backend::pe::versioned_exe(backend::env::VERSION);
         std::fs::create_dir_all(paths.bin_dir())
-            .and_then(|()| std::fs::write(&bin, ""))
-            .and_then(|()| std::fs::write(bin.with_extension("version"), backend::env::VERSION))
+            .and_then(|()| std::fs::write(&bin, exe))
             .map_err(|error| error.to_string())?;
         Ok(bin)
     }
@@ -628,6 +628,7 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+    use backend::pe::versioned_exe;
     use backend::settings::Settings as Store;
     use gpui::{Entity, TestAppContext};
     use tempfile::TempDir;
@@ -1193,8 +1194,7 @@ mod tests {
     fn an_older_file_counts_as_available_until_its_replacement_fails(cx: &mut TestAppContext) {
         let stage = Stage::new(cx, "[settings]\n");
         install(&stage.paths);
-        let stamp = stage.paths.liberator_bin().with_extension("version");
-        fs::write(stamp, "0.0.1").unwrap();
+        fs::write(stage.paths.liberator_bin(), versioned_exe("0.0.1")).unwrap();
         assert!(stage.read(cx, Liberator::available));
         *stage.host.fetch_error.lock().unwrap() = Some("Liberator download failed".to_owned());
         stage.start(cx, &[KEY]);
@@ -1357,8 +1357,7 @@ mod tests {
         assert_eq!(prepare(&silent, false, cx).0, 2);
         assert_eq!(prepare(&silent, true, cx).0, 2);
 
-        let stamp = silent.paths.liberator_bin().with_extension("version");
-        fs::write(stamp, "0.0.1").unwrap();
+        fs::write(silent.paths.liberator_bin(), versioned_exe("0.0.1")).unwrap();
         assert_eq!(prepare(&silent, true, cx), (3, Vec::new()));
 
         let off = Stage::new(cx, "[settings]\nliberator_enabled = false\n");

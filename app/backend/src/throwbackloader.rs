@@ -13,6 +13,7 @@ use crate::env::{
     TL_LAUNCHER, TL_LOADERS, TL_TOML, copy_with_times,
 };
 use crate::github::{Progress, download_error, fetch_to, github_asset};
+use crate::pe::file_version;
 
 static USERNAME_RX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"username\s*=\s*["'][^"']*["']"#).expect("pattern"));
@@ -54,26 +55,8 @@ pub fn tl_present(folder: &Path) -> bool {
     extract_names().all(|name| folder.join(name).is_file())
 }
 
-fn launcher_version(data: &[u8]) -> Option<String> {
-    let mut at = 0;
-    loop {
-        at += data
-            .get(at..)?
-            .windows(4)
-            .position(|window| window == b"\xbd\x04\xef\xfe")?;
-        if let Some(info) = data.get(at + 4..at + 16)
-            && let [struc_version, ms, ls] = info.as_chunks::<4>().0
-            && u32::from_le_bytes(*struc_version) == 0x0001_0000
-        {
-            let (ms, ls) = (u32::from_le_bytes(*ms), u32::from_le_bytes(*ls));
-            return Some(format!("{}.{}.{}", ms >> 16, ms & 0xffff, ls >> 16));
-        }
-        at += 4;
-    }
-}
-
 pub fn tl_folder_version(folder: &Path) -> Option<String> {
-    launcher_version(&fs::read(folder.join(TL_LAUNCHER)).ok()?)
+    file_version(&folder.join(TL_LAUNCHER))
 }
 
 pub fn tl_version(paths: &Paths) -> Option<String> {
@@ -258,6 +241,7 @@ mod tests {
     use crate::github::RateLimitError;
     use crate::github::testing::{Reply, Server, seed};
     use crate::log::take_recorded;
+    use crate::pe::versioned_exe;
 
     const BASE: &str = "[User]\nusername = \"ThrowbackUser\"\n\n[Launch]\nargs = '/belaunch /nologo'\nautorun = []\n";
 
@@ -372,14 +356,6 @@ mod tests {
         fs::read_to_string(dir.join(TL_TOML)).unwrap()
     }
 
-    fn version_info(struc_version: u32, ms: u32, ls: u32) -> Vec<u8> {
-        let mut data = b"\xbd\x04\xef\xfe".to_vec();
-        for field in [struc_version, ms, ls] {
-            data.extend(field.to_le_bytes());
-        }
-        data
-    }
-
     fn cache(paths: &Paths) {
         fs::create_dir_all(paths.tl_dir()).unwrap();
         for name in extract_names() {
@@ -444,46 +420,10 @@ mod tests {
     }
 
     #[test]
-    fn version_comes_from_the_fixed_file_info() {
-        let mut data = b"MZ\xbd\x04\xef".to_vec();
-        data.extend(version_info(0x0001_0000, 0x0000_0001, 0x0008_0002));
-        assert_eq!(launcher_version(&data).as_deref(), Some("0.1.8"));
-        let mut data = version_info(0x0002_0000, 0x0009_0009, 0x0009_0000);
-        data.extend(version_info(0x0001_0000, 0x0001_0002, 0x0003_0004));
-        assert_eq!(launcher_version(&data).as_deref(), Some("1.2.3"));
-        assert_eq!(
-            launcher_version(&version_info(0x0001_0000, 0xffff_ffff, 0xffff_0000)).as_deref(),
-            Some("65535.65535.65535")
-        );
-    }
-
-    #[test]
-    fn version_scan_steps_four_bytes_and_needs_sixteen() {
-        let full = version_info(0x0001_0000, 0x0001_0000, 0);
-        assert_eq!(launcher_version(&full[..15]), None);
-        assert_eq!(launcher_version(b""), None);
-        assert_eq!(launcher_version(b"\xbd\x04\xef"), None);
-        let mut nested = b"\xbd\x04\xef\xfe\x00".to_vec();
-        nested.extend(&full);
-        assert_eq!(launcher_version(&nested).as_deref(), Some("1.0.0"));
-        let mut overlap = b"\xbd\x04\xef\xfe\xbd\x04".to_vec();
-        overlap.extend(&full);
-        assert_eq!(launcher_version(&overlap).as_deref(), Some("1.0.0"));
-        let mut hidden = b"\xbd\x04\xef\xfe\x00\x00".to_vec();
-        hidden.extend(&full[..4]);
-        hidden.extend([0, 0, 1, 0, 5, 0, 4, 0, 0, 0, 3, 0]);
-        assert_eq!(launcher_version(&hidden).as_deref(), Some("4.5.3"));
-    }
-
-    #[test]
     fn folder_version_reads_the_launcher() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(tl_folder_version(dir.path()), None);
-        fs::write(
-            dir.path().join(TL_LAUNCHER),
-            version_info(0x0001_0000, 0x0000_0002, 0x0001_0000),
-        )
-        .unwrap();
+        fs::write(dir.path().join(TL_LAUNCHER), versioned_exe("0.2.1")).unwrap();
         assert_eq!(tl_folder_version(dir.path()).as_deref(), Some("0.2.1"));
         let paths = Paths::new(dir.path().to_path_buf(), dir.path().to_path_buf());
         assert_eq!(tl_version(&paths), None);

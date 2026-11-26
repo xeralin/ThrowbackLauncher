@@ -10,6 +10,7 @@ pub mod log;
 pub mod manifest;
 pub mod migrate;
 pub mod nyan;
+pub mod pe;
 pub mod playtime;
 pub mod presence;
 pub mod rpc;

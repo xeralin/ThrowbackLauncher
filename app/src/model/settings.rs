@@ -598,6 +598,7 @@ mod tests {
 
     use backend::env::{DEFAULTARGS_DLL, TL_DLLS_COMMON, TL_LAUNCHER, TL_LOADERS, TL_TOML};
     use backend::manifest;
+    use backend::pe::versioned_exe;
     use gpui::{Entity, TestAppContext};
     use tempfile::TempDir;
 
@@ -750,9 +751,7 @@ mod tests {
     }
 
     fn launcher_exe(patch: u32) -> Vec<u8> {
-        let words = [0xfeef_04bd, 0x0001_0000, 1, patch << 16];
-        let words = words.into_iter().flat_map(u32::to_le_bytes);
-        b"MZ".iter().copied().chain(words).collect()
+        versioned_exe(&format!("0.1.{patch}"))
     }
 
     fn loader_cache(paths: &Paths, patch: u32) {

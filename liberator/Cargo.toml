@@ -20,6 +20,9 @@ features = [
     "Wdk_System_Threading",
 ]
 
+[build-dependencies]
+winresource = { version = "0.1", default-features = false }
+
 [profile.release]
 strip = true
 opt-level = 2
