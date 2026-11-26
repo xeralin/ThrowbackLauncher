@@ -3,22 +3,16 @@
     <source media="(prefers-color-scheme: dark)" srcset=".github/night.svg">
     <img alt="Throwback Launcher" src=".github/day.svg" height="42">
   </picture> <br>
-  It downloads, manages and launches any older season of Rainbow Six Siege. Not affiliated with, endorsed by, or sponsored by Ubisoft.
+  It downloads, manages and launches any older season of Rainbow Six Siege. Not affiliated with or endorsed by Ubisoft.
 </p>
 
-**Windows**
+**Installation**
 
-1. Download `ThrowbackLauncher.exe` from the [latest release](https://github.com/xeralin/ThrowbackLauncher/releases/latest) and run it
-2. If your browser or Windows Security blocks it, follow the steps on [Getting Started](https://xeralin.github.io/ThrowbackFAQ/getting-started/)
-
-**Linux**
-
-1. Download `ThrowbackLauncher.AppImage` from the [latest release](https://github.com/xeralin/ThrowbackLauncher/releases/latest)
-2. Enable **Allow executing file as program** in the file properties to make it executable
+Follow the steps on [Getting Started](https://xeralin.github.io/ThrowbackFAQ/getting-started/)
 
 **Building**
 
-For a local run on Linux you need [Rust](https://www.rust-lang.org/tools/install) and the development packages of `fontconfig` and `xkbcommon`. The Launcher needs a Wayland session.
+For a local run on Linux you need [Rust](https://www.rust-lang.org/tools/install) and the development packages of `fontconfig` and `xkbcommon`.
 
 ```sh
 git clone https://github.com/xeralin/ThrowbackLauncher.git
