@@ -159,21 +159,24 @@ impl Modals {
 
     fn exclusion_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<Deferred> {
         self.exclusion.shown?;
-        let risk = "Windows Security may remove `Liberator.exe`.";
+        let risk = "Windows Security may remove `Liberator.exe` and other files.";
         let advice = inline("exclusion-risk", risk, BODY, window, cx);
         let body = exclusion(advice, None, window, cx);
+        let quit =
+            secondary("exclusion-cancel", "Cancel", window, cx).on_click(|_, _, cx| cx.quit());
         let download = primary("exclusion-download", "Download", window, cx);
-        let download = if self.launcher.read(cx).liberator.busy() {
-            busy(download, window, cx)
+        let (quit, download) = if self.launcher.read(cx).liberator.busy() {
+            (disable(quit), busy(download, window, cx))
         } else {
             let launcher = self.launcher.clone();
-            download.on_click(move |_, _, cx| {
+            let download = download.on_click(move |_, _, cx| {
                 launcher.update(cx, |launcher, cx| launcher.liberator.restore(cx));
-            })
+            });
+            (quit, download)
         };
         let sheet = self.exclusion.modal.sheet(body);
         let sheet = sheet.title("Antivirus exclusion");
-        Some(sheet.footer([download]).show(window, cx))
+        Some(sheet.footer([quit, download]).show(window, cx))
     }
 
     fn ask_login(&mut self, kind: Option<LoginKind>, window: &mut Window, cx: &mut Context<Self>) {
