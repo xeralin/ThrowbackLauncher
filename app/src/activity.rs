@@ -374,7 +374,7 @@ pub fn activity(
             .filter_map(|edition| titled(&edition))
             .collect();
         let paused = download.state() == State::Paused;
-        let held = download.running() || paused;
+        let held = download.held();
         let loading = download.active().filter(|_| held).and_then(titled);
         let loading = loading.map(|(edition, title)| Activity {
             edition,

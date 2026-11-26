@@ -461,7 +461,7 @@ mod tests {
     use std::fs;
     use std::sync::{Arc, Mutex};
 
-    use backend::env::Paths;
+    use backend::env::{Paths, TL_LAUNCHER};
     use backend::manifest;
     use backend::settings::Settings as Store;
     use gpui::{Modifiers, TestAppContext, VisualTestContext, point};
@@ -629,8 +629,11 @@ mod tests {
 
     #[gpui::test]
     fn the_account_form_sends_the_trimmed_name_and_the_password_as_typed(cx: &mut TestAppContext) {
-        let (download, typed) = asking(LoginKind::Account);
-        let (bench, cx) = bench(cx, download);
+        let (bench, cx) = bench(cx, Downloader::default());
+        bench
+            .launcher
+            .update(cx, |launcher, cx| launcher.enqueue(VANILLA, false, "", cx));
+        cx.run_until_parked();
         assert_eq!(shown(&bench, cx), login(LoginKind::Account));
         cx.simulate_input(" ash ");
         press(cx, "enter");
@@ -649,13 +652,16 @@ mod tests {
         press(cx, "enter");
         assert_eq!(shown(&bench, cx), NOTHING);
         assert_eq!(account(&bench, cx), "ash");
-        assert!(typed.lock().unwrap().is_empty());
+        assert_eq!(*bench.errors.borrow(), ["DepotDownloader failed to start"]);
     }
 
     #[gpui::test]
     fn a_rejected_account_name_asks_again_with_empty_fields(cx: &mut TestAppContext) {
-        let (download, _typed) = asking(LoginKind::Account);
-        let (bench, cx) = bench(cx, download);
+        let (bench, cx) = bench(cx, Downloader::default());
+        bench
+            .launcher
+            .update(cx, |launcher, cx| launcher.enqueue(VANILLA, false, "", cx));
+        cx.run_until_parked();
         cx.simulate_input("not a name");
         press(cx, "tab");
         cx.simulate_input("secret");
@@ -768,6 +774,11 @@ mod tests {
         assert_eq!(shown(&bench, cx), missing(VANILLA, false, None));
         press(cx, "escape");
         assert_eq!(shown(&bench, cx), NOTHING);
+        let library = bench
+            .launcher
+            .read_with(cx, |launcher, _| launcher.settings.roots()[0].join(VANILLA));
+        fs::create_dir_all(&library).unwrap();
+        fs::write(library.join(TL_LAUNCHER), "").unwrap();
         report(&bench, VANILLA, false, cx);
         press(cx, "enter");
         assert_eq!(shown(&bench, cx), login(LoginKind::Account));

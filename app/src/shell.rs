@@ -1000,6 +1000,7 @@ mod tests {
             assert_eq!(opened(&bench, cx), None);
         }
         let (bench, cx) = bench(cx, QUEUE, None);
+        std::fs::create_dir_all(bench.paths.default_downloads_dir()).unwrap();
         cx.simulate_click(point(px(100.), px(688.)), Modifiers::default());
         assert_eq!(opened(&bench, cx).as_deref(), Some("Y1S0_Vanilla"));
         cx.simulate_click(toggle, Modifiers::default());

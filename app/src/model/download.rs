@@ -46,6 +46,7 @@ pub enum State {
     #[default]
     Idle,
     Preparing,
+    LoggingIn,
     Downloading,
     Applying,
     Paused,
@@ -244,7 +245,7 @@ struct Offline;
 #[cfg(test)]
 impl Host for Offline {
     fn fetch(&self, _: &Paths, _: bool) -> Result<(), Fault> {
-        Err(Fault::Message("offline".to_owned()))
+        Ok(())
     }
 
     fn launch(&self, _: &Path, _: &[OsString]) -> io::Result<Launched> {
@@ -270,12 +271,11 @@ impl Host for Offline {
         System.season_running(libraries, key)
     }
 
-    fn free_space(&self, folder: &Path) -> io::Result<u64> {
-        System.free_space(folder)
+    fn free_space(&self, _: &Path) -> io::Result<u64> {
+        Ok(u64::MAX)
     }
 }
 
-#[derive(Clone)]
 enum Call {
     Start {
         key: String,
@@ -286,9 +286,6 @@ enum Call {
         key: String,
         hm: bool,
     },
-    RemoveHm {
-        key: String,
-    },
     SwitchToHm {
         key: String,
     },
@@ -298,26 +295,11 @@ enum Call {
     },
 }
 
-impl Call {
-    fn key(&self) -> &str {
-        match self {
-            Self::Start { key, .. }
-            | Self::Verify { key, .. }
-            | Self::RemoveHm { key }
-            | Self::SwitchToHm { key }
-            | Self::ReapplyHm { key, .. } => key,
-        }
-    }
-}
-
-enum Request {
-    Account(Call),
-    Disk {
-        key: String,
-        hm: bool,
-        library: String,
-        shortfall: f64,
-    },
+struct Request {
+    key: String,
+    hm: bool,
+    library: String,
+    shortfall: f64,
 }
 
 struct Switch {
@@ -422,7 +404,6 @@ impl Running {
 
 #[derive(Default)]
 struct QrLogin {
-    _fetch: Option<Task<()>>,
     process: Option<Running>,
     buffer: Vec<u8>,
     reader: QrReader,
@@ -447,6 +428,7 @@ pub struct Downloader {
     history: VecDeque<String>,
     season: Option<Download>,
     target: PathBuf,
+    switch: Option<Switch>,
     commands: Vec<DepotCommand>,
     index: usize,
     process: Option<Running>,
@@ -541,6 +523,7 @@ impl Default for Downloader {
             history: VecDeque::new(),
             season: None,
             target: PathBuf::new(),
+            switch: None,
             commands: Vec::new(),
             index: 0,
             process: None,
@@ -585,7 +568,14 @@ impl Downloader {
     pub fn running(&self) -> bool {
         matches!(
             self.state,
-            State::Preparing | State::Downloading | State::Applying
+            State::Preparing | State::LoggingIn | State::Downloading | State::Applying
+        )
+    }
+
+    pub fn held(&self) -> bool {
+        matches!(
+            self.state,
+            State::Preparing | State::Downloading | State::Applying | State::Paused
         )
     }
 
@@ -622,10 +612,7 @@ impl Downloader {
     }
 
     pub fn disk_shortfall(&self) -> Option<f64> {
-        match self.request {
-            Some(Request::Disk { shortfall, .. }) => Some(shortfall),
-            _ => None,
-        }
+        self.request.as_ref().map(|request| request.shortfall)
     }
 
     pub fn history(&self) -> &VecDeque<String> {
@@ -753,6 +740,8 @@ impl Downloader {
 
     pub fn signing_in(typed: Arc<Mutex<Vec<String>>>) -> Self {
         Self {
+            state: State::LoggingIn,
+            active: Some(edition("Y1S0_Vanilla", false)),
             login: Some(LoginKind::Account),
             qr: Some(QrLogin {
                 process: Some(Running {
@@ -775,7 +764,7 @@ impl Downloader {
 
     pub fn lacking(key: &str, shortfall: f64) -> Self {
         Self {
-            request: Some(Request::Disk {
+            request: Some(Request {
                 key: key.to_owned(),
                 hm: false,
                 library: String::new(),
@@ -821,7 +810,7 @@ impl Downloader {
                     }
                 }
                 "disk" => {
-                    self.request = Some(Request::Disk {
+                    self.request = Some(Request {
                         key: String::new(),
                         hm: false,
                         library: String::new(),
@@ -928,12 +917,7 @@ impl Launcher {
             self.download.queue.push(queued(key, hm, "", true));
             return self.queue_updated(cx);
         }
-        let call = Call::Verify {
-            key: key.to_owned(),
-            hm,
-        };
-        let request = Request::Account(call.clone());
-        let Some(download) = self.accept_download(key, request, cx) else {
+        let Some(download) = self.accept_download(key, cx) else {
             return;
         };
         let Some(target) = installed_path(self.settings.roots(), key, hm) else {
@@ -942,7 +926,11 @@ impl Launcher {
         if self.download.season_running(self.settings.roots(), key) {
             return error(SEASON_RUNNING, cx);
         }
-        if hm && !self.ensure_hm_archive(&download, call, cx) {
+        let resume = Call::Verify {
+            key: key.to_owned(),
+            hm,
+        };
+        if hm && !self.ensure_hm_archive(&download, resume, cx) {
             return;
         }
         self.start_run(download, edition(key, hm), target, true, None, cx);
@@ -1027,10 +1015,7 @@ impl Launcher {
     }
 
     pub fn remove_hm(&mut self, key: &str, cx: &mut Context<Self>) {
-        let call = Call::RemoveHm {
-            key: key.to_owned(),
-        };
-        let Some(download) = self.accept_download(key, Request::Account(call), cx) else {
+        let Some(download) = self.accept_download(key, cx) else {
             return;
         };
         let libraries = self.settings.roots();
@@ -1107,15 +1092,14 @@ impl Launcher {
             download.cancelled = true;
             if let Some(running) = &mut download.process {
                 running.process.kill();
+            } else if download.login == Some(LoginKind::Account) {
+                self.stop_qr_login();
+                self.end_run(false, cx);
             }
             return;
         }
-        let request = download.request.take();
-        download.login = None;
-        download.password.clear();
-        cx.notify();
-        self.stop_qr_login();
-        if let Some(Request::Disk { .. }) = request {
+        if download.request.take().is_some() {
+            cx.notify();
             self.persist_queue();
             Self::start_next_later(cx);
         }
@@ -1143,64 +1127,38 @@ impl Launcher {
             return;
         }
         self.stop_qr_login();
-        self.download.login = None;
+        let waiting = self.download.login.take() == Some(LoginKind::Account);
         cx.notify();
         self.settings.set_steam_account(account, cx);
         self.download.password = password.to_owned();
-        if let Some(Request::Account(call)) = self.download.request.take() {
-            self.resume_call(call, cx);
+        if waiting {
+            self.set_download_state(State::Preparing, cx);
+            self.persist_queue();
+            self.run_prepared(Ok(()), cx);
         }
     }
 
     pub fn start_qr_login(&mut self, cx: &mut Context<Self>) {
-        let download = &mut self.download;
-        let Some(Request::Account(call)) = &download.request else {
+        let download = &self.download;
+        if download.login != Some(LoginKind::Account) || download.qr.is_some() {
+            return;
+        }
+        let Some(season) = &download.season else {
             return;
         };
-        let season = self
-            .downloads
-            .iter()
-            .find(|season| season.key == call.key());
-        let Some(season) = season.filter(|_| download.qr.is_none()).cloned() else {
-            return;
-        };
-        let (host, paths) = (download.host.clone(), self.paths.clone());
-        let fetch = cx.background_spawn(async move { host.fetch(&paths, false) });
-        let launch = cx.spawn(async move |launcher, cx| {
-            let fetched = fetch.await.is_ok();
-            launcher
-                .update(cx, |launcher, cx| {
-                    launcher.launch_qr_login(&season, fetched, cx);
-                })
-                .ok();
-        });
-        download.qr = Some(QrLogin {
-            _fetch: Some(launch),
-            ..QrLogin::default()
-        });
-    }
-
-    fn launch_qr_login(&mut self, season: &Download, fetched: bool, cx: &mut Context<Self>) {
         let (bin, folder) = (self.paths.dd_bin(), self.qr_folder());
-        let download = &mut self.download;
-        let Some(login) = download.qr.as_mut() else {
-            return;
-        };
-        match fetched.then(|| download.host.launch(&bin, &qr_login(season, &folder))) {
-            Some(Ok(launched)) => {
-                login.process = Some(Running::new(launched, Self::qr_message, cx));
+        match download.host.launch(&bin, &qr_login(season, &folder)) {
+            Ok(launched) => {
+                self.download.qr = Some(QrLogin {
+                    process: Some(Running::new(launched, Self::qr_message, cx)),
+                    ..QrLogin::default()
+                });
             }
-            Some(Err(cause)) => {
+            Err(cause) => {
                 log::fail(
                     "DepotDownloader failed to start",
                     format!("{}: {cause}", bin.display()),
                 );
-                self.stop_qr_login();
-                cx.notify();
-            }
-            None => {
-                self.stop_qr_login();
-                cx.notify();
             }
         }
     }
@@ -1259,14 +1217,12 @@ impl Launcher {
     }
 
     pub fn confirm_disk_space(&mut self, cx: &mut Context<Self>) {
-        match self.download.request.take() {
-            Some(Request::Disk {
-                key, hm, library, ..
-            }) => {
-                cx.notify();
-                self.start_download(&key, hm, &library, true, cx);
-            }
-            other => self.download.request = other,
+        if let Some(Request {
+            key, hm, library, ..
+        }) = self.download.request.take()
+        {
+            cx.notify();
+            self.start_download(&key, hm, &library, true, cx);
         }
     }
 
@@ -1316,7 +1272,6 @@ impl Launcher {
         match call {
             Call::Start { key, hm, library } => self.start_download(&key, hm, &library, false, cx),
             Call::Verify { key, hm } => self.verify(&key, hm, cx),
-            Call::RemoveHm { key } => self.remove_hm(&key, cx),
             Call::SwitchToHm { key } => self.switch_to_hm(&key, cx),
             Call::ReapplyHm { key, verify } => self.reapply_hm(&key, verify, cx),
         }
@@ -1360,29 +1315,15 @@ impl Launcher {
         blocker.is_some()
     }
 
-    fn accept_download(
-        &mut self,
-        key: &str,
-        request: Request,
-        cx: &mut Context<Self>,
-    ) -> Option<Download> {
+    fn accept_download(&self, key: &str, cx: &mut Context<Self>) -> Option<Download> {
         if self.download_blocked(key, cx) {
             return None;
         }
         let known = self.downloads.iter().find(|download| download.key == key);
-        let Some(download) = known.cloned() else {
+        if known.is_none() {
             error("Unknown season", cx);
-            return None;
-        };
-        let account = self.settings.steam_account();
-        if !valid_account(&account) {
-            self.download.request = Some(request);
-            self.download.login = Some(LoginKind::Account);
-            cx.emit(DownloadEvent::LoginRequired(Some(LoginKind::Account)));
-            cx.notify();
-            return None;
         }
-        Some(download)
+        known.cloned()
     }
 
     fn heated_season(&self, key: &str) -> Option<Download> {
@@ -1476,13 +1417,7 @@ impl Launcher {
         cx: &mut Context<Self>,
     ) {
         self.dequeue(key, hm, cx);
-        let call = Call::Start {
-            key: key.to_owned(),
-            hm,
-            library: library.to_owned(),
-        };
-        let request = Request::Account(call.clone());
-        let Some(download) = self.accept_download(key, request, cx) else {
+        let Some(download) = self.accept_download(key, cx) else {
             return;
         };
         let libraries = self.settings.roots();
@@ -1508,7 +1443,12 @@ impl Launcher {
                 root.join(edition_folder(key, hm))
             }
         };
-        if hm && !self.ensure_hm_archive(&download, call, cx) {
+        let resume = Call::Start {
+            key: key.to_owned(),
+            hm,
+            library: library.to_owned(),
+        };
+        if hm && !self.ensure_hm_archive(&download, resume, cx) {
             return;
         }
         if !skip_disk_check {
@@ -1516,7 +1456,7 @@ impl Launcher {
             let free = self.download.host.free_space(&root);
             let short = free.map(|free| depot::disk_shortfall(download.size_gb, present, free));
             if let Ok(Some(shortfall)) = short {
-                self.download.request = Some(Request::Disk {
+                self.download.request = Some(Request {
                     key: key.to_owned(),
                     hm,
                     library: library.to_owned(),
@@ -1591,14 +1531,13 @@ impl Launcher {
 
     fn persist_queue(&mut self) {
         let download = &self.download;
-        let held = download.running() || download.state == State::Paused;
-        let active = download.active.as_ref().filter(|_| held);
+        let active = download.active.as_ref().filter(|_| download.held());
         let mut entries = Vec::with_capacity(download.queue.len() + 2);
         if let Some(active) = active {
             let library = library_text(&download.target);
             entries.push(queued(&active.key, active.hm, &library, download.verifying));
         }
-        if let Some(Request::Disk {
+        if let Some(Request {
             key, hm, library, ..
         }) = &download.request
             && !active.is_some_and(|active| active.is(key, *hm))
@@ -1707,14 +1646,16 @@ impl Launcher {
         cx: &mut Context<Self>,
     ) {
         let hm = edition.hm;
-        self.begin_run(season, edition, target, verify, State::Preparing, cx);
+        let state = if valid_account(&self.settings.steam_account()) {
+            State::Preparing
+        } else {
+            State::LoggingIn
+        };
+        self.begin_run(season, edition, target, verify, state, cx);
+        self.download.switch = switch;
         let (host, paths) = (self.download.host.clone(), self.paths.clone());
         Self::download_job(cx, move |reports| {
-            let prepared = host.fetch(&paths, !hm).and_then(|()| match &switch {
-                Some(switch) => switch.run(reports),
-                None => Ok(()),
-            });
-            let _ = reports.try_send(Report::Prepared(prepared));
+            let _ = reports.try_send(Report::Prepared(host.fetch(&paths, !hm)));
         });
     }
 
@@ -1733,6 +1674,16 @@ impl Launcher {
         }
         if cancelled {
             return self.end_run(false, cx);
+        }
+        if !valid_account(&self.settings.steam_account()) {
+            self.download.login = Some(LoginKind::Account);
+            cx.emit(DownloadEvent::LoginRequired(Some(LoginKind::Account)));
+            return cx.notify();
+        }
+        if let Some(switch) = self.download.switch.take() {
+            return Self::download_job(cx, move |reports| {
+                let _ = reports.try_send(Report::Prepared(switch.run(reports)));
+            });
         }
         let download = &mut self.download;
         let Some(season) = &download.season else {
@@ -2507,22 +2458,29 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_start_without_a_steam_account_asks_for_it_and_answers_the_password_prompt(
+    fn a_start_without_a_steam_account_asks_for_it_once_the_tools_are_fetched(
         cx: &mut TestAppContext,
     ) {
         let rig = rig(cx, "", |_, _| {});
         let kind =
             |cx: &mut TestAppContext| rig.launcher.read_with(cx, |it, _| it.download.login_kind());
-        rig.enqueue(cx, VANILLA, false, "");
+        let held = |cx: &mut TestAppContext| rig.launcher.read_with(cx, |it, _| it.download.held());
+        rig.launcher
+            .update(cx, |it, cx| it.enqueue(VANILLA, false, "", cx));
+        assert_eq!((rig.state(cx), kind(cx)), (State::LoggingIn, None));
+        assert!(!held(cx) && rig.stored().is_empty());
+        assert!(rig.seen().is_empty());
+        cx.run_until_parked();
+        assert_eq!(rig.calls(), ["fetch loader=true"]);
         assert_eq!(rig.seen(), [login(LoginKind::Account)]);
         assert_eq!(
             (rig.state(cx), kind(cx)),
-            (State::Idle, Some(LoginKind::Account))
+            (State::LoggingIn, Some(LoginKind::Account))
         );
-        rig.enqueue(cx, ICE, false, "");
-        rig.act(cx, |it, cx| it.verify(ICE, false, cx));
-        rig.act(cx, |it, cx| it.switch_to_hm(SHADOW, cx));
-        assert!(rig.seen().is_empty());
+        assert!(!held(cx) && rig.stored().is_empty());
+        assert_eq!(rig.active(cx), Some(edition(VANILLA, false)));
+        assert_eq!(rig.runs(), 0);
+        assert!(!rig.lib.join(VANILLA).exists());
         rig.act(cx, |it, cx| {
             it.submit_account_login("not valid", "secret", cx)
         });
@@ -2535,6 +2493,9 @@ mod tests {
         assert_eq!(rig.store().steam_account(), "ash");
         assert_eq!((rig.state(cx), kind(cx)), (State::Downloading, None));
         assert_eq!(rig.active(cx), Some(edition(VANILLA, false)));
+        assert!(held(cx));
+        assert_eq!(rig.stored(), ["Y1S0_Vanilla @lib download"]);
+        assert!(rig.calls().is_empty());
         assert_eq!(rig.args(0)[8], "ash");
         rig.feed(
             cx,
@@ -2591,16 +2552,21 @@ mod tests {
     #[gpui::test]
     fn a_cancelled_account_request_is_forgotten(cx: &mut TestAppContext) {
         let settings = queue(&[(ICE, false, "", false)]);
-        let rig = rig(cx, &settings, |_, _| {});
+        let rig = rig(cx, &settings, |lib, _| install(lib, VANILLA));
         rig.act(cx, |it, cx| it.start_next(cx));
         assert_eq!((rig.state(cx), rig.runs()), (State::Idle, 0));
         rig.act(cx, |it, cx| it.verify(VANILLA, false, cx));
         assert_eq!(rig.seen(), [login(LoginKind::Account)]);
+        assert_eq!(rig.state(cx), State::LoggingIn);
+        assert_eq!(rig.stored(), ["Y1S1_BlackIce @ download"]);
         rig.act(cx, |it, cx| it.cancel_download(cx));
+        assert_eq!(rig.seen(), [done(VANILLA, Outcome::Cancelled)]);
         assert_eq!(
             rig.launcher.read_with(cx, |it, _| it.download.login_kind()),
             None
         );
+        assert_eq!((rig.state(cx), rig.active(cx)), (State::Idle, None));
+        assert_eq!(rig.stored(), ["Y1S1_BlackIce @ download"]);
         rig.act(cx, |it, cx| it.start_next(cx));
         assert_eq!((rig.state(cx), rig.runs()), (State::Idle, 0));
     }
@@ -3067,8 +3033,9 @@ mod tests {
         assert!(rig.store().queue_paused());
         rig.act(cx, |it, cx| it.set_paused(false, cx));
         assert_eq!(rig.seen(), [login(LoginKind::Account)]);
-        assert_eq!(rig.state(cx), State::Paused);
-        assert!(rig.store().queue_paused());
+        assert_eq!(rig.state(cx), State::LoggingIn);
+        assert_eq!(rig.active(cx), Some(edition(ICE, false)));
+        assert!(!rig.store().queue_paused());
     }
 
     #[gpui::test]
@@ -3309,6 +3276,7 @@ mod tests {
         rig.enqueue(cx, SHADOW, true, "");
         assert_eq!(rig.seen(), [login(LoginKind::Account)]);
         rig.act(cx, |it, cx| it.cancel_download(cx));
+        assert_eq!(rig.seen(), [done(SHADOW, Outcome::Cancelled)]);
         fs::rename(rig.lib.join(SHADOW_HM), rig.lib.join(SHADOW)).unwrap();
         install(&rig.lib, SHADOW);
         switch(cx, SHADOW);
@@ -3411,9 +3379,13 @@ mod tests {
             |cx: &mut TestAppContext, key: &str| rig.act(cx, |it, cx| it.remove_hm(key, cx));
         remove(cx, SHADOW);
         assert_eq!(rig.seen(), [login(LoginKind::Account)]);
+        assert_eq!(rig.calls(), ["fetch loader=true"]);
         rig.act(cx, |it, cx| it.cancel_download(cx));
-        rig.launcher
-            .update(cx, |it, cx| it.settings.set_steam_account("ash", cx));
+        assert_eq!(rig.seen(), [done(SHADOW, Outcome::Cancelled)]);
+        assert!(rig.lib.join(SHADOW_HM).join("DefaultArgs.dll").exists());
+        assert!(rig.lib.join(SHADOW_HM).join(TL_LAUNCHER).exists());
+        assert!(!rig.lib.join(SHADOW).exists());
+        assert_eq!(rig.store().home_order(), [SHADOW_HM]);
         remove(cx, VANILLA);
         assert_eq!(rig.seen(), [failed(NOT_INSTALLED_HM)]);
         install(&rig.other, SHADOW);
@@ -3443,11 +3415,14 @@ mod tests {
 
         rig.launcher.update(cx, |it, cx| {
             it.remove_hm(SHADOW, cx);
-            assert_eq!(it.download.state(), State::Preparing);
+            assert_eq!(it.download.state(), State::LoggingIn);
             assert!(it.download.verifying());
             assert_eq!(it.download.active(), Some(&edition(SHADOW, false)));
         });
         cx.run_until_parked();
+        assert_eq!(rig.seen(), [login(LoginKind::Account)]);
+        assert!(rig.lib.join(SHADOW_HM).join(TL_LAUNCHER).exists());
+        rig.act(cx, |it, cx| it.submit_account_login("ash", "", cx));
         let target = rig.lib.join(SHADOW);
         assert_eq!(rig.state(cx), State::Downloading);
         assert!(!rig.lib.join(SHADOW_HM).exists());
@@ -3657,10 +3632,11 @@ mod tests {
         let rig = rig(cx, "", |_, _| {});
         rig.enqueue(cx, VANILLA, false, "");
         assert_eq!(rig.seen(), [login(LoginKind::Account)]);
+        assert_eq!(rig.calls(), ["fetch loader=true"]);
         assert_eq!(rig.qr(cx), (false, None));
         rig.act(cx, |it, cx| it.start_qr_login(cx));
         rig.act(cx, |it, cx| it.start_qr_login(cx));
-        assert_eq!(rig.calls(), ["fetch loader=false"]);
+        assert!(rig.calls().is_empty());
         assert_eq!(rig.runs(), 1);
         let args = rig.args(0);
         let folder = rig.paths.bin_dir().join("qr").display().to_string();
@@ -3695,18 +3671,18 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_qr_login_ended_before_its_fetch_never_starts_and_shutdown_kills_a_running_one(
+    fn a_qr_login_starts_only_while_the_account_is_asked_for_and_ends_with_shutdown(
         cx: &mut TestAppContext,
     ) {
         let rig = rig(cx, "", |_, _| {});
-        rig.enqueue(cx, VANILLA, false, "");
+        rig.act(cx, |it, cx| it.start_qr_login(cx));
         rig.launcher.update(cx, |it, cx| {
-            it.start_qr_login(cx);
-            it.cancel_download(cx);
             it.enqueue(VANILLA, false, "", cx);
             it.start_qr_login(cx);
         });
+        assert_eq!(rig.runs(), 0);
         cx.run_until_parked();
+        rig.act(cx, |it, cx| it.start_qr_login(cx));
         assert_eq!(rig.runs(), 1);
         rig.act(cx, |it, _| it.download.shutdown());
         assert!(rig.killed(0));
@@ -3784,8 +3760,9 @@ mod tests {
         rig.act(cx, |it, cx| it.cancel_download(cx));
 
         rig.enqueue(cx, VANILLA, false, "");
-        *rig.host.fetch.lock().unwrap() = Some(Fault::Message("offline".to_owned()));
+        rig.host.missing.store(true, Ordering::SeqCst);
         rig.act(cx, |it, cx| it.start_qr_login(cx));
+        rig.host.missing.store(false, Ordering::SeqCst);
         assert_eq!((rig.qr(cx), rig.runs()), ((false, None), 1));
         rig.act(cx, |it, cx| it.cancel_download(cx));
 

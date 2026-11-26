@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex, PoisonError};
+use std::sync::LazyLock;
 
 use anyhow::Result;
 use regex::Regex;
@@ -18,8 +18,6 @@ pub const STAGING_HEADROOM: u64 = 2 * GIB;
 pub const LOGIN_FAILED: &str = "Steam login failed";
 
 const TAIL_LINES: usize = 8;
-
-static FETCHING: Mutex<()> = Mutex::new(());
 
 static PERCENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*(\d+(?:\.\d+)?)\s*%").expect("pattern"));
@@ -65,7 +63,6 @@ fn download(
 }
 
 pub fn ensure_depotdownloader(paths: &Paths, progress: Progress, force: bool) -> Result<PathBuf> {
-    let _fetching = FETCHING.lock().unwrap_or_else(PoisonError::into_inner);
     let bin = paths.dd_bin();
     if bin.exists() && !force {
         return Ok(bin);
@@ -700,22 +697,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert!(free_space(dir.path()).unwrap() > 0);
         assert!(free_space(&dir.path().join("missing")).is_err());
-    }
-
-    #[test]
-    fn parallel_callers_share_one_download_of_the_binary() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = paths(&dir);
-        let server = Server::start(|_| Reply::new(200, archive(&[DD_MEMBER])));
-        seeded(&paths, &server.url("/assets/1"));
-        let bins: Vec<PathBuf> = std::thread::scope(|scope| {
-            let calls: Vec<_> = (0..2)
-                .map(|_| scope.spawn(|| ensure_depotdownloader(&paths, None, false).unwrap()))
-                .collect();
-            calls.into_iter().map(|call| call.join().unwrap()).collect()
-        });
-        assert_eq!(bins, [paths.dd_bin(), paths.dd_bin()]);
-        assert_eq!(server.paths(), ["/assets/1"]);
     }
 
     #[test]
